@@ -2,181 +2,214 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Geometric AR Experience</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geometric 3D Reveal</title>
     
-    <!-- Three.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    
-    <!-- Tracking.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/tracking-min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tracking.js/1.1.3/data/face-min.js"></script>
 
     <style>
         :root {
-            --bg-gradient: radial-gradient(circle at center, #f5f7fa 0%, #c3cfe2 100%);
-            --accent: #5e60ce;
-            --shadow: 0 20px 50px rgba(0,0,0,0.2);
+            --primary: #4361ee;
+            --secondary: #3f37c9;
+            --bg-gradient: radial-gradient(circle at center, #f8f9fa 0%, #e9ecef 100%);
+            --shadow: 0 10px 30px rgba(0,0,0,0.15);
         }
 
-        body {
-            margin: 0;
-            overflow: hidden;
-            background: var(--bg-gradient);
-            font-family: 'Segoe UI', serif;
-            color: #333;
-            user-select: none;
-            touch-action: none;
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: var(--bg-gradient); 
+            font-family: 'Segoe UI', sans-serif; 
+            color: #333; 
+            user-select: none; 
+            touch-action: none; 
+        }
+
+        /* CONTAINER 3D */
+        #canvas-container { 
+            position: absolute; 
+            top: 0; left: 0; 
+            width: 100vw; height: 100vh; 
+            z-index: 1; 
             cursor: crosshair;
         }
 
-        #canvas-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            z-index: 1;
+        /* VIDEO NASCOSTO PER TRACKING */
+        #video { 
+            position: absolute; 
+            top: 0; left: 0; 
+            width: 320px; height: 240px; 
+            opacity: 0; 
+            pointer-events: none; 
+            z-index: 0; 
         }
 
-        #video {
+        /* UI GENERALE */
+        #ui-layer {
             position: absolute;
             top: 0; left: 0;
-            opacity: 0; pointer-events: none;
-            width: 1px; height: 1px; /* Minimo indispensabile per tracking */
-            z-index: 0;
+            width: 100%; height: 100%;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 30px;
+            box-sizing: border-box;
         }
 
-        /* MODALE CONSENSO */
+        .top-bar {
+            text-align: center;
+            opacity: 0;
+            animation: fadeIn 1s forwards 0.5s;
+        }
+
+        .title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            color: #222;
+            margin: 0;
+        }
+
+        .instruction {
+            font-size: 0.9rem;
+            color: #666;
+            margin-top: 5px;
+            font-style: italic;
+        }
+
+        /* PROGRESS BAR */
+        .progress-container {
+            width: 100%;
+            max-width: 300px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .track {
+            width: 100%;
+            height: 4px;
+            background: rgba(0,0,0,0.05);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #4cc9f0, #4361ee);
+            transition: width 0.3s ease-out;
+        }
+
+        /* MODALE */
         #permission-modal {
             position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(255, 255, 255, 0.95);
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(5px);
             z-index: 9999;
-            display: flex;
+            display: none; /* Nascosto all'inizio */
             justify-content: center;
             align-items: center;
+            opacity: 0;
             transition: opacity 0.5s;
         }
-
+        
         .modal-card {
             background: white;
             padding: 40px;
             border-radius: 20px;
             box-shadow: var(--shadow);
             text-align: center;
-            max-width: 400px;
+            max-width: 380px;
             width: 85%;
-            animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transform: scale(0.9);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
-        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
-        .modal-icon { font-size: 40px; margin-bottom: 20px; display: block; }
-        .modal-title { font-size: 1.4rem; font-weight: bold; margin-bottom: 10px; color: #333; }
-        .modal-desc { font-size: 0.95rem; color: #666; margin-bottom: 30px; line-height: 1.5; }
+        .emoji-icon { font-size: 40px; margin-bottom: 15px; display: block; }
+        .modal-h { font-size: 1.4rem; margin-bottom: 10px; color: #111; }
+        .modal-p { font-size: 0.95rem; color: #555; line-height: 1.5; margin-bottom: 25px; }
 
+        .btn-group { display: flex; gap: 10px; justify-content: center; }
         .btn {
-            padding: 14px 28px;
-            border-radius: 12px;
+            padding: 12px 24px;
+            border-radius: 10px;
             border: none;
             cursor: pointer;
-            font-size: 0.9rem;
             font-weight: 600;
-            transition: transform 0.2s;
-            margin: 5px;
+            font-size: 0.9rem;
+            transition: all 0.2s;
         }
-        .btn:active { transform: scale(0.95); }
-        .btn-primary { background: #5e60ce; color: white; box-shadow: 0 4px 15px rgba(94, 96, 206, 0.4); }
-        .btn-secondary { background: #e0e0e0; color: #555; }
+        .btn-primary { background: var(--primary); color: white; box-shadow: 0 4px 10px rgba(67, 97, 238, 0.3); }
+        .btn-secondary { background: #f1f3f5; color: #495057; }
+        .btn:hover { transform: translateY(-2px); }
 
-        .error-msg { color: #d32f2f; font-size: 0.8rem; margin-top: 15px; display: none; }
-
-        /* UI LAYER */
-        #ui-layer {
+        /* STATUS INDICATOR */
+        #status-pill {
             position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 10;
-            pointer-events: none;
+            bottom: 30px; left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 8px 16px;
+            border-radius: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
             display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            padding: 40px;
-            box-sizing: border-box;
+            align-items: center;
+            gap: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #555;
             opacity: 0;
             transition: opacity 1s;
         }
-
-        .header { text-align: center; }
-        .title { font-size: 1.5rem; font-weight: 800; letter-spacing: 2px; color: #333; text-transform: uppercase; margin: 0; }
-        .subtitle { font-size: 0.9rem; color: #666; margin-top: 5px; font-style: italic; }
-
-        #cam-status {
-            font-size: 11px; font-weight: bold; color: #888; margin-top: 10px;
-            display: flex; align-items: center; justify-content: center; gap: 8px;
-            background: rgba(255,255,255,0.5); padding: 5px 12px; border-radius: 20px; display: inline-flex;
-        }
-        .dot { width: 8px; height: 8px; background: #bbb; border-radius: 50%; }
-        .dot.active { background: #00c853; box-shadow: 0 0 8px #00c853; }
-        .dot.mouse { background: #5e60ce; }
-
-        .status-container { width: 100%; max-width: 320px; margin: 0 auto; text-align: center; }
-        .status-text { font-size: 12px; font-weight: bold; text-transform: uppercase; margin-bottom: 10px; color: #555; }
-        .track { width: 100%; height: 6px; background: rgba(0,0,0,0.1); border-radius: 10px; overflow: hidden; }
-        .fill { width: 0%; height: 100%; background: linear-gradient(90deg, #6930c3, #5390d9); transition: width 0.2s ease-out; }
-
-        #msg-3d {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            font-size: 3rem; color: #fff; text-shadow: 0 5px 30px rgba(0,0,0,0.3);
-            opacity: 0; pointer-events: none; font-weight: 900; letter-spacing: 5px; text-transform: uppercase; mix-blend-mode: overlay; white-space: nowrap;
-        }
-
-        #loader {
-            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            font-size: 12px; font-weight: bold; letter-spacing: 2px; color: #555; z-index: 50; display: none;
-        }
+        .dot { width: 8px; height: 8px; background: #ddd; border-radius: 50%; }
+        .dot.active { background: #2ec4b6; box-shadow: 0 0 5px #2ec4b6; }
+        
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
 
+    <div id="canvas-container"></div>
+    
     <video id="video" width="320" height="240" preload autoplay loop muted playsinline></video>
+
+    <div id="ui-layer">
+        <div class="top-bar">
+            <h1 class="title">Colora le Forme</h1>
+            <p class="instruction">Passa il cursore per rivelare i colori</p>
+        </div>
+        
+        <div class="progress-container">
+            <div class="track"><div id="progress-bar" class="fill"></div></div>
+        </div>
+
+        <div id="status-pill">
+            <div id="status-dot" class="dot"></div>
+            <span id="status-text">DISABILITATO</span>
+        </div>
+    </div>
 
     <div id="permission-modal">
         <div class="modal-card">
-            <div class="modal-icon">🧊</div>
-            <div class="modal-title">Realtà Aumentata</div>
-            <div class="modal-desc">
-                Scegli come interagire con l'opera.
-                <br>La fotocamera permette al quadro di seguire i movimenti della tua testa per un effetto 3D reale.
-            </div>
-            <div class="error-msg" id="error-msg">Camera non disponibile. Attivo modalità Mouse.</div>
-            <div>
-                <button class="btn btn-secondary" onclick="startWithMouse()">Usa Mouse</button>
-                <button class="btn btn-primary" id="btn-camera" onclick="requestCamera()">Attiva Camera</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="loader">CARICAMENTO...</div>
-    <div id="canvas-container"></div>
-
-    <div id="ui-layer">
-        <div class="header">
-            <h1 class="title">Arte Geometrica</h1>
-            <div class="subtitle">Dipingi per sbloccare la dimensione</div>
-            <div id="cam-status"><div class="dot" id="cam-dot"></div> <span id="cam-text">...</span></div>
-        </div>
-
-        <div id="msg-3d">3D ATTIVO</div>
-
-        <div class="status-container">
-            <div class="status-text">Stato Completamento</div>
-            <div class="track">
-                <div class="fill" id="progress-bar"></div>
+            <span class="emoji-icon">✨</span>
+            <h2 class="modal-h">Disegno Completato!</h2>
+            <p class="modal-p">
+                Vuoi attivare la <b>modalità 3D Immersiva</b>?<br>
+                Richiede l'accesso alla fotocamera frontale per seguire il movimento della tua testa.
+            </p>
+            <div class="btn-group">
+                <button class="btn btn-secondary" onclick="activateExperience(false)">No, usa il Mouse</button>
+                <button class="btn btn-primary" onclick="requestCamera()">Sì, attiva Camera</button>
             </div>
         </div>
     </div>
 
-    <!-- SHADERS -->
     <script id="vertexShader" type="x-shader/x-vertex">
         varying vec2 vUv;
         varying vec3 vWorldPosition;
@@ -184,280 +217,207 @@
         varying float vDisplacement;
 
         uniform float uTime;
-        uniform sampler2D uTexture;
-        uniform float uLiquidState; 
+        uniform float uLiquidState; // 0.0 = Piatto, 1.0 = Liquido 3D
         uniform float uWaveAmp;
 
+        // Funzione rumore fluido
         float fluid(vec2 p, float t) {
-            return sin(p.y * 3.0 + t) * 0.25 + sin(p.x * 2.5 + t * 0.8) * 0.25;
+            return sin(p.y * 3.0 + t) * 0.5 + sin(p.x * 2.5 + t * 0.8) * 0.5;
         }
 
         void main() {
             vUv = uv;
-            vec4 tex = texture2D(uTexture, uv);
             
-            // Usiamo il canale Alpha o la luminosità per l'altezza
-            float brightness = dot(tex.rgb, vec3(0.299, 0.587, 0.114));
-            
-            // Rilievo molto pronunciato per effetto 3D evidente
+            // Calcolo spostamento
             float wave = fluid(uv, uTime) * uWaveAmp;
-            float relief = brightness * 15.0; 
             
-            float totalDisp = (wave + relief) * uLiquidState;
+            // Applichiamo lo spostamento SOLO se il liquid state è attivo
+            // In fase 1 (disegno) è piatto.
+            float totalDisp = wave * uLiquidState * 5.0; 
+
             vDisplacement = totalDisp;
 
             vec3 newPos = position + normal * totalDisp;
             vec4 worldPos = modelMatrix * vec4(newPos, 1.0);
+            
             vWorldPosition = worldPos.xyz;
             vNormal = normalMatrix * normal;
+            
             gl_Position = projectionMatrix * viewMatrix * worldPos;
         }
     </script>
 
     <script id="fragmentShader" type="x-shader/x-fragment">
-        varying vec2 vUv;
-        varying vec3 vNormal;
-        varying vec3 vWorldPosition;
-        varying float vDisplacement;
-
-        uniform sampler2D uTexture;
-        uniform sampler2D uMask;     
-        uniform float uLiquidState;  
+        uniform sampler2D uTexture;     // Texture Colore Geometrico
+        uniform sampler2D uMask;        // Texture Disegno utente (Bianco = rivelato)
+        uniform float uLiquidState;     // 0 = 2D, 1 = 3D
         uniform float uTime;
-        uniform vec3 uHeadPos; 
+        uniform vec3 uHeadPos;          // Posizione testa/mouse
+
+        varying vec2 vUv;
+        varying vec3 vWorldPosition;
+        varying vec3 vNormal;
+        varying float vDisplacement;
 
         void main() {
             vec4 texColor = texture2D(uTexture, vUv);
-            float mask = texture2D(uMask, vUv).r;
+            float maskVal = texture2D(uMask, vUv).r; // Leggiamo quanto è stato "colorato"
 
-            // --- MATERIALE 1: SCHIZZO (Reso più visibile) ---
-            // Convertiamo in scala di grigi
-            float gray = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
-            // Creiamo un effetto "carta millimetrata" o matita scura
-            // Se gray < 0.9 (è una forma), lo facciamo grigio scuro, altrimenti carta chiara
-            vec3 paperColor = vec3(0.95, 0.95, 0.95);
-            vec3 inkColor = vec3(0.6, 0.6, 0.65); // Grigio-Bluastro visibile
-            vec3 sketch = mix(inkColor, paperColor, gray * 1.2); // Aumentiamo contrasto
+            // --- MATERIALE 1: SCHIZZO (Fase Iniziale) ---
+            // Rende l'immagine simile a un disegno tecnico su carta
+            float lum = dot(texColor.rgb, vec3(0.299, 0.587, 0.114));
+            
+            // Logica Bordi: Se il colore è diverso dal bianco puro, è una forma.
+            // Usiamo la luminosità per creare contorni neri su sfondo bianco.
+            float edge = step(0.95, lum); // 0 se è colore (forma), 1 se è sfondo
+            vec3 sketchColor = mix(vec3(0.1), vec3(0.98), edge); 
+            // Risultato: Forme nere, sfondo quasi bianco.
 
-            // --- MATERIALE 2: PITTURA ---
-            vec3 paint = texColor.rgb;
+            // --- MATERIALE 2: COLORE RIVELATO ---
+            vec3 paintColor = texColor.rgb;
 
-            // --- MATERIALE 3: 3D LIQUIDO ---
+            // --- MATERIALE 3: EFFETTO LIQUIDO (Fase Finale) ---
             vec3 normal = normalize(vNormal);
             vec3 viewDir = normalize(uHeadPos - vWorldPosition);
-            vec3 lightDir = normalize(vec3(0.0, 10.0, 10.0));
-            vec3 halfDir = normalize(lightDir + viewDir);
             
-            float spec = pow(max(dot(normal, halfDir), 0.0), 80.0);
+            // Illuminazione speculare (Lucentezza)
+            float spec = pow(max(dot(normal, normalize(vec3(0.0, 1.0, 1.0) + viewDir)), 0.0), 60.0);
+            // Effetto Fresnel (Bordi lucidi)
             float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), 3.0);
             
+            // Colore iridescente che si muove col tempo
             vec3 iridescent = vec3(
-                sin(vDisplacement + uTime) * 0.5 + 0.5,
-                sin(vDisplacement + uTime + 1.0) * 0.5 + 0.5,
-                sin(vDisplacement + uTime + 2.0) * 0.5 + 0.5
-            ) * 0.1;
+                sin(vDisplacement * 0.5 + uTime) * 0.5 + 0.5,
+                sin(vDisplacement * 0.5 + uTime + 2.0) * 0.5 + 0.5,
+                sin(vDisplacement * 0.5 + uTime + 4.0) * 0.5 + 0.5
+            ) * 0.2;
 
-            vec3 liquid = paint * 0.8 + vec3(spec) * 1.5 + vec3(fresnel) * 0.5 + iridescent;
+            // Mix Liquido
+            vec3 liquidLook = paintColor * 0.9 + vec3(spec) + vec3(fresnel) * 0.6 + iridescent;
 
-            // MIXING
-            float paintAlpha = smoothstep(0.0, 0.2, mask);
-            vec3 art2D = mix(sketch, paint, paintAlpha);
-            vec3 finalColor = mix(art2D, liquid, uLiquidState);
+            // --- COMPOSIZIONE FINALE ---
+            // 1. Mix Sketch vs Paint basato sulla maschera utente
+            float revealFactor = smoothstep(0.0, 0.2, maskVal);
+            vec3 art2D = mix(sketchColor, paintColor, revealFactor);
+
+            // 2. Mix Art2D vs Liquid3D basato sullo stato globale
+            vec3 finalColor = mix(art2D, liquidLook, uLiquidState);
 
             gl_FragColor = vec4(finalColor, 1.0);
         }
     </script>
 
     <script>
+        // --- CONFIGURAZIONE ---
         const CONFIG = {
-            brushSize: 70,         
-            triggerPercent: 0.90,  
-            morphSpeed: 0.02,
-            camSensitivity: 4.0,
-            smoothing: 0.08
+            brushSize: 60,
+            triggerPercent: 0.90, // 90% per attivare il modale
+            camSensitivity: 8.0,
+            smoothing: 0.1
         };
 
+        // --- VARIABILI GLOBALI ---
         let scene, camera, renderer, mesh;
         let raycaster = new THREE.Raycaster();
-        let mouse = new THREE.Vector2(); 
+        let mouse = new THREE.Vector2();
         
+        // Stato Applicazione
+        let isPaintingPhase = true; 
+        let is3DActive = false;
+        let liquidValue = 0.0;
+        
+        // Tracking
         let headPos = { x: 0, y: 0 };
         let smoothedHead = { x: 0, y: 0 };
         let trackerTask;
         let useCamera = false;
-        let isCamActive = false;
 
+        // Canvas / Texture
         let maskCanvas, maskCtx, maskTexture;
-        let countCanvas, countCtx;
-        
-        let isMagicActive = false;
-        let liquidVal = 0.0;
-        let coveredPercent = 0;
+        let countCanvas, countCtx; // Versione piccola per calcolo pixel
 
         // UI Refs
-        const loader = document.getElementById('loader');
-        const uiLayer = document.getElementById('ui-layer');
-        const modal = document.getElementById('permission-modal');
-        const camText = document.getElementById('cam-text');
-        const camDot = document.getElementById('cam-dot');
         const progressBar = document.getElementById('progress-bar');
-        const msg3d = document.getElementById('msg-3d');
-        const errMsg = document.getElementById('error-msg');
-        const btnCamera = document.getElementById('btn-camera');
+        const modal = document.getElementById('permission-modal');
+        const statusPill = document.getElementById('status-pill');
+        const statusText = document.getElementById('status-text');
+        const statusDot = document.getElementById('status-dot');
+        const uiTitle = document.querySelector('.title');
+        const uiInstr = document.querySelector('.instruction');
 
-        // --- AVVIO ---
 
-        function startWithMouse() {
-            closeModal();
-            useCamera = false;
-            init();
-        }
 
-        async function requestCamera() {
-            btnCamera.innerText = "Attendo permessi...";
-            try {
-                // Richiede permesso esplicito
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                stream.getTracks().forEach(t => t.stop()); // Stop stream grezzo, tracking.js ne aprirà uno nuovo
-                
-                closeModal();
-                useCamera = true;
-                init();
-            } catch (err) {
-                console.error(err);
-                errMsg.style.display = 'block';
-                btnCamera.innerText = "Riprova";
-                setTimeout(() => startWithMouse(), 2000);
-            }
-        }
-
-        function closeModal() {
-            modal.style.opacity = 0;
-            setTimeout(() => {
-                modal.style.display = 'none';
-                loader.style.display = 'block';
-            }, 500);
-        }
+        // --- INIZIALIZZAZIONE ---
+        window.onload = init;
 
         function init() {
             const container = document.getElementById('canvas-container');
 
+            // Setup Three.js
             scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(35, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.z = 50; 
+            camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.z = 50;
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             container.appendChild(renderer.domElement);
 
+            // Setup Arte e Maschere
             initMasks();
             createGeometricArt();
 
+            // Eventi Input
             window.addEventListener('resize', onResize);
             document.addEventListener('mousemove', onMouseMove);
             document.addEventListener('touchmove', onTouchMove, { passive: false });
 
-            if (useCamera) {
-                initTracker();
-            } else {
-                showUI('mouse');
-            }
-
             animate();
         }
 
-        function showUI(mode) {
-            loader.style.display = 'none';
-            uiLayer.style.opacity = 1;
-            
-            if(mode === 'mouse') {
-                camDot.className = 'dot mouse';
-                camText.innerText = "Controllo Mouse";
-            } else {
-                camDot.className = 'dot active';
-                camText.innerText = "Tracking Attivo";
-            }
-        }
-
-        function initTracker() {
-            const tracker = new tracking.ObjectTracker('face');
-            tracker.setInitialScale(4);
-            tracker.setStepSize(2);
-            tracker.setEdgesDensity(0.1);
-
-            // Avvio tracking
-            trackerTask = tracking.track('#video', tracker, { camera: true });
-
-            // Nascondi loader appena parte la camera, anche se non trova faccia
-            setTimeout(() => {
-                if(loader.style.display !== 'none') showUI('mouse'); // Fallback visuale temporaneo
-            }, 2000);
-
-            tracker.on('track', function(event) {
-                if(loader.style.display !== 'none') showUI('active');
-
-                if (event.data.length === 0) {
-                    camText.innerText = "Cerco volto...";
-                    camDot.className = 'dot';
-                } else {
-                    camText.innerText = "Tracking Attivo";
-                    camDot.className = 'dot active';
-                    const rect = event.data[0];
-                    const cx = -((rect.x + rect.width / 2) / 320 * 2 - 1);
-                    const cy = -((rect.y + rect.height / 2) / 240 * 2 - 1);
-                    
-                    headPos.x = cx * CONFIG.camSensitivity;
-                    headPos.y = cy * CONFIG.camSensitivity;
-                    isCamActive = true;
-                }
-            });
-
-            trackerTask.on('error', () => {
-                useCamera = false;
-                showUI('mouse');
-            });
-        }
-
-        // --- ARTE ---
-
+        // --- LOGICA GRAFICA ---
         function initMasks() {
+            // Canvas principale per la maschera (High Res)
             maskCanvas = document.createElement('canvas');
-            maskCanvas.width = 1024; maskCanvas.height = 1024;
+            maskCanvas.width = 1024;
+            maskCanvas.height = 1024;
             maskCtx = maskCanvas.getContext('2d');
-            maskCtx.fillStyle = 'black'; maskCtx.fillRect(0,0,1024,1024);
+            maskCtx.fillStyle = 'black'; // Tutto nero = nascosto (sketch)
+            maskCtx.fillRect(0,0,1024,1024);
+            
             maskTexture = new THREE.CanvasTexture(maskCanvas);
             maskTexture.minFilter = THREE.LinearFilter;
 
+            // Canvas piccolo per contare i pixel colorati (Low Res per performance)
             countCanvas = document.createElement('canvas');
-            countCanvas.width = 64; countCanvas.height = 64;
+            countCanvas.width = 64;
+            countCanvas.height = 64;
             countCtx = countCanvas.getContext('2d');
-            countCtx.fillStyle = 'black'; countCtx.fillRect(0,0,64,64);
+            countCtx.fillStyle = 'black';
+            countCtx.fillRect(0,0,64,64);
         }
 
         function createGeometricArt() {
             const c = document.createElement('canvas');
-            c.width = 1024; c.height = 1024;
+            c.width = 1024;
+            c.height = 1024;
             const ctx = c.getContext('2d');
 
-            // Sfondo Bianco puro
-            ctx.fillStyle = '#ffffff'; 
+            // Sfondo Bianco
+            ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, 1024, 1024);
 
+            // Disegno Figure Geometriche Colorate
             const shapes = [
-                { type: 'c', x: 512, y: 512, r: 220, col: '#ff006e' }, // Magenta
-                { type: 'r', x: 200, y: 200, w: 250, h: 250, col: '#3a86ff' }, // Blu
-                { type: 'r', x: 700, y: 700, w: 200, h: 200, col: '#fb5607' }, // Arancio
-                { type: 't', x: 800, y: 200, r: 180, col: '#ffbe0b' }, // Giallo
-                { type: 'c', x: 250, y: 800, r: 140, col: '#8338ec' }  // Viola
+                { type: 'c', x: 512, y: 512, r: 200, col: '#4361ee' }, // Blu Cent
+                { type: 'r', x: 150, y: 150, w: 250, h: 250, col: '#f72585' }, // Pink
+                { type: 't', x: 800, y: 200, r: 160, col: '#ffb703' }, // Giallo
+                { type: 'c', x: 200, y: 800, r: 120, col: '#7209b7' }, // Viola
+                { type: 'r', x: 700, y: 700, w: 220, h: 220, col: '#4cc9f0' }  // Ciano
             ];
 
             shapes.forEach(s => {
                 ctx.fillStyle = s.col;
-                // Bordo nero sottile per definizione
-                ctx.strokeStyle = "rgba(0,0,0,0.1)"; 
-                ctx.lineWidth = 2;
-                
                 ctx.beginPath();
                 if(s.type === 'c') { ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill(); }
                 else if(s.type === 'r') { ctx.fillRect(s.x, s.y, s.w, s.h); }
@@ -467,63 +427,67 @@
                     ctx.lineTo(s.x - s.r, s.y + s.r);
                     ctx.fill();
                 }
-                ctx.stroke();
             });
 
-            createMesh(new THREE.CanvasTexture(c));
+            const texture = new THREE.CanvasTexture(c);
+            createMesh(texture);
         }
 
         function createMesh(texture) {
-            texture.minFilter = THREE.LinearFilter;
-            const screenAspect = window.innerWidth / window.innerHeight;
-            const visibleH = 2 * Math.tan((35 * Math.PI) / 360) * 50; 
-            const visibleW = visibleH * screenAspect;
+            const visibleHeight = 2 * Math.tan((camera.fov * Math.PI) / 360) * camera.position.z;
+            const visibleWidth = visibleHeight * camera.aspect;
+            
+            // Dimensione Mesh quadrata adattata allo schermo
+            let size = Math.min(visibleWidth, visibleHeight) * 0.85;
 
-            let meshH = visibleH * 0.8;
-            let meshW = meshH; // Quadrato
-            if(meshW > visibleW * 0.8) { meshW = visibleW * 0.8; meshH = meshW; }
-
-            const geo = new THREE.PlaneGeometry(meshW, meshH, 300, 300);
+            const geo = new THREE.PlaneGeometry(size, size, 200, 200); // Alta suddivisione per vertici 3D
             const mat = new THREE.ShaderMaterial({
                 uniforms: {
                     uTime: { value: 0 },
                     uTexture: { value: texture },
                     uMask: { value: maskTexture },
-                    uLiquidState: { value: 0.0 },
-                    uWaveAmp: { value: 1.2 },
+                    uLiquidState: { value: 0.0 }, // Inizia a 0
+                    uWaveAmp: { value: 1.0 },
                     uHeadPos: { value: new THREE.Vector3(0,0,50) }
                 },
                 vertexShader: document.getElementById('vertexShader').textContent,
                 fragmentShader: document.getElementById('fragmentShader').textContent,
-                side: THREE.DoubleSide
+                transparent: true
             });
+
             mesh = new THREE.Mesh(geo, mat);
             scene.add(mesh);
         }
 
-        // --- LOOP ---
-
+        // --- INTERAZIONE & PITTURA ---
         function updatePainting() {
-            if(!mesh) return;
+            if(!mesh || !isPaintingPhase) return;
+
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObject(mesh);
-            
+
             if(intersects.length > 0) {
                 const uv = intersects[0].uv;
+                
+                // Dipingi sulla maschera (Bianco = visibile)
                 paint(maskCtx, uv.x * 1024, (1-uv.y) * 1024, CONFIG.brushSize);
                 maskTexture.needsUpdate = true;
+
+                // Dipingi sul canvas di conteggio (scala ridotta)
                 paint(countCtx, uv.x * 64, (1-uv.y) * 64, CONFIG.brushSize * (64/1024));
-                if(Math.random() > 0.7) checkProgress();
+                
+                // Controlla progresso occasionalmente
+                if(Math.random() > 0.5) checkProgress();
             }
         }
 
         function paint(ctx, x, y, r) {
             ctx.beginPath();
             const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-            g.addColorStop(0, "rgba(255,255,255,0.8)");
-            g.addColorStop(1, "rgba(255,255,255,0)");
+            g.addColorStop(0, "rgba(255,255,255, 1.0)");
+            g.addColorStop(1, "rgba(255,255,255, 0.0)");
             ctx.fillStyle = g;
-            ctx.globalCompositeOperation = 'lighten';
+            ctx.globalCompositeOperation = 'lighten'; // Somma il bianco
             ctx.arc(x, y, r, 0, Math.PI*2);
             ctx.fill();
         }
@@ -531,29 +495,123 @@
         function checkProgress() {
             const data = countCtx.getImageData(0,0,64,64).data;
             let count = 0;
-            for(let i=0; i<data.length; i+=4) { if(data[i] > 100) count++; }
-            coveredPercent = count / (64*64);
-            progressBar.style.width = Math.min(coveredPercent * 100, 100) + '%';
+            for(let i=0; i<data.length; i+=4) {
+                if(data[i] > 100) count++; // Conta pixel bianchi
+            }
             
-            if(coveredPercent > CONFIG.triggerPercent && !isMagicActive) {
-                isMagicActive = true;
-                msg3d.style.opacity = 1;
-                msg3d.style.transition = "opacity 2s ease";
+            const percent = count / (64*64);
+            progressBar.style.width = Math.min(percent * 100, 100) + '%';
+
+            // TRIGGER MODALE
+            if(percent > CONFIG.triggerPercent && isPaintingPhase) {
+                isPaintingPhase = false; // Ferma pittura
+                showPermissionModal();
             }
         }
 
+        // --- GESTIONE FOTOCAMERA E MODALE ---
+        function showPermissionModal() {
+            modal.style.display = 'flex';
+            setTimeout(() => { 
+                modal.style.opacity = 1; 
+                document.querySelector('.modal-card').style.transform = 'scale(1)';
+            }, 10);
+            
+            uiTitle.innerText = "Wow!";
+            uiInstr.innerText = "Configurazione esperienza in corso...";
+        }
+
+        // Chiamato dal bottone "Sì"
+        async function requestCamera() {
+            const btn = document.querySelector('.btn-primary');
+            btn.innerText = "Accesso in corso...";
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                stream.getTracks().forEach(t => t.stop()); // Stop immediato, tracking.js gestisce il suo
+                activateExperience(true);
+            } catch (err) {
+                console.error("Camera negata", err);
+                alert("Impossibile accedere alla camera. Attivo modalità mouse.");
+                activateExperience(false);
+            }
+        }
+
+        // Chiamato dopo scelta (True = Camera, False = Mouse)
+        function activateExperience(hasCamera) {
+            // Chiudi modale
+            modal.style.opacity = 0;
+            setTimeout(() => modal.style.display = 'none', 500);
+
+            // Cambia stato UI
+            uiTitle.innerText = "Modalità Immersiva";
+            uiInstr.innerText = hasCamera ? "Muovi la testa per esplorare il 3D" : "Muovi il mouse per esplorare";
+            statusPill.style.opacity = 1;
+
+            useCamera = hasCamera;
+            is3DActive = true;
+
+            if(useCamera) {
+                initTracker();
+            } else {
+                statusText.innerText = "Controllo Mouse";
+                statusDot.className = "dot mouse"; // Blu per mouse
+            }
+        }
+
+        
+
+        function initTracker() {
+            statusText.innerText = "Avvio Camera...";
+            const tracker = new tracking.ObjectTracker('face');
+            tracker.setInitialScale(4);
+            tracker.setStepSize(2);
+            tracker.setEdgesDensity(0.1);
+
+            trackerTask = tracking.track('#video', tracker, { camera: true });
+
+            tracker.on('track', function(event) {
+                if (event.data.length === 0) {
+                    statusText.innerText = "Cerco volto...";
+                    statusDot.className = "dot";
+                } else {
+                    statusText.innerText = "Tracking Attivo";
+                    statusDot.className = "dot active"; // Verde
+                    
+                    const rect = event.data[0];
+                    // Normalizziamo le coordinate del volto (-1 a 1)
+                    const cx = -((rect.x + rect.width / 2) / 320 * 2 - 1);
+                    const cy = -((rect.y + rect.height / 2) / 240 * 2 - 1);
+                    
+                    // Moltiplichiamo per sensibilità
+                    headPos.x = cx * CONFIG.camSensitivity;
+                    headPos.y = cy * CONFIG.camSensitivity;
+                }
+            });
+        }
+
+        // --- EVENTI INPUT ---
         function onMouseMove(e) {
             mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
-            if(!isCamActive) { headPos.x = mouse.x * 3.0; headPos.y = mouse.y * 3.0; }
-        }
 
+            if(!useCamera && is3DActive) {
+                // Se usiamo il mouse per il 3D
+                headPos.x = mouse.x * 5.0;
+                headPos.y = mouse.y * 5.0;
+            }
+        }
+        
         function onTouchMove(e) {
             if(e.touches.length) {
                 e.preventDefault();
                 mouse.x = (e.touches[0].clientX / window.innerWidth) * 2 - 1;
                 mouse.y = -(e.touches[0].clientY / window.innerHeight) * 2 + 1;
-                if(!isCamActive) { headPos.x = mouse.x * 3.0; headPos.y = mouse.y * 3.0; }
+                
+                if(!useCamera && is3DActive) {
+                    headPos.x = mouse.x * 5.0;
+                    headPos.y = mouse.y * 5.0;
+                }
             }
         }
 
@@ -563,27 +621,34 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
+        // --- LOOP PRINCIPALE ---
         function animate() {
             requestAnimationFrame(animate);
             if(!mesh) return;
 
-            mesh.material.uniforms.uTime.value = performance.now() * 0.001;
-            updatePainting();
+            const time = performance.now() * 0.001;
+            mesh.material.uniforms.uTime.value = time;
 
-            // Tracking Smooth
+            if(isPaintingPhase) {
+                updatePainting();
+            }
+
+            // Transizione graduale verso lo stato liquido (is3DActive -> 1.0)
+            let targetLiquid = is3DActive ? 1.0 : 0.0;
+            liquidValue += (targetLiquid - liquidValue) * 0.05;
+            mesh.material.uniforms.uLiquidState.value = liquidValue;
+
+            // Smooth Tracking Movimento
             smoothedHead.x += (headPos.x - smoothedHead.x) * CONFIG.smoothing;
             smoothedHead.y += (headPos.y - smoothedHead.y) * CONFIG.smoothing;
-            
-            // Riflessi shader
-            mesh.material.uniforms.uHeadPos.value.set(smoothedHead.x * 10, smoothedHead.y * 10, 50);
 
-            if(isMagicActive) {
-                liquidVal += (1.0 - liquidVal) * CONFIG.morphSpeed;
-                mesh.material.uniforms.uLiquidState.value = liquidVal;
-                
-                // Camera Off-Axis (Parallasse)
-                camera.position.x = smoothedHead.x * 6.0;
-                camera.position.y = smoothedHead.y * 6.0;
+            // Aggiorna Shader per i riflessi
+            mesh.material.uniforms.uHeadPos.value.set(smoothedHead.x * 2, smoothedHead.y * 2, 50);
+
+            // Parallasse della Camera (si muove solo se 3D attivo)
+            if(liquidValue > 0.1) {
+                camera.position.x = smoothedHead.x * 2.0 * liquidValue;
+                camera.position.y = smoothedHead.y * 2.0 * liquidValue;
                 camera.lookAt(0,0,0);
             }
 
