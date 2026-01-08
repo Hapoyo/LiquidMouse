@@ -1,104 +1,158 @@
 <!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Liquid Mouse</title>
+    <style>
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            --accent: #00d2ff;
+        }
 
-<html class="light" lang="it"><head>
-<meta charset="utf-8"/>
-<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Esperienza Artistica Unica</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
-<style>
-      .material-symbols-outlined {
-        font-variation-settings:
-        'FILL' 0,
-        'wght' 400,
-        'GRAD' 0,
-        'opsz' 24
-      }
+        body {
+            margin: 0;
+            height: 100vh;
+            background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460); /* Sfondo scuro per risaltare il vetro */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Segoe UI', sans-serif;
+            overflow: hidden;
+            touch-action: none; /* Disabilita lo scroll nativo */
+        }
+
+        /* Effetto Liquid Glass */
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--glass-shadow);
+            border-radius: 20px;
+        }
+
+        /* Area Touchpad */
+        #touchpad {
+            width: 90%;
+            height: 60%;
+            margin-bottom: 20px;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: rgba(255, 255, 255, 0.3);
+            font-weight: 300;
+            letter-spacing: 2px;
+            transition: box-shadow 0.3s ease;
+        }
+
+        #touchpad:active {
+            box-shadow: 0 0 20px var(--accent);
+            border-color: var(--accent);
+        }
+
+        /* Contenitore Pulsanti */
+        .buttons-container {
+            width: 90%;
+            height: 15%;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .mouse-btn {
+            width: 48%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            color: white;
+            transition: all 0.1s;
+            cursor: pointer;
+        }
+
+        .mouse-btn:active {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(0.95);
+        }
+
+        /* Status indicator */
+        #status {
+            position: absolute;
+            top: 20px;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 12px;
+        }
+
     </style>
-<script id="tailwind-config">
-      tailwind.config = {
-        darkMode: "class",
-        theme: {
-          extend: {
-            colors: {
-              "primary": "#477eeb",
-              "background-light": "#f6f6f8",
-              "background-dark": "#111621",
-            },
-            fontFamily: {
-              "display": ["Space Grotesk", "sans-serif"]
-            },
-            borderRadius: {"DEFAULT": "0.5rem", "lg": "1rem", "xl": "1.5rem", "full": "9999px"},
-          },
-        },
-      }
+</head>
+<body>
+
+    <div id="status">Disconnesso</div>
+
+    <div id="touchpad" class="glass-panel">
+        TOUCH AREA
+    </div>
+
+    <div class="buttons-container">
+        <div id="btn-left" class="glass-panel mouse-btn">L</div>
+        <div id="btn-right" class="glass-panel mouse-btn">R</div>
+    </div>
+
+    <script>
+        // Logica WebSocket
+        const statusDiv = document.getElementById('status');
+        // Sostituisci con l'IP locale del tuo PC
+        const ws = new WebSocket('ws://192.168.1.X:8765'); 
+
+        ws.onopen = () => {
+            statusDiv.innerText = "Connesso - Liquid Glass Ready";
+            statusDiv.style.color = "#00ff88";
+        };
+
+        ws.onclose = () => {
+            statusDiv.innerText = "Disconnesso";
+            statusDiv.style.color = "#ff4444";
+        };
+
+        // Logica Touchpad
+        const touchpad = document.getElementById('touchpad');
+        let lastX = 0, lastY = 0;
+
+        touchpad.addEventListener('touchstart', (e) => {
+            lastX = e.touches[0].clientX;
+            lastY = e.touches[0].clientY;
+        }, {passive: false});
+
+        touchpad.addEventListener('touchmove', (e) => {
+            e.preventDefault(); // Evita scroll della pagina
+            const currentX = e.touches[0].clientX;
+            const currentY = e.touches[0].clientY;
+
+            const deltaX = currentX - lastX;
+            const deltaY = currentY - lastY;
+
+            // Invia movimento al server
+            if(ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'move', x: deltaX, y: deltaY}));
+            }
+
+            lastX = currentX;
+            lastY = currentY;
+        }, {passive: false});
+
+        // Click
+        document.getElementById('btn-left').addEventListener('click', () => {
+            if(ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'click', btn: 'left'}));
+        });
+
+        document.getElementById('btn-right').addEventListener('click', () => {
+            if(ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'click', btn: 'right'}));
+        });
     </script>
-<style>
-    body {
-      min-height: max(884px, 100dvh);
-    }
-  </style>
-  </head>
-<body class="bg-background-light dark:bg-background-dark font-display text-[#111318] dark:text-gray-100">
-<div class="relative flex h-auto min-h-screen w-full flex-col group/design-root overflow-x-hidden">
-<!-- Header Section -->
-<header class="pt-12 pb-6 px-4 text-center">
-<h1 class="text-[#111318] dark:text-white tracking-tight text-[32px] font-bold leading-tight">Esperienza Artistica Unica</h1>
-<p class="text-[#111318]/80 dark:text-white/70 text-base font-normal leading-normal pt-2">
-                Crea la tua opera geometrica e immergiti in una nuova dimensione con la realtà aumentata.
-            </p>
-</header>
-<!-- Interactive Canvas -->
-<main class="flex-grow flex flex-col p-4 gap-6">
-<div class="flex flex-col items-center gap-6 rounded-xl border-2 border-dashed border-[#dcdfe5] dark:border-gray-700 px-6 py-14 h-96">
-<div class="flex max-w-[480px] flex-col items-center gap-2">
-<p class="text-[#111318] dark:text-white text-lg font-bold leading-tight tracking-[-0.015em] max-w-[480px] text-center">Tela Geometrica</p>
-<p class="text-[#111318]/80 dark:text-white/70 text-sm font-normal leading-normal max-w-[480px] text-center">Tocca una forma per iniziare</p>
-</div>
-</div>
-<!-- Shape Editor Toolbar -->
-<div class="p-4 rounded-lg bg-white/70 dark:bg-background-dark/70 backdrop-blur-lg border border-gray-200 dark:border-gray-800">
-<h3 class="text-[#111318] dark:text-white text-lg font-bold leading-tight tracking-[-0.015em] pb-3">Aggiungi Forme</h3>
-<div class="flex justify-start gap-2 py-1">
-<button class="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg text-[#111318] dark:text-white">
-<span class="material-symbols-outlined">circle</span>
-</button>
-<button class="p-3 bg-primary/20 rounded-lg text-primary">
-<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">square</span>
-</button>
-<button class="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg text-[#111318] dark:text-white">
-<span class="material-symbols-outlined">change_history</span>
-</button>
-</div>
-</div>
-<!-- Color Palette Selector -->
-<div class="p-4 rounded-lg bg-white/70 dark:bg-background-dark/70 backdrop-blur-lg border border-gray-200 dark:border-gray-800">
-<h3 class="text-[#111318] dark:text-white text-lg font-bold leading-tight tracking-[-0.015em] pb-3">Scegli un Colore</h3>
-<div class="flex items-center gap-3 overflow-x-auto pb-1 -mx-4 px-4">
-<button class="flex-shrink-0 w-10 h-10 rounded-full bg-[#477eeb] ring-2 ring-offset-2 ring-offset-background-light dark:ring-offset-background-dark ring-primary"></button>
-<button class="flex-shrink-0 w-10 h-10 rounded-full bg-[#eb47b6]"></button>
-<button class="flex-shrink-0 w-10 h-10 rounded-full bg-[#6a47eb]"></button>
-<button class="flex-shrink-0 w-10 h-10 rounded-full bg-[#47ebc3]"></button>
-<button class="flex-shrink-0 w-10 h-10 rounded-full bg-[#ebd047]"></button>
-<button class="flex-shrink-0 w-10 h-10 rounded-full bg-[#eb6e47]"></button>
-<button class="flex-shrink-0 w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-600 border border-gray-400 dark:border-gray-500 flex items-center justify-center">
-<span class="material-symbols-outlined text-gray-500 dark:text-gray-400">add</span>
-</button>
-</div>
-</div>
-</main>
-<!-- Floating Action Bar -->
-<footer class="sticky bottom-0 z-10 p-4 bg-background-light/80 dark:bg-background-dark/80 backdrop-blur-xl border-t border-gray-200 dark:border-gray-800">
-<div class="flex flex-col items-center gap-2">
-<button class="flex w-full min-w-[84px] max-w-[480px] cursor-pointer items-center justify-center overflow-hidden rounded-lg h-12 px-4 bg-primary text-white text-base font-bold leading-normal tracking-[0.015em]">
-<span class="truncate">Avvia Esperienza AR</span>
-</button>
-<p class="text-[#111318]/60 dark:text-white/50 text-xs font-normal text-center">
-                    Assicurati di concedere l'accesso alla fotocamera.
-                </p>
-</div>
-</footer>
-</div>
-</body></html>
+</body>
+</html>
