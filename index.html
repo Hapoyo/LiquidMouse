@@ -2,124 +2,145 @@
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Liquid Mouse</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Fluid Minimal Mouse</title>
     <style>
         :root {
-            --glass-bg: rgba(255, 255, 255, 0.1);
-            --glass-border: rgba(255, 255, 255, 0.2);
-            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-            --accent: #00d2ff;
+            /* Palette neutra e profonda */
+            --bg-color: #2b2e4a; /* Un blu notte desaturato molto morbido */
+            --glass-surface: rgba(255, 255, 255, 0.03); /* Superficie quasi invisibile */
+            --text-subtle: rgba(255, 255, 255, 0.25); /* Testo appena accennato */
+            
+            /* Definizione delle ombre morbide per lo stato "fuori" */
+            --shadow-out: 
+                12px 12px 24px rgba(0, 0, 0, 0.4), /* Ombra profonda principale */
+                -8px -8px 20px rgba(255, 255, 255, 0.06); /* Riflesso superiore morbido */
+
+            /* Definizione delle ombre interne per lo stato "premuto" */
+            --shadow-in: 
+                inset 8px 8px 15px rgba(0, 0, 0, 0.3), /* Ombra interna scura */
+                inset -4px -4px 10px rgba(255, 255, 255, 0.05); /* Riflesso interno chiaro */
         }
 
         body {
             margin: 0;
             height: 100vh;
-            background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460); /* Sfondo scuro per risaltare il vetro */
+            /* Sfondo solido morbido invece del gradiente per maggiore pulizia */
+            background: var(--bg-color);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            font-family: 'Segoe UI', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             overflow: hidden;
-            touch-action: none; /* Disabilita lo scroll nativo */
+            touch-action: none;
         }
 
-        /* Effetto Liquid Glass */
-        .glass-panel {
-            background: var(--glass-bg);
-            backdrop-filter: blur(15px);
-            -webkit-backdrop-filter: blur(15px);
-            border: 1px solid var(--glass-border);
-            box-shadow: var(--glass-shadow);
-            border-radius: 20px;
+        /* Stile base per tutti gli elementi "fluidi" */
+        .fluid-panel {
+            background: var(--glass-surface);
+            /* Blur molto alto per un effetto vetro spesso e lattiginoso */
+            backdrop-filter: blur(30px);
+            -webkit-backdrop-filter: blur(30px);
+            /* Curve molto ampie */
+            border-radius: 40px;
+            /* Bordo quasi invisibile per definire appena la forma */
+            border: 1px solid rgba(255, 255, 255, 0.02);
+            box-shadow: var(--shadow-out);
+            transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1); /* Transizione elastica morbida */
+            
+            /* Tipografia minimale */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-subtle);
+            font-weight: 500;
+            letter-spacing: 1px;
+            font-size: 14px;
         }
 
         /* Area Touchpad */
         #touchpad {
-            width: 90%;
-            height: 60%;
-            margin-bottom: 20px;
-            position: relative;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: rgba(255, 255, 255, 0.3);
-            font-weight: 300;
-            letter-spacing: 2px;
-            transition: box-shadow 0.3s ease;
+            width: 88%;
+            height: 55%;
+            margin-bottom: 25px;
+            /* Togliamo il testo centrale per massimo minimalismo, lo lasciamo solo come feedback */
+            font-size: 0; 
         }
 
+        /* Feedback visivo quando si tocca il touchpad */
         #touchpad:active {
-            box-shadow: 0 0 20px var(--accent);
-            border-color: var(--accent);
+            box-shadow: var(--shadow-in);
+            transform: scale(0.995); /* Leggerissima compressione */
+            background: rgba(0,0,0,0.05);
         }
 
         /* Contenitore Pulsanti */
         .buttons-container {
-            width: 90%;
-            height: 15%;
+            width: 88%;
+            height: 18%;
             display: flex;
             justify-content: space-between;
         }
 
         .mouse-btn {
-            width: 48%;
+            width: 47%;
             height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-size: 24px;
-            color: white;
-            transition: all 0.1s;
+            border-radius: 35px; /* Curve leggermente diverse per i pulsanti */
+            font-size: 18px;
             cursor: pointer;
         }
 
+        /* Effetto pressione pulsanti */
         .mouse-btn:active {
-            background: rgba(255, 255, 255, 0.2);
-            transform: scale(0.95);
+            box-shadow: var(--shadow-in);
+            transform: scale(0.97); /* Compressione più evidente sui click */
+            color: rgba(255, 255, 255, 0.4); /* Testo leggermente più visibile alla pressione */
+            background: rgba(0,0,0,0.05); /* Oscuramento interno */
         }
 
         /* Status indicator */
         #status {
             position: absolute;
-            top: 20px;
-            color: rgba(255, 255, 255, 0.5);
-            font-size: 12px;
+            top: 30px;
+            color: var(--text-subtle);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            opacity: 0.7;
         }
 
     </style>
 </head>
 <body>
 
-    <div id="status">Disconnesso</div>
+    <div id="status">Connecting...</div>
 
-    <div id="touchpad" class="glass-panel">
-        TOUCH AREA
-    </div>
+    <div id="touchpad" class="fluid-panel">
+        </div>
 
     <div class="buttons-container">
-        <div id="btn-left" class="glass-panel mouse-btn">L</div>
-        <div id="btn-right" class="glass-panel mouse-btn">R</div>
+        <div id="btn-left" class="fluid-panel mouse-btn">L</div>
+        <div id="btn-right" class="fluid-panel mouse-btn">R</div>
     </div>
 
     <script>
-        // Logica WebSocket
+        // --- LA LOGICA JAVASCRIPT RIMANE IDENTICA ALLA PRECEDENTE ---
+        
         const statusDiv = document.getElementById('status');
-        // Sostituisci con l'IP locale del tuo PC
-        const ws = new WebSocket('ws://192.168.1.X:8765'); 
+        // *** RICORDATI DI INSERIRE IL TUO IP QUI SOTTO ***
+        const ws = new WebSocket('ws://192.168.1.XXX:8765'); 
 
         ws.onopen = () => {
-            statusDiv.innerText = "Connesso - Liquid Glass Ready";
-            statusDiv.style.color = "#00ff88";
+            statusDiv.innerText = "Ready";
+            statusDiv.style.opacity = "0.4";
         };
 
         ws.onclose = () => {
-            statusDiv.innerText = "Disconnesso";
-            statusDiv.style.color = "#ff4444";
+            statusDiv.innerText = "Disconnected";
+            statusDiv.style.opacity = "1";
         };
 
-        // Logica Touchpad
         const touchpad = document.getElementById('touchpad');
         let lastX = 0, lastY = 0;
 
@@ -129,23 +150,19 @@
         }, {passive: false});
 
         touchpad.addEventListener('touchmove', (e) => {
-            e.preventDefault(); // Evita scroll della pagina
+            e.preventDefault(); 
             const currentX = e.touches[0].clientX;
             const currentY = e.touches[0].clientY;
-
             const deltaX = currentX - lastX;
             const deltaY = currentY - lastY;
 
-            // Invia movimento al server
             if(ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'move', x: deltaX, y: deltaY}));
             }
-
             lastX = currentX;
             lastY = currentY;
         }, {passive: false});
 
-        // Click
         document.getElementById('btn-left').addEventListener('click', () => {
             if(ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'click', btn: 'left'}));
         });
