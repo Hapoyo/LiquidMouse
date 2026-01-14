@@ -68,6 +68,7 @@
             flex: 1;
             height: auto;
             margin-bottom: 25px;
+            touch-action: none;
         }
 
         #scrollbar {
@@ -87,6 +88,7 @@
             align-items: center;
             justify-content: center;
             color: rgba(136, 255, 204, 0.4);
+            touch-action: none;
         }
 
         .touchpad-container {
@@ -369,8 +371,8 @@
                 const scrollAmount = Math.round(scrollAccumulator / 1.5); 
                 if (scrollAmount !== 0) {
                     ws.send(JSON.stringify({type: 'scroll', amount: scrollAmount}));
+                    scrollAccumulator -= scrollAmount * 1.5;
                 }
-                scrollAccumulator = 0;
             }
         }, 16);
 
@@ -460,7 +462,10 @@
 
         // --- INPUT TASTIERA ---
         let previousValue = '';
+        let inputHandled = false;
+
         hiddenInput.addEventListener('input', (e) => {
+            inputHandled = true;
             if(!ws || ws.readyState !== WebSocket.OPEN) return;
             const currentValue = hiddenInput.value;
             
@@ -481,6 +486,7 @@
         });
 
         hiddenInput.addEventListener('keydown', (e) => {
+            inputHandled = false;
             if(!ws || ws.readyState !== WebSocket.OPEN) return;
             if (e.key === 'Enter') {
                 e.preventDefault();
@@ -490,7 +496,7 @@
                 hiddenInput.value = '';
             } else if (e.key === 'Backspace') {
                 setTimeout(() => {
-                    if (hiddenInput.value === previousValue) {
+                    if (!inputHandled) {
                         ws.send(JSON.stringify({type: 'key', key: 'backspace'}));
                         updateTextDisplay('⌫');
                     }

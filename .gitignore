@@ -1,36 +1,14 @@
-# --- Python Bytecode & Cache ---
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
 
-# --- Ambienti Virtuali (Virtual Envs) ---
-# È importante ignorare queste cartelle perché contengono librerie specifiche
+# Ambienti Virtuali
 venv/
 env/
-.venv/
 .env
 
-# --- File di Sistema Operativo ---
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# --- IDE e Editor (Configurazioni locali) ---
+# Log e IDE
+*.log
 .vscode/
 .idea/
-*.swp
-*.swo
-
-# --- PyInstaller (Se in futuro creerai un .exe) ---
-*.spec
-dist/
-build/
-
-# --- Log e Errori ---
-*.log
