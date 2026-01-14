@@ -1,4 +1,4 @@
-# 🤝 Contribuire a Liquid Mouse Pro
+# 🤝 Contribuire a Liquid Mouse 
 
 Grazie per l'interesse nel contribuire! Leggi questa guida per capire come aiutare.
 
@@ -196,3 +196,4 @@ Se hai domande:
 ---
 
 **Grazie per aver scelto di contribuire! 🙏**
+
