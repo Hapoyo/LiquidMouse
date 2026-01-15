@@ -1,7 +1,7 @@
 """
 🖱️ LIQUID MOUSE - Server Application
 ====================================
-Versione: 1.3.2 (Custom Icon Support)
+Versione: 1.4.0 (Smart Menu Edition)
 """
 
 import asyncio
@@ -39,7 +39,7 @@ HTTP_PORT = 8000
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
     # Disaccoppia l'icona dalla shell di Python per mostrarla correttamente nella barra
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('liquidmouse.server.1.3.2')
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('liquidmouse.server.1.4.0')
 except Exception:
     pass
 

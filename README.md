@@ -1,10 +1,11 @@
-# 🖱️ Liquid Mouse v1.3.2
+# 🖱️ Liquid Mouse v1.4.0
 
 Liquid Mouse trasforma il tuo smartphone in un touchpad wireless fluido e professionale per il tuo computer, operante interamente sulla rete Wi-Fi locale.
 
 ## ✨ Funzionalità Principali
 
 * **Fluid Touch:** Movimento del cursore a bassa latenza.
+* **Smart Menu:** Menu centrale a comparsa con strumenti rapidi e Clipboard (Copia/Incolla).
 * **Smart Scrolling:** Scorrimento inerziale ad alta sensibilità.
 * **Funzioni Avanzate:** Drag & Drop, Seleziona Tutto (Ctrl+A), Tastiera Remota.
 * **Server GUI:** Interfaccia moderna con supporto System Tray e Icone Personalizzate.
@@ -249,6 +250,15 @@ Una volta installato:
 ## 📜 Changelog
 
 Tutti i cambiamenti importanti a questo progetto saranno documentati qui.
+
+### [1.4.0] - 2026-01-16 (Smart Menu Edition)
+#### ✨ Aggiunto
+- **Smart Menu:** Nuovo pulsante centrale che apre un menu a raggiera con gli strumenti.
+- **Clipboard:** Aggiunti pulsanti Copia (Ctrl+C) e Incolla (Ctrl+V) nel menu centrale.
+- **UI:** Layout ottimizzato con margini ridotti per avvicinare i controlli al touchpad.
+
+#### 🔧 Modificato
+- **UX:** Raggruppati i tasti Tastiera, Drag e Select All nel nuovo menu per pulire l'interfaccia principale.
 
 ### [1.3.2] - 2026-01-15 (Stability & Typing)
 #### ✨ Aggiunto
