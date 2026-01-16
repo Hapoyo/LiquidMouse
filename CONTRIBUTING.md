@@ -1,198 +1,87 @@
 # 🤝 Contribuire a Liquid Mouse
 
-Grazie per l'interesse nel contribuire! Leggi questa guida per capire come aiutare.
+Grazie per l'interesse nel contribuire! Liquid Mouse è un progetto open source e accogliamo con favore ogni tipo di supporto, dalla segnalazione di bug alla scrittura di codice.
 
 ---
 
-## 📋 Come Contribuire
+## 🛠️ Setup dell'Ambiente di Sviluppo
 
-### 1. Segnalare Bug
+Per modificare il codice o creare una tua versione personalizzata dell'eseguibile, segui questi passi.
 
-Se trovi un bug:
-1. Verifica che il problema non sia già stato segnalato
-2. Descrivi il comportamento attuale e quello atteso
-3. Fornisci i passi per riprodurre il problema
-4. Includi informazioni su OS, versione Python e browser
-
-**Esempio di buon bug report:**
-```
-Titolo: Mouse salta quando si sposta rapidamente
-
-Descrizione:
-Quando muovo il dito velocemente sul touchpad, il mouse "salta" 
-in posizioni casuali invece di seguire il movimento fluido.
-
-Passi per riprodurre:
-1. Connettiti al server
-2. Muovi il dito velocemente da sinistra a destra
-3. Osserva il movimento del mouse
-
-Ambiente:
-- OS: Windows 11
-- Python: 3.10
-- Browser: Chrome su Android
-- SENSITIVITY: 1.8
-```
-
-### 2. Suggerire Miglioramenti
-
-Hai un'idea per migliorare il progetto?
-1. Descrivi l'idea chiaramente
-2. Spiega il caso d'uso
-3. Fornisci esempi se possibile
-
-**Idee apprezzate:**
-- 🎮 Nuovi gesti o comandi
-- 🎨 Miglioramenti UI/UX
-- ⚡ Ottimizzazioni di performance
-- 📚 Miglioramenti alla documentazione
-- 🔐 Miglioramenti di sicurezza
-
-### 3. Contribuire al Codice
-
-#### Setup per lo Sviluppo
+### 1. Preparazione
 
 ```bash
 # Clona il repository
-git clone https://github.com/tuoutente/liquid-mouse.git
+git clone [https://github.com/tuoutente/liquid-mouse.git](https://github.com/tuoutente/liquid-mouse.git)
 cd liquid-mouse
 
-# Crea un ambiente virtuale
+# Crea un ambiente virtuale (Best Practice)
 python -m venv venv
-source venv/bin/activate  # Su Windows: venv\Scripts\activate
+
+# Attiva l'ambiente
+# Windows:
+venv\Scripts\activate
+# macOS/Linux:
+source venv/bin/activate
 
 # Installa le dipendenze
 pip install -r requirements.txt
+2. Eseguire in modalità Sviluppo
+Non è necessario compilare ogni volta. Per testare le modifiche al volo:
 
-# Esegui i test
-python test.py
-```
+Bash
 
-#### Guida di Stile
-
-**Python:**
-- Usa nomi di funzione e variabile descrittivi
-- Commenta codice complesso
-- Massimo 80 caratteri per riga
-- Usa 4 spazi per l'indentazione
-
-**JavaScript/HTML:**
-- Usa formato mobile-first
-- Commenta le sezioni principali
-- Segui le convenzioni camelCase
-- Testa su diversi dispositivi
-
-#### Processo di Contribuzione
-
-1. **Fork** il repository
-2. **Crea un branch** per la tua feature: `git checkout -b feature/mia-feature`
-3. **Commit** i tuoi cambiamenti: `git commit -am 'Aggiungi mia feature'`
-4. **Push** al branch: `git push origin feature/mia-feature`
-5. **Apri una Pull Request** con una descrizione chiara
-
-#### Checklist Prima del PR
-
-- [ ] Ho testato le mie modifiche
-- [ ] Ho verificato che non rompo le funzionalità esistenti
-- [ ] Ho aggiunto commenti dove necessario
-- [ ] Ho aggiornato il README se ho cambiato il comportamento
-- [ ] Ho eseguito `python test.py` con successo
-
----
-
-## 📁 Struttura del Codice
-
-### Backend (server.pyw)
-
-```python
-# Funzioni principali:
-- get_local_ip()        # Recupera l'IP locale
-- async handler()       # Gestisce i messaggi WebSocket
-- handle_move()         # Movimento del mouse
-- handle_click()        # Click del mouse
-- handle_text()         # Input di testo
-```
-
-### Frontend (index.html)
-
-```javascript
-// Classi principali:
-- ConfigPanel           // Pannello di configurazione
-- ControlPanel          // Pannello di controllo principale
-- Touchpad              // Gestione del touchpad
-- WebSocketManager      // Gestione connessione WebSocket
-```
-
----
-
-## 🧪 Testing
-
-Prima di contribuire, assicurati che:
-
-```bash
-# 1. Il server non ha errori di sintassi
-python -m py_compile server.pyw
-
-# 2. Lo script test passa
-python test.py
-
-# 3. Testa manualmente l'avvio
 python server.pyw
+📦 Creare l'Eseguibile (Build)
+Se hai apportato modifiche al codice e vuoi generare un nuovo file LiquidMouse.exe da distribuire (o per uso personale senza Python), abbiamo incluso uno script automatico.
 
-## 📝 Documentazione
+Prerequisiti Build
+Assicurati di aver installato le dipendenze, lo script installerà automaticamente pyinstaller se manca.
 
-Se aggiungi una nuova feature:
-1. Documenta il codice con commenti chiari
-2. Aggiorna il README.md se necessario
-3. Aggiungi un esempio di utilizzo
+Procedura di Build
+Assicurati di essere nella cartella radice del progetto.
 
----
+Assicurati che server.pyw e index.html siano presenti.
 
-## 🎯 Priorità di Sviluppo
+Esegui lo script di build:
 
-**Alta priorità:**
-- 🐛 Bug fixes critici
-- 🔐 Problemi di sicurezza
-- ⚡ Problemi di performance
+Bash
 
-**Media priorità:**
-- ✨ Nuove feature utili
-- 📚 Miglioramenti documentazione
-- 🎨 Miglioramenti UI
+python build.py
+Attendi il completamento.
 
-**Bassa priorità:**
-- 💄 Cambiamenti cosmetici
-- 🎉 Feature nice-to-have
+Troverai il tuo nuovo eseguibile nella cartella dist/.
 
----
+Nota: Se l'applicazione è in esecuzione, chiudila prima di avviare la build, altrimenti la sovrascrittura del file .exe fallirà.
 
-## 💬 Codice di Condotta
+🧪 Testing
+Prima di inviare una Pull Request, assicurati che:
 
-Per mantenere un ambiente positivo:
-- ✅ Sii rispettoso e inclusivo
-- ✅ Dai feedback costruttivo
-- ✅ Ascolta altre opinioni
-- ❌ Niente spam o abuso
-- ❌ Niente discriminazioni
+Sintassi: Il codice Python non abbia errori di sintassi.
 
----
+Bash
 
-## 🏆 Riconoscimenti
+python -m py_compile server.pyw
+Test Funzionale: Esegui python test.py per verificare le dipendenze.
 
-Apprezziamo molto i vostri contributi! Sarete riconosciuti nel:
-- README.md (sezione Contribuenti)
-- Changelog
-- Release notes
+Test Build: Se hai modificato le importazioni o i file statici, prova a eseguire python build.py e verifica che l'.exe generato si avvii correttamente.
 
----
+📁 Struttura del Codice
+server.pyw: Il cuore dell'applicazione. Gestisce il server WebSocket, l'interfaccia GUI Tkinter (la finestra terminale) e l'icona nella System Tray.
 
-## ❓ Domande?
+index.html: Il frontend che viene caricato sullo smartphone. Include CSS e JS in un unico file per semplicità di distribuzione.
 
-Se hai domande:
-1. Controlla il README.md
-2. Apri una discussion
-3. Contattami direttamente
+build.py: Script di utilità per compilare il progetto con PyInstaller.
 
----
+🐛 Segnalare Bug
+Se trovi un bug, apri una Issue includendo:
 
-**Grazie per aver scelto di contribuire! 🙏**
+Se stai usando l'EXE o la versione Python.
+
+Il tuo sistema operativo (es. Windows 11).
+
+Il browser usato sullo smartphone.
+
+I passi per riprodurre l'errore.
+
+Grazie per il tuo aiuto! 🙏
