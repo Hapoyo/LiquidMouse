@@ -202,7 +202,7 @@ def setup_gui():
     root.title("Liquid Mouse")
     
     # Configurazione Finestra (Terminale Virtuale)
-    w, h = 420, 260
+    w, h = 440, 260
     ws = root.winfo_screenwidth()
     hs = root.winfo_screenheight()
     x = (ws/2) - (w/2)
@@ -288,7 +288,7 @@ def setup_gui():
     lbl_ip_header.place(x=40, y=90)
     
     ip_label_var = tk.StringVar(value="")
-    tk.Label(root, textvariable=ip_label_var, font=("Consolas", 22), bg=COLOR_BG, fg=COLOR_TEXT).place(x=40, y=110)
+    tk.Label(root, textvariable=ip_label_var, font=("Consolas", 18), bg=COLOR_BG, fg=COLOR_TEXT).place(x=40, y=110)
     
     lbl_status_header = tk.Label(root, text="", font=("Consolas", 8, "bold"), bg=COLOR_BG, fg=COLOR_MUTED)
     lbl_status_header.place(x=40, y=170)
