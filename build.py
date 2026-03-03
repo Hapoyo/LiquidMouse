@@ -7,10 +7,13 @@ import subprocess
 import sys
 import shutil
 
+# Percorso assoluto della directory del progetto, indipendente dalla cwd di lancio
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 def check_files():
     """Verifica l'integrità dei componenti essenziali del progetto."""
     required = ["server.pyw", "index.html"]
-    missing = [f for f in required if not os.path.exists(f)]
+    missing = [f for f in required if not os.path.exists(os.path.join(SCRIPT_DIR, f))]
     
     if missing:
         print(f"❌ Errore Critico: Componenti mancanti: {', '.join(missing)}")
@@ -21,6 +24,11 @@ def build():
     print("="*50)
     print("   🖱️  LIQUID MOUSE - DEPLOYMENT UTILITY")
     print("="*50)
+
+    # Assicura che la cwd sia sempre la directory del progetto,
+    # indipendentemente da dove viene lanciato lo script
+    os.chdir(SCRIPT_DIR)
+    print(f"   📂 Directory di lavoro: {SCRIPT_DIR}")
 
     # 1. Verifica infrastruttura di compilazione
     print("\n📦 Verifica ambiente PyInstaller...")

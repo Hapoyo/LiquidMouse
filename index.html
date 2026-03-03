@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="version" content="1.6.0 (Enhanced Input Edition)">
-    <title>Liquid Mouse v1.6.0</title>
+    <meta name="version" content="LiquidMouse">
+    <title>LiquidMouse</title>
     <style>
         :root {
             /* Design System: Deep Liquid */
@@ -412,38 +412,91 @@
         function loadIP() { return localStorage.getItem('liquidMouseIP') || ''; }
         function saveIP(ip) { localStorage.setItem('liquidMouseIP', ip); }
 
+        let reconnectAttempts = 0;
+        const MAX_RECONNECTS = 3;
+
+        let connectionTimeout;
+
         function connectServer(ip) {
             if (!ip.trim()) { alert('Inserire un indirizzo IP valido.'); return; }
+            statusDiv.innerText = "CONNESSIONE... "; statusDiv.style.color = "#ffcc00";
+
+            if (ws) {
+                ws.onclose = null;
+                ws.onerror = null;
+                ws.close();
+            }
+
             ws = new WebSocket(`ws://${ip.trim()}:8765`);
 
+            clearTimeout(connectionTimeout);
+            connectionTimeout = setTimeout(() => {
+                if (ws.readyState !== WebSocket.OPEN) {
+                    ws.onclose = null;
+                    ws.onerror = null;
+                    ws.close();
+                    handleDisconnect(ip);
+                }
+            }, 2000); // 2 Secondi Max per il tentativo
+
             ws.onopen = () => {
+                clearTimeout(connectionTimeout);
+                reconnectAttempts = 0;
                 statusDiv.innerText = "CONNESSIONE STABILITA"; statusDiv.style.color = "#88ffcc";
                 configPanel.classList.add('hidden'); saveIP(ip.trim());
             };
-            ws.onclose = () => { statusDiv.innerText = "SESSIONE TERMINATA"; statusDiv.style.color = "#ff8888"; resetLocks(); configPanel.classList.remove('hidden'); };
-            ws.onerror = () => { statusDiv.innerText = "ERRORE DI RETE"; statusDiv.style.color = "#ff6666"; resetLocks(); configPanel.classList.remove('hidden'); };
+            ws.onclose = () => { clearTimeout(connectionTimeout); handleDisconnect(ip); };
+            ws.onerror = () => { clearTimeout(connectionTimeout); handleDisconnect(ip); };
         }
 
-        connectBtn.addEventListener('click', () => connectServer(ipInput.value));
-        ipInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') connectServer(ipInput.value); });
-
-        const savedIP = loadIP();
-        const currentHostname = window.location.hostname;
-
-        let shouldConnectIP = null;
-        if (currentHostname && currentHostname !== 'localhost' && currentHostname !== '127.0.0.1' && currentHostname !== '') {
-            shouldConnectIP = currentHostname;
-        } else if (savedIP) {
-            shouldConnectIP = savedIP;
+        function handleDisconnect(ip) {
+            resetLocks();
+            if (reconnectAttempts < MAX_RECONNECTS) {
+                reconnectAttempts++;
+                statusDiv.innerText = `RICONNESSIONE (${reconnectAttempts}/${MAX_RECONNECTS})...`;
+                statusDiv.style.color = "#ffcc00";
+                setTimeout(() => connectServer(ip), 1000);
+            } else {
+                statusDiv.innerText = "DISCONNESSO"; statusDiv.style.color = "#ff6666";
+                configPanel.classList.remove('hidden');
+            }
         }
 
-        if (shouldConnectIP) {
-            ipInput.value = shouldConnectIP;
-            connectServer(shouldConnectIP);
-        } else {
-            // Mostra il pannello solo se non abbiamo un IP a cui connetterci
-            configPanel.classList.remove('hidden');
-        }
+        connectBtn.addEventListener('click', () => { reconnectAttempts = 0; connectServer(ipInput.value); });
+        ipInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') { reconnectAttempts = 0; connectServer(ipInput.value); } });
+
+        // Gestisce il risveglio dello smartphone (sleep/wake)
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                const ipToConnect = ipInput.value || loadIP();
+                if (ipToConnect && (!ws || ws.readyState !== WebSocket.OPEN)) {
+                    reconnectAttempts = 0; // reset
+                    connectServer(ipToConnect);
+                }
+            }
+        });
+
+        // Avvio Iniziale Stabile per le WebView
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                const savedIP = loadIP();
+                const currentHostname = window.location.hostname;
+
+                let shouldConnectIP = null;
+                if (currentHostname && currentHostname !== 'localhost' && currentHostname !== '127.0.0.1' && currentHostname !== '') {
+                    shouldConnectIP = currentHostname;
+                } else if (savedIP) {
+                    shouldConnectIP = savedIP;
+                }
+
+                if (shouldConnectIP) {
+                    ipInput.value = shouldConnectIP;
+                    connectServer(shouldConnectIP);
+                } else {
+                    configPanel.classList.remove('hidden');
+                }
+            }, 300); // Ritardo essenziale per iOS/Android QR Scanner
+        });
 
         // --- MOVIMENTO CURSORE ---
         let moveX = 0, moveY = 0, isMoving = false;
@@ -583,7 +636,10 @@
         });
 
         document.getElementById('btn-keyboard').addEventListener('click', () => {
-            hiddenInput.value = ''; hiddenInput.focus(); closeMenu();
+            hiddenInput.value = '';
+            previousValue = ''; // Reset essenziale: evita ghost input al riavvio della tastiera
+            hiddenInput.focus();
+            closeMenu();
         });
 
         // --- DISPLAY TESTO & TASTIERA ---

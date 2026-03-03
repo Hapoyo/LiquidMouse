@@ -44,7 +44,7 @@ Liquid Mouse è una soluzione software avanzata progettata per trasformare il pr
 
     ```text
     ==================================================
-       🖱️  LIQUID MOUSE SERVER CONTROL
+       🖱️  LIQUID MOUSE
     ==================================================
     📡 Host IP: 192.168.1.100
     📱 Access URL: http://192.168.1.100:8000

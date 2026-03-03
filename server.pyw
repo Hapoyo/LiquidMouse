@@ -1,7 +1,6 @@
 """
 🖱️ LIQUID MOUSE - Server Application
 ====================================
-Versione: 1.6.0 (Enhanced Input Edition)
 """
 
 import asyncio
@@ -38,7 +37,7 @@ HTTP_PORT = 8000
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('liquidmouse.server.1.6.0')
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('liquidmouse.server.1.7.0')
 except Exception:
     pass
 
@@ -73,6 +72,9 @@ def get_local_ip():
         return ip
     except Exception:
         return "127.0.0.1"
+
+# IP calcolato una sola volta all'avvio per evitare latenze e incoerenze
+LOCAL_IP = get_local_ip()
 
 # --- BACKEND (WebSocket & HTTP) ---
 async def handler(websocket):
@@ -135,7 +137,10 @@ async def handler(websocket):
                 elif msg_type == 'hotkey':
                     pyautogui.hotkey(*data.get('keys', []))
 
-            except Exception: pass
+            except (ValueError, KeyError, TypeError) as e:
+                log_message(f"Cmd ignorato: {e}", color=COLOR_MUTED)
+            except Exception as e:
+                log_message(f"Errore handler: {e}", color=COLOR_ERROR)
             
     except websockets.exceptions.ConnectionClosed:
         log_message("In attesa di connessione...", color="#aaaaaa")
@@ -155,15 +160,18 @@ def start_http_server():
         httpd.serve_forever()
     except OSError:
         log_message(f"Errore: Porta Web {HTTP_PORT} occupata!", color=COLOR_ERROR)
+    except Exception as e:
+        log_message(f"HTTP Server crash: {e}", color=COLOR_ERROR)
 
 async def start_websocket_server():
-    ip = get_local_ip()
     log_message("Protocolli di comunicazione inizializzati.", color="#aaaaaa")
     try:
         async with websockets.serve(handler, "0.0.0.0", PORT, ping_interval=None):
             await asyncio.Future()
     except OSError:
         log_message(f"ERRORE CRITICO: Porta {PORT} occupata!", color=COLOR_ERROR)
+    except Exception as e:
+        log_message(f"WebSocket Server crash: {e}", color=COLOR_ERROR)
 
 def run_services():
     threading.Thread(target=start_http_server, daemon=True).start()
@@ -195,9 +203,8 @@ def restore_window(icon=None, item=None):
 
 def terminate_application(icon=None, item=None):
     if icon: icon.stop()
-    time.sleep(0.1)
-    root.quit()
-    os._exit(0)
+    # Chiusura pulita tramite il mainloop: evita os._exit() che bypasserebbe i finalizer
+    root.after(100, root.destroy)
 
 def run_tray_service():
     global tray_icon
@@ -275,7 +282,7 @@ def setup_gui():
     tk.Label(root, textvariable=ip_label_var, font=("Consolas", 16), bg=COLOR_BG, fg=COLOR_TEXT).place(x=40, y=110)
     
     # -- QR CODE GENERATION --
-    qr_url = f"http://{get_local_ip()}:{HTTP_PORT}/?v={int(time.time())}"
+    qr_url = f"http://{LOCAL_IP}:{HTTP_PORT}/?v={int(time.time())}"
     try:
         qr = qrcode.QRCode(version=1, box_size=3, border=1)
         qr.add_data(qr_url)
@@ -298,7 +305,7 @@ def setup_gui():
     anim_sequence = [
         (title_lbl, ">_ Liquid Mouse", 30),
         (lbl_ip_header, "INDIRIZZO IP HOST", 10),
-        (ip_label_var, f"{get_local_ip()}:{HTTP_PORT}", 20),
+        (ip_label_var, f"{LOCAL_IP}:{HTTP_PORT}", 20),
         (lbl_status_header, "STATO DEL SISTEMA", 10),
         (status_var, "Inizializzazione...", 20)
     ]
@@ -314,7 +321,8 @@ def setup_gui():
     
     root.after(100, fade_in)
     threading.Thread(target=run_services, daemon=True).start()
-    threading.Thread(target=run_tray_service, daemon=True).start()
+    # Avvio tray ritardato di 500ms per evitare race condition con l'inizializzazione della GUI
+    root.after(500, lambda: threading.Thread(target=run_tray_service, daemon=True).start())
 
 def log_message(message, color="#aaaaaa"):
     def _update():
