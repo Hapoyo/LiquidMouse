@@ -1,87 +1,65 @@
 # 🤝 Contribuire a Liquid Mouse
 
-Grazie per l'interesse nel contribuire! Liquid Mouse è un progetto open source e accogliamo con favore ogni tipo di supporto, dalla segnalazione di bug alla scrittura di codice.
+Grazie per l'interesse nel contribuire! Leggi questa guida per capire come aiutare.
 
 ---
 
-## 🛠️ Setup dell'Ambiente di Sviluppo
+## 📋 Come Contribuire
 
-Per modificare il codice o creare una tua versione personalizzata dell'eseguibile, segui questi passi.
+### 1. Segnalare Bug
 
-### 1. Preparazione
+Se trovi un bug:
 
-```bash
-# Clona il repository
-git clone [https://github.com/tuoutente/liquid-mouse.git](https://github.com/tuoutente/liquid-mouse.git)
-cd liquid-mouse
+1. Verifica che il problema non sia già stato segnalato
+2. Descrivi il comportamento attuale e quello atteso
+3. Fornisci i passi per riprodurre il problema
+4. Includi informazioni su OS, versione Python e browser
 
-# Crea un ambiente virtuale (Best Practice)
-python -m venv venv
+**Esempio di buon bug report:**
 
-# Attiva l'ambiente
-# Windows:
-venv\Scripts\activate
-# macOS/Linux:
-source venv/bin/activate
+```
+Titolo: Mouse salta quando si sposta rapidamente
 
-# Installa le dipendenze
-pip install -r requirements.txt
-2. Eseguire in modalità Sviluppo
-Non è necessario compilare ogni volta. Per testare le modifiche al volo:
+Descrizione:
+Quando muovo il dito velocemente sul touchpad, il mouse "salta" 
+in posizioni casuali invece di seguire il movimento fluido.
 
-Bash
+Passi per riprodurre:
+1. Connettiti al server
+2. Muovi il dito velocemente da sinistra a destra
+3. Osserva il movimento del mouse
 
-python server.pyw
-📦 Creare l'Eseguibile (Build)
-Se hai apportato modifiche al codice e vuoi generare un nuovo file LiquidMouse.exe da distribuire (o per uso personale senza Python), abbiamo incluso uno script automatico.
+Ambiente:
+- OS: Windows 11
+- Python: 3.10
+- Browser: Chrome su Android
+- SENSITIVITY: 1.8
+```
 
-Prerequisiti Build
-Assicurati di aver installato le dipendenze, lo script installerà automaticamente pyinstaller se manca.
+### 2. Suggerire Miglioramenti
 
-Procedura di Build
-Assicurati di essere nella cartella radice del progetto.
+Hai un'idea per migliorare il progetto?
 
-Assicurati che server.pyw e index.html siano presenti.
+1. Descrivi l'idea chiaramente
+2. Spiega il caso d'uso
+3. Fornisci esempi se possibile
 
-Esegui lo script di build:
+**Idee apprezzate:**
 
-Bash
+- 🎮 Nuovi gesti o comandi
+- 🎨 Miglioramenti UI/UX
+- ⚡ Ottimizzazioni di performance
+- 📚 Miglioramenti alla documentazione
+- 🔐 Miglioramenti di sicurezza
 
-python build.py
-Attendi il completamento.
+---
 
-Troverai il tuo nuovo eseguibile nella cartella dist/.
+## 💬 Codice di Condotta
 
-Nota: Se l'applicazione è in esecuzione, chiudila prima di avviare la build, altrimenti la sovrascrittura del file .exe fallirà.
+Per mantenere un ambiente positivo:
 
-🧪 Testing
-Prima di inviare una Pull Request, assicurati che:
-
-Sintassi: Il codice Python non abbia errori di sintassi.
-
-Bash
-
-python -m py_compile server.pyw
-Test Funzionale: Esegui python test.py per verificare le dipendenze.
-
-Test Build: Se hai modificato le importazioni o i file statici, prova a eseguire python build.py e verifica che l'.exe generato si avvii correttamente.
-
-📁 Struttura del Codice
-server.pyw: Il cuore dell'applicazione. Gestisce il server WebSocket, l'interfaccia GUI Tkinter (la finestra terminale) e l'icona nella System Tray.
-
-index.html: Il frontend che viene caricato sullo smartphone. Include CSS e JS in un unico file per semplicità di distribuzione.
-
-build.py: Script di utilità per compilare il progetto con PyInstaller.
-
-🐛 Segnalare Bug
-Se trovi un bug, apri una Issue includendo:
-
-Se stai usando l'EXE o la versione Python.
-
-Il tuo sistema operativo (es. Windows 11).
-
-Il browser usato sullo smartphone.
-
-I passi per riprodurre l'errore.
-
-Grazie per il tuo aiuto! 🙏
+- ✅ Sii rispettoso e inclusivo
+- ✅ Dai feedback costruttivo
+- ✅ Ascolta altre opinioni
+- ❌ Niente spam o abuso
+- ❌ Niente discriminazioni

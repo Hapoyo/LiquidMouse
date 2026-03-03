@@ -1,8 +1,6 @@
-# 🖱️ Liquid Mouse v1.6.0 (Portable Edition)
+# 🖱️ Liquid Mouse v1.6.0 (Enhanced Input Edition)
 
 Liquid Mouse trasforma il tuo smartphone in un touchpad wireless fluido e professionale per il tuo computer, operante interamente sulla rete Wi-Fi locale.
-
-> **Novità:** Ora disponibile come applicazione portatile per Windows! Nessuna installazione richiesta.
 
 ## ✨ Funzionalità Principali
 
@@ -12,103 +10,147 @@ Liquid Mouse trasforma il tuo smartphone in un touchpad wireless fluido e profes
 * **Funzioni Avanzate:** Drag & Drop, Seleziona Tutto (Ctrl+A), Tastiera Remota.
 * **Server GUI:** Interfaccia moderna con supporto System Tray e Icone Personalizzate.
 * **Privacy First:** Nessun cloud, funziona solo sulla rete locale.
-* **Portable:** Esegui direttamente senza installare nulla (solo Windows).
 
 ## ⚠️ Limitazioni Importanti
 
 * **Schermata di Login/Blocco:** A causa delle restrizioni di sicurezza di Windows (Secure Desktop), l'applicazione **non può interagire** con la schermata di login o quando il PC è bloccato. È necessario utilizzare un mouse/tastiera fisica per inserire la password. Una volta effettuato l'accesso, Liquid Mouse inizierà a funzionare immediatamente.
 
-## 🚀 Avvio Rapido (Windows)
+## 🚀 Guida Rapida
 
-Il modo più semplice per usare Liquid Mouse. Nessuna competenza tecnica richiesta.
+### Prerequisiti Minimi
 
-### 1. Download ed Esecuzione
-1.  Scarica il file **`LiquidMouse.exe`** dalla cartella `dist` o dalle Release.
-2.  Fai doppio click su **`LiquidMouse.exe`**.
-3.  L'applicazione si avvierà mostrando una finestra stile terminale con il tuo indirizzo IP.
+- **Python 3.7+** installato
+- **Smartphone** con browser web
+- **WiFi:** Computer e smartphone sulla stessa rete
 
-> *Nota: Windows Defender potrebbe mostrare un avviso poiché l'app non è firmata digitalmente. Clicca su "Ulteriori informazioni" -> "Esegui comunque".*
+### ⚡ Avvio Immediato
 
-### 2. Connessione da Smartphone
-1.  Assicurati che il tuo telefono sia collegato allo **stesso Wi-Fi** del PC.
-2.  Leggi l'indirizzo IP mostrato nella finestra di Liquid Mouse (es: `192.168.1.100:8000`).
-3.  Apri il browser del telefono (Chrome/Safari) e digita quell'indirizzo.
-4.  Premi **CONNETTI**.
+1. **Apri il terminale** nella cartella del progetto
 
-## 🛠️ Installazione Manuale (macOS / Linux / Sviluppatori)
+2. **Esegui:**
 
-Segui questa procedura se usi macOS, Linux o se vuoi modificare il codice sorgente Python.
+   ```
+   python server.pyw        # Windows
+   python3 server.pyw       # macOS/Linux
+   ```
 
-### 📋 Prerequisiti
-* **Python 3.7+** installato
-* Connessione Wi-Fi condivisa
+3. **Vedrai:**
 
-### 🍎 macOS / 🐧 Linux
+   ```
+   ==================================================
+      🖱️  LIQUID MOUSE SERVER
+   ==================================================
+   📡 IP: 192.168.1.100
+   📱 Apri nel telefono: http://192.168.1.100:8000
+   ==================================================
+   ```
 
-```bash
-# 1. Clona o scarica il progetto
-git clone [https://github.com/tuoutente/liquid-mouse.git](https://github.com/tuoutente/liquid-mouse.git)
-cd liquid-mouse
+4. **Dal telefono:** Apri il browser, inserisci l'IP e connettiti
 
-# 2. Crea ambiente virtuale (consigliato)
-python3 -m venv venv
-source venv/bin/activate
+5. **Pronto!** 🎉 Usa lo schermo come touchpad
 
-# 3. Installa dipendenze
-pip install -r requirements.txt
+### 🖥️ Sistemi Supportati
 
-# 4. Avvia il server
-python3 server.pyw
+- Windows 10/11
+- macOS (Intel/Apple Silicon)
+- Linux (Ubuntu, Debian, Fedora, ecc.)
 
-🖥️ Windows (Metodo Python)Se preferisci usare lo script Python invece dell'EXE:
+### 🐛 Troubleshooting
 
-Snippet di codice
+#### "Python non trovato"
 
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-python server.pyw
+- Scarica da https://python.org
+- Spunta "Add Python to PATH" durante l'installazione
 
-⚙️ Configurazione Avanzata
-Anche con la versione EXE, puoi configurare alcune opzioni se scarichi il pacchetto completo. Se stai usando solo l'.exe, queste impostazioni sono predefinite.
+#### "Porta 8765 o 8000 occupata"
 
-Sensibilità del MousePer modificare la sensibilità, è necessario utilizzare la versione Python (server.pyw) e modificare la variabile:
+**Windows:**
 
-Python
+```
+netstat -ano | findstr :8765
+taskkill /PID <numero> /F
+```
 
-SENSITIVITY = 1.8  # Default
+**macOS/Linux:**
 
-Porte Personalizzate
+```
+lsof -i :8765
+kill -9 <numero>
+```
 
-Se la porta 8765 è occupata, l'applicazione non si avvierà. Chiudi l'applicazione che usa quella porta o modifica PORT nel file sorgente server.pyw e ricompila.
+### 📱 Accesso da Smartphone
 
-📱 Browser Compatibili
+#### 🔗 URL Corrette
 
-Browser iOS Android Note Safari✅-Consigliato su iOSChrome✅✅Consigliato su AndroidFirefox⚠️✅Possibili problemi su iOSOpera❌✅Funziona
+- Stesso dispositivo (debug): `http://localhost:8000`
+- Stessa rete: `http://192.168.1.100:8000`
+- Rete diversa: Aggiungi SSL/TLS (vedi MANIFEST.md)
 
-📜 Changelog
+#### 🌐 Browser Compatibili
 
-[1.6.0] - 2026-01-17 (Portable Edition)
+| Browser | iOS | Android | Note |
+|---------|-----|---------|------|
+| Safari | ✅ | - | iOS 13+ |
+| Chrome | ✅ | ✅ | Consigliato |
+| Firefox | ⚠️ | ✅ | Possibili problemi su iOS |
+| Edge | ❌ | ✅ | Non testato su iOS |
+| Opera | ❌ | ✅ | Funziona |
 
-✨ Novità
+## 📜 Changelog
 
-Standalone EXE: Rilasciato LiquidMouse.exe. Il programma è ora completamente portatile e non richiede l'installazione di Python per l'utente finale.
+Tutti i cambiamenti importanti a questo progetto saranno documentati qui.
 
-Builder: Aggiunto script build.py per automatizzare la creazione dell'eseguibile.
+### [1.5.0] - 2026-01-17 (Terminal Edition)
 
-[1.5.0] - 2026-01-17 (Terminal Edition)
+#### ✨ Aggiunto
 
-✨ Novità
+- **Terminal GUI:** Nuova interfaccia server in stile terminale virtuale con animazioni di boot.
+- **Design System:** Aggiornato il tema grafico a "Terminal Dark" (Nero/Verde) su tutti i dispositivi.
 
-Terminal GUI: Nuova interfaccia server in stile terminale virtuale con animazioni di boot.
+### [1.4.0] - 2026-01-16 (Smart Menu Edition)
 
-[1.4.0] - 2026-01-16 (Smart Menu Edition)
+#### ✨ Aggiunto
 
-✨ Novità
+- **Smart Menu:** Nuovo pulsante centrale che apre un menu a raggiera con gli strumenti.
+- **Clipboard:** Aggiunti pulsanti Copia (Ctrl+C) e Incolla (Ctrl+V) nel menu centrale.
+- **UI:** Layout ottimizzato con margini ridotti per avvicinare i controlli al touchpad.
 
-Smart Menu: Nuovo pulsante centrale che apre un menu a raggiera.
+#### 🔧 Modificato
 
-Clipboard: Aggiunti pulsanti Copia (Ctrl+C) e Incolla (Ctrl+V).
+- **UX:** Raggruppati i tasti Tastiera, Drag e Select All nel nuovo menu per pulire l'interfaccia principale.
 
-📄 Licenza
+### [1.3.2] - 2026-01-15 (Stability & Typing)
 
-Distribuito sotto licenza MIT. Vedi LICENSE per maggiori informazioni.
+#### ✨ Aggiunto
+
+- **Typing:** Supporto automatico per "smart quotes" (virgolette curve) da mobile.
+- **Debounce:** Filtro anti-rimbalzo per il tasto Backspace (evita cancellazioni doppie involontarie).
+- **Sicurezza:** Chiusura forzata pulita dell'applicazione (`os._exit`).
+
+#### 🔧 Modificato
+
+- **Docs:** Aggiornata documentazione con avvisi su Secure Desktop (Login Windows).
+- **Core:** Ottimizzazione gestione percorsi e caricamento risorse.
+
+### [1.2.0] - 2026-01-14 (Tray Edition)
+
+#### ✨ Aggiunto
+
+- **GUI (Interfaccia Grafica):** Sostituito il terminale nero con una finestra moderna in stile Liquid Mouse.
+- **System Tray:** Il server ora si riduce a icona nella barra delle applicazioni invece di chiudersi.
+- **Drag & Drop:** Nuovo pulsante "Lucchetto" per trascinare finestre e oggetti.
+- **Select All:** Nuovo pulsante "SEL ALL" per selezionare tutto (Ctrl+A).
+
+#### 🔧 Modificato
+
+- **Scroll:** Aumentata notevolmente la sensibilità dello scroll verticale per maggiore fluidità.
+- **Design:** Migliorata leggibilità nella pagina di configurazione (testo bianco su sfondo scuro).
+- **Stabilità:** Aggiunto rilascio automatico del mouse in caso di disconnessione durante il trascinamento.
+
+### [1.0.0] - 2026-01-12
+
+#### ✨ Aggiunto
+
+- Versione stabile iniziale del progetto.
+* Server WebSocket base.
+* Interfaccia web responsive.
