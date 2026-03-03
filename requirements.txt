@@ -1,4 +1,0 @@
-websockets==14.1
-pyautogui==0.9.53
-pystray==0.19.5
-Pillow==10.2.0
