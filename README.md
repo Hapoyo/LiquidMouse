@@ -28,7 +28,7 @@ Liquid Mouse è una soluzione software avanzata progettata per trasformare il pr
 
 #### Opzione 1: Eseguibile Binario (Consigliato per Windows)
 
-1. **Download:** Prelevare l'ultima release stabile dalla sezione [Releases](https://github.com/tuonome/LiquidMouse/releases).
+1. **Download:** Prelevare l'ultima release stabile dalla sezione [Releases](https://github.com/Hapoyo/LiquidMouse/releases).
 2. **Estrazione:** Decomprimere l'archivio e individuare il file `.exe`.
 3. **Inizializzazione:** Eseguire l'applicazione per avviare il servizio server.
 4. **Connessione Client:** Inquadrare il **QR Code** mostrato sulla console con la fotocamera dello smartphone oppure accedere all'URL specificato.
