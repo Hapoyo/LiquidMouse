@@ -25,6 +25,16 @@ Liquid Mouse trasforma il tuo smartphone in un touchpad wireless fluido e profes
 
 ### ⚡ Avvio Immediato
 
+#### Opzione 1: EXE Compilato (Consigliato per Windows)
+
+1. **Scarica** l'ultima versione da [Releases](https://github.com/tuonome/LiquidMouse/releases)
+2. **Estrai** il file `.exe` 
+3. **Doppio click** per avviare il server
+4. **Dal telefono:** Apri il browser, inserisci l'IP e connettiti
+5. **Pronto!** 🎉 Usa lo schermo come touchpad
+
+#### Opzione 2: Python (Per Sviluppatori / macOS / Linux)
+
 1. **Apri il terminale** nella cartella del progetto
 
 2. **Esegui:**

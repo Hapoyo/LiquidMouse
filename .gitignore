@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+.pytest_cache/
 
 # Ambienti Virtuali
 venv/
@@ -12,3 +14,14 @@ env/
 *.log
 .vscode/
 .idea/
+
+# Build e Distribuzione
+build/
+dist/
+
+# File di Sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
