@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="it">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -8,25 +9,25 @@
     <style>
         :root {
             /* Design System: Deep Liquid */
-            --bg-color: #2b2e4a; 
-            --glass-surface: rgba(255, 255, 255, 0.03); 
-            --text-subtle: rgba(255, 255, 255, 0.3); 
-            
-            --shadow-out: 
-                10px 10px 20px rgba(0, 0, 0, 0.35), 
-                -8px -8px 16px rgba(255, 255, 255, 0.04); 
+            --bg-color: #2b2e4a;
+            --glass-surface: rgba(255, 255, 255, 0.03);
+            --text-subtle: rgba(255, 255, 255, 0.3);
 
-            --shadow-in: 
-                inset 6px 6px 12px rgba(0, 0, 0, 0.25), 
-                inset -4px -4px 10px rgba(255, 255, 255, 0.03); 
-            
+            --shadow-out:
+                10px 10px 20px rgba(0, 0, 0, 0.35),
+                -8px -8px 16px rgba(255, 255, 255, 0.04);
+
+            --shadow-in:
+                inset 6px 6px 12px rgba(0, 0, 0, 0.25),
+                inset -4px -4px 10px rgba(255, 255, 255, 0.03);
+
             --active-gold: #ffcc00;
         }
 
         body {
             margin: 0;
             height: 100vh;
-            height: 100dvh; 
+            height: 100dvh;
             background: var(--bg-color);
             display: flex;
             flex-direction: column;
@@ -58,7 +59,7 @@
         .fluid-pressed {
             box-shadow: var(--shadow-in) !important;
             transform: scale(0.96);
-            background: rgba(0,0,0,0.1);
+            background: rgba(0, 0, 0, 0.1);
             color: rgba(255, 255, 255, 0.6);
         }
 
@@ -70,119 +71,258 @@
             box-shadow: inset 0 0 15px rgba(255, 204, 0, 0.1) !important;
         }
 
-        #touchpad { flex: 1; height: auto; margin-bottom: 10px; touch-action: none; }
+        #touchpad {
+            flex: 1;
+            height: auto;
+            margin-bottom: 10px;
+            touch-action: none;
+        }
+
         #scrollbar {
-            width: 5%; height: auto; margin-bottom: 10px; margin-left: 2%;
-            position: relative; background: var(--glass-surface);
-            backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px);
-            border-radius: 20px; border: 1px solid rgba(136, 255, 204, 0.1);
+            width: 5%;
+            height: auto;
+            margin-bottom: 10px;
+            margin-left: 2%;
+            position: relative;
+            background: var(--glass-surface);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
+            border-radius: 20px;
+            border: 1px solid rgba(136, 255, 204, 0.1);
             box-shadow: var(--shadow-out);
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            color: rgba(136, 255, 204, 0.4); touch-action: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: rgba(136, 255, 204, 0.4);
+            touch-action: none;
         }
 
         .touchpad-container {
-            display: flex; align-items: stretch; width: 95%; flex: 1;
-            margin-top: 10px; margin-bottom: 15px; gap: 0; min-height: 0;
+            display: flex;
+            align-items: stretch;
+            width: 95%;
+            flex: 1;
+            margin-top: 10px;
+            margin-bottom: 15px;
+            gap: 0;
+            min-height: 0;
         }
 
         .buttons-container {
-            width: 95%; height: 16%; max-height: 120px; min-height: 80px;
-            display: flex; justify-content: space-between; gap: 8px;
-            margin-bottom: 10px; flex-shrink: 0;
+            width: 95%;
+            height: 16%;
+            max-height: 120px;
+            min-height: 80px;
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 10px;
+            flex-shrink: 0;
         }
 
         .mouse-btn {
-            flex: 1; height: 100%; border-radius: 24px; cursor: pointer;
-            display: flex; flex-direction: column; justify-content: center; font-size: 14px;
+            flex: 1;
+            height: 100%;
+            border-radius: 24px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            font-size: 14px;
         }
 
-        #hidden-input { position: absolute; top: -2000px; opacity: 0; font-size: 16px; }
+        #hidden-input {
+            position: absolute;
+            top: -2000px;
+            opacity: 0;
+            font-size: 16px;
+        }
 
         #status {
-            position: absolute; top: 40px; color: var(--text-subtle);
-            font-size: 10px; text-transform: uppercase; letter-spacing: 2px; opacity: 0.5;
+            position: absolute;
+            top: 40px;
+            color: var(--text-subtle);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            opacity: 0.5;
         }
 
         #text-display {
-            position: fixed; top: 80px; left: 20px; right: 20px;
+            position: fixed;
+            top: 80px;
+            left: 20px;
+            right: 20px;
             background: rgba(255, 255, 255, 0.02);
-            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(136, 255, 204, 0.15); border-radius: 16px;
-            padding: 12px 16px; color: rgba(136, 255, 204, 0.9);
-            font-size: 16px; font-family: 'Courier New', monospace; font-weight: 500;
-            min-height: 32px; line-height: 1.4; display: none; z-index: 100;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(136, 255, 204, 0.15);
+            border-radius: 16px;
+            padding: 12px 16px;
+            color: rgba(136, 255, 204, 0.9);
+            font-size: 16px;
+            font-family: 'Courier New', monospace;
+            font-weight: 500;
+            min-height: 32px;
+            line-height: 1.4;
+            display: none;
+            z-index: 100;
             box-shadow: 10px 10px 20px rgba(0, 0, 0, 0.1);
         }
-        #text-display.active { display: block !important; animation: slideDown 0.2s ease-out; }
-        @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+        #text-display.active {
+            display: block !important;
+            animation: slideDown 0.2s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
 
         .config-panel {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); display: flex; flex-direction: column;
-            align-items: center; justify-content: center; z-index: 1000;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            color: #ffffff;
+            /* Colore testo esplicito per visibilità */
         }
-        .config-panel.hidden { display: none; }
+
+        .config-panel.hidden {
+            display: none;
+        }
+
         .config-content {
-            background: var(--glass-surface); backdrop-filter: blur(25px);
-            border-radius: 35px; border: 1px solid rgba(255, 255, 255, 0.1);
-            padding: 40px; text-align: center; max-width: 90%;
+            background: var(--glass-surface);
+            backdrop-filter: blur(25px);
+            border-radius: 35px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 40px;
+            text-align: center;
+            max-width: 90%;
         }
+
         .config-input {
-            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
-            border-radius: 12px; padding: 12px 16px; color: #ffffff; font-size: 16px;
-            margin: 20px 0; width: 100%; box-sizing: border-box;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 12px;
+            padding: 12px 16px;
+            color: #ffffff;
+            font-size: 16px;
+            margin: 20px 0;
+            width: 100%;
+            box-sizing: border-box;
+            outline: none;
         }
+
+        .config-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
         .config-btn {
-            background: rgba(136, 255, 204, 0.2); border: 1px solid rgba(136, 255, 204, 0.3);
-            border-radius: 12px; padding: 12px 24px; color: rgba(136, 255, 204, 0.9);
-            font-weight: 600; cursor: pointer; margin-top: 10px;
+            background: rgba(136, 255, 204, 0.2);
+            border: 1px solid rgba(136, 255, 204, 0.3);
+            border-radius: 12px;
+            padding: 12px 24px;
+            color: rgba(136, 255, 204, 0.9);
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
         }
 
         /* --- MENU OVERLAY AGGIORNATO (Griglia 3x3) --- */
         #menu-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(43, 46, 74, 0.4); backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px); z-index: 500;
-            display: flex; justify-content: center; align-items: center;
-            opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(43, 46, 74, 0.4);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 500;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
         }
-        #menu-overlay.visible { opacity: 1; pointer-events: auto; }
+
+        #menu-overlay.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
 
         .arrow-grid {
             display: grid;
-            grid-template-columns: repeat(3, 1fr); /* 3 Colonne */
+            grid-template-columns: repeat(3, 1fr);
+            /* 3 Colonne */
             gap: 15px;
             width: 85%;
             max-width: 350px;
             transform: translateY(20px);
             transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
-        #menu-overlay.visible .arrow-grid { transform: translateY(0); }
+
+        #menu-overlay.visible .arrow-grid {
+            transform: translateY(0);
+        }
 
         .menu-btn-item {
-            width: 100%; /* Si adatta alla griglia */
-            aspect-ratio: 1; /* Mantiene proporzione quadrata */
+            width: 100%;
+            /* Si adatta alla griglia */
+            aspect-ratio: 1;
+            /* Mantiene proporzione quadrata */
             border-radius: 25px;
-            display: flex; flex-direction: column;
-            justify-content: center; align-items: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
             font-size: 14px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
             text-align: center;
         }
 
-        .menu-btn-item svg { width: 24px; height: 24px; margin-bottom: 4px; }
-        .span-2 { grid-column: span 2; aspect-ratio: auto; height: 80px; }
+        .menu-btn-item svg {
+            width: 24px;
+            height: 24px;
+            margin-bottom: 4px;
+        }
+
+        .span-2 {
+            grid-column: span 2;
+            aspect-ratio: auto;
+            height: 80px;
+        }
     </style>
 </head>
+
 <body>
 
-    <div class="config-panel" id="configPanel">
+    <div class="config-panel hidden" id="configPanel">
         <div class="config-content">
             <h1>🖱️ Liquid Mouse</h1>
-            <p>Inserisci l'indirizzo IP del Server</p>
-            <input type="text" id="ipInput" class="config-input" placeholder="Es: 192.168.1.100" autocomplete="off">
-            <button class="config-btn" id="connectBtn">CONNETTI</button>
+            <p>Configurazione Indirizzo IP Server Host</p>
+            <input type="text" id="ipInput" class="config-input" placeholder="Esempio: 192.168.1.100"
+                autocomplete="off">
+            <button class="config-btn" id="connectBtn">STABILISCI CONNESSIONE</button>
         </div>
     </div>
 
@@ -198,8 +338,11 @@
     <div class="buttons-container">
         <div id="btn-left" class="fluid-panel mouse-btn">L</div>
         <div id="btn-menu" class="fluid-panel mouse-btn">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle><circle cx="5" cy="12" r="2"></circle>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="2"></circle>
+                <circle cx="19" cy="12" r="2"></circle>
+                <circle cx="5" cy="12" r="2"></circle>
             </svg>
         </div>
         <div id="btn-right" class="fluid-panel mouse-btn">R</div>
@@ -211,28 +354,48 @@
                 <span style="font-weight: 700; font-size: 13px;">ESC</span>
             </div>
             <div id="btn-copy" class="fluid-panel menu-btn-item">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
             </div>
             <div id="btn-paste" class="fluid-panel menu-btn-item">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                    <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                </svg>
             </div>
 
             <div id="btn-ctrl" class="fluid-panel menu-btn-item">
                 <span style="font-weight: 700; font-size: 13px;">CTRL</span>
             </div>
             <div id="btn-keyboard" class="fluid-panel menu-btn-item">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M7 16h10"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+                    <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M7 16h10" />
+                </svg>
             </div>
             <div id="btn-shift" class="fluid-panel menu-btn-item">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <path d="M12 19V5M5 12l7-7 7 7" />
+                </svg>
             </div>
-            
+
             <div id="btn-select-all" class="fluid-panel menu-btn-item">
-                <span style="font-size: 12px; line-height: 1.1;"><b>SEL</b><br>ALL</span>
+                <span style="font-size: 11px; line-height: 1.1;"><b>SELEZIONA</b><br>TUTTO</span>
             </div>
-            <div id="btn-drag" class="fluid-panel menu-btn-item span-2" style="color: #ffcc00; flex-direction: row; gap: 10px;">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-                <span style="font-weight: bold; font-size: 14px;">DRAG</span>
+            <div id="btn-drag" class="fluid-panel menu-btn-item span-2"
+                style="color: #ffcc00; flex-direction: row; gap: 10px;">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                <span style="font-weight: bold; font-size: 14px;">TRASCINA</span>
             </div>
         </div>
     </div>
@@ -254,24 +417,39 @@
             ws = new WebSocket(`ws://${ip.trim()}:8765`);
 
             ws.onopen = () => {
-                statusDiv.innerText = "CONNESSO"; statusDiv.style.color = "#88ffcc";
+                statusDiv.innerText = "CONNESSIONE STABILITA"; statusDiv.style.color = "#88ffcc";
                 configPanel.classList.add('hidden'); saveIP(ip.trim());
             };
-            ws.onclose = () => { statusDiv.innerText = "OFFLINE"; statusDiv.style.color = "#ff8888"; resetLocks(); };
-            ws.onerror = () => { statusDiv.innerText = "ERRORE"; statusDiv.style.color = "#ff6666"; resetLocks(); };
+            ws.onclose = () => { statusDiv.innerText = "SESSIONE TERMINATA"; statusDiv.style.color = "#ff8888"; resetLocks(); configPanel.classList.remove('hidden'); };
+            ws.onerror = () => { statusDiv.innerText = "ERRORE DI RETE"; statusDiv.style.color = "#ff6666"; resetLocks(); configPanel.classList.remove('hidden'); };
         }
 
         connectBtn.addEventListener('click', () => connectServer(ipInput.value));
         ipInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') connectServer(ipInput.value); });
 
         const savedIP = loadIP();
-        if (savedIP) { ipInput.value = savedIP; connectServer(savedIP); }
+        const currentHostname = window.location.hostname;
+
+        let shouldConnectIP = null;
+        if (currentHostname && currentHostname !== 'localhost' && currentHostname !== '127.0.0.1' && currentHostname !== '') {
+            shouldConnectIP = currentHostname;
+        } else if (savedIP) {
+            shouldConnectIP = savedIP;
+        }
+
+        if (shouldConnectIP) {
+            ipInput.value = shouldConnectIP;
+            connectServer(shouldConnectIP);
+        } else {
+            // Mostra il pannello solo se non abbiamo un IP a cui connetterci
+            configPanel.classList.remove('hidden');
+        }
 
         // --- MOVIMENTO CURSORE ---
         let moveX = 0, moveY = 0, isMoving = false;
         setInterval(() => {
             if (isMoving && ws && ws.readyState === WebSocket.OPEN && (moveX !== 0 || moveY !== 0)) {
-                ws.send(JSON.stringify({type: 'move', x: moveX, y: moveY}));
+                ws.send(JSON.stringify({ type: 'move', x: moveX, y: moveY }));
                 moveX = 0; moveY = 0; isMoving = false;
             }
         }, 16);
@@ -283,17 +461,17 @@
             e.preventDefault(); touchActive = true;
             lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
             moveX = 0; moveY = 0;
-        }, {passive: false});
+        }, { passive: false });
 
         pad.addEventListener('touchmove', (e) => {
             e.preventDefault(); if (!touchActive) return;
             const cx = e.touches[0].clientX; const cy = e.touches[0].clientY;
             moveX += (cx - lastX); moveY += (cy - lastY);
             isMoving = true; lastX = cx; lastY = cy;
-        }, {passive: false});
+        }, { passive: false });
 
-        pad.addEventListener('touchend', () => { touchActive = false; }, {passive: false});
-        pad.addEventListener('touchcancel', () => { touchActive = false; }, {passive: false});
+        pad.addEventListener('touchend', () => { touchActive = false; }, { passive: false });
+        pad.addEventListener('touchcancel', () => { touchActive = false; }, { passive: false });
 
         // --- SCROLL ---
         let scrollAccumulator = 0;
@@ -303,9 +481,9 @@
 
         setInterval(() => {
             if (scrollTouchActive && ws && ws.readyState === WebSocket.OPEN && Math.abs(scrollAccumulator) >= 1) {
-                const scrollAmount = Math.round(scrollAccumulator / 1.5); 
+                const scrollAmount = Math.round(scrollAccumulator / 1.5);
                 if (scrollAmount !== 0) {
-                    ws.send(JSON.stringify({type: 'scroll', amount: scrollAmount}));
+                    ws.send(JSON.stringify({ type: 'scroll', amount: scrollAmount }));
                     scrollAccumulator -= scrollAmount * 1.5;
                 }
             }
@@ -314,7 +492,7 @@
         scrollbar.addEventListener('touchstart', (e) => {
             e.preventDefault(); scrollTouchActive = true;
             scrollLastY = e.touches[0].clientY; scrollAccumulator = 0;
-        }, {passive: false});
+        }, { passive: false });
 
         scrollbar.addEventListener('touchmove', (e) => {
             e.preventDefault(); if (!scrollTouchActive) return;
@@ -322,13 +500,13 @@
             const delta = cy - scrollLastY;
             scrollAccumulator += delta * 3.0;
             scrollLastY = cy;
-        }, {passive: false});
+        }, { passive: false });
 
-        scrollbar.addEventListener('touchend', () => { scrollTouchActive = false; }, {passive: false});
+        scrollbar.addEventListener('touchend', () => { scrollTouchActive = false; }, { passive: false });
 
         // --- CLICK ---
         const sendClick = (btn) => {
-            if(ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'click', btn: btn}));
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'click', btn: btn }));
         };
         document.getElementById('btn-left').addEventListener('click', () => sendClick('left'));
         document.getElementById('btn-right').addEventListener('click', () => sendClick('right'));
@@ -336,7 +514,7 @@
         // --- MENU E LOCKS ---
         const btnMenu = document.getElementById('btn-menu');
         const menuOverlay = document.getElementById('menu-overlay');
-        
+
         // Stati Tasti Lock
         let locks = { drag: false, ctrl: false, shift: false };
 
@@ -351,16 +529,16 @@
             locks[key] = !locks[key];
             const isActive = locks[key];
             updateLockUI(btnId, isActive);
-            
+
             if (navigator.vibrate) navigator.vibrate(50);
-            
-            if(ws && ws.readyState === WebSocket.OPEN) {
-                if(key === 'drag') {
-                    ws.send(JSON.stringify({type: 'drag', state: isActive ? 'down' : 'up'}));
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                if (key === 'drag') {
+                    ws.send(JSON.stringify({ type: 'drag', state: isActive ? 'down' : 'up' }));
                     // Feedback visivo sul bottone menu principale se drag è attivo
-                    if(isActive) btnMenu.classList.add('lock-active'); else btnMenu.classList.remove('lock-active');
+                    if (isActive) btnMenu.classList.add('lock-active'); else btnMenu.classList.remove('lock-active');
                 } else {
-                    ws.send(JSON.stringify({type: 'key_toggle', key: key, state: isActive ? 'down' : 'up'}));
+                    ws.send(JSON.stringify({ type: 'key_toggle', key: key, state: isActive ? 'down' : 'up' }));
                 }
             }
             // Chiudi menu solo se disattivi, altrimenti lascia aperto per combo? 
@@ -370,7 +548,7 @@
 
         function updateLockUI(id, active) {
             const el = document.getElementById(id);
-            if(active) el.classList.add('lock-active'); else el.classList.remove('lock-active');
+            if (active) el.classList.add('lock-active'); else el.classList.remove('lock-active');
         }
 
         btnMenu.addEventListener('click', () => menuOverlay.classList.add('visible'));
@@ -385,22 +563,22 @@
         document.getElementById('btn-shift').addEventListener('click', () => toggleLock('shift', 'btn-shift'));
 
         document.getElementById('btn-esc').addEventListener('click', () => {
-            if(ws) ws.send(JSON.stringify({type: 'key', key: 'esc'}));
+            if (ws) ws.send(JSON.stringify({ type: 'key', key: 'esc' }));
             updateTextDisplay("ESC"); closeMenu();
         });
 
         document.getElementById('btn-copy').addEventListener('click', () => {
-            if(ws) ws.send(JSON.stringify({type: 'hotkey', keys: ['ctrl', 'c']}));
+            if (ws) ws.send(JSON.stringify({ type: 'hotkey', keys: ['ctrl', 'c'] }));
             updateTextDisplay("COPIA"); closeMenu();
         });
 
         document.getElementById('btn-paste').addEventListener('click', () => {
-            if(ws) ws.send(JSON.stringify({type: 'hotkey', keys: ['ctrl', 'v']}));
+            if (ws) ws.send(JSON.stringify({ type: 'hotkey', keys: ['ctrl', 'v'] }));
             updateTextDisplay("INCOLLA"); closeMenu();
         });
 
         document.getElementById('btn-select-all').addEventListener('click', () => {
-            if(ws) ws.send(JSON.stringify({type: 'hotkey', keys: ['ctrl', 'a']}));
+            if (ws) ws.send(JSON.stringify({ type: 'hotkey', keys: ['ctrl', 'a'] }));
             updateTextDisplay("ALL"); closeMenu();
         });
 
@@ -422,43 +600,44 @@
 
         let previousValue = ''; let inputHandled = false;
         hiddenInput.addEventListener('input', (e) => {
-            if(!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
             const val = hiddenInput.value;
             if (val.length > previousValue.length) {
                 const added = val.substring(previousValue.length);
-                for (let c of added) { ws.send(JSON.stringify({type: 'text', char: c})); updateTextDisplay(c); }
+                for (let c of added) { ws.send(JSON.stringify({ type: 'text', char: c })); updateTextDisplay(c); }
             } else if (val.length < previousValue.length) {
                 const del = previousValue.length - val.length;
-                for (let i=0; i<del; i++) { ws.send(JSON.stringify({type: 'key', key: 'backspace'})); updateTextDisplay('⌫'); }
+                for (let i = 0; i < del; i++) { ws.send(JSON.stringify({ type: 'key', key: 'backspace' })); updateTextDisplay('⌫'); }
             }
             previousValue = val;
         });
 
         hiddenInput.addEventListener('keydown', (e) => {
-            if(!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
             if (e.key === 'Enter') {
-                e.preventDefault(); ws.send(JSON.stringify({type: 'key', key: 'enter'}));
+                e.preventDefault(); ws.send(JSON.stringify({ type: 'key', key: 'enter' }));
                 updateTextDisplay('↵'); previousValue = ''; hiddenInput.value = '';
             } else if (e.key === 'Backspace') {
                 setTimeout(() => {
                     if (hiddenInput.value.length === previousValue.length) {
-                        ws.send(JSON.stringify({type: 'key', key: 'backspace'})); updateTextDisplay('⌫');
+                        ws.send(JSON.stringify({ type: 'key', key: 'backspace' })); updateTextDisplay('⌫');
                     }
                 }, 10);
             }
         });
 
         // --- EFFETTI TOUCH UI ---
-        ['btn-left','btn-right','btn-menu','touchpad','scrollbar'].forEach(id => {
+        ['btn-left', 'btn-right', 'btn-menu', 'touchpad', 'scrollbar'].forEach(id => {
             const el = document.getElementById(id);
-            el.addEventListener('touchstart', () => el.classList.add('fluid-pressed'), {passive: true});
-            el.addEventListener('touchend', () => el.classList.remove('fluid-pressed'), {passive: true});
+            el.addEventListener('touchstart', () => el.classList.add('fluid-pressed'), { passive: true });
+            el.addEventListener('touchend', () => el.classList.remove('fluid-pressed'), { passive: true });
         });
         document.querySelectorAll('.menu-btn-item').forEach(el => {
-            el.addEventListener('touchstart', () => el.classList.add('fluid-pressed'), {passive: true});
-            el.addEventListener('touchend', () => el.classList.remove('fluid-pressed'), {passive: true});
+            el.addEventListener('touchstart', () => el.classList.add('fluid-pressed'), { passive: true });
+            el.addEventListener('touchend', () => el.classList.remove('fluid-pressed'), { passive: true });
         });
 
     </script>
 </body>
+
 </html>

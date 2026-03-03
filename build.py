@@ -1,6 +1,6 @@
 """
-🔨 Liquid Mouse Builder
-Questo script crea l'eseguibile standalone (EXE) per Windows.
+🔨 Liquid Mouse Deployment Suite
+Utility per la generazione dell'eseguibile standalone (EXE) per sistemi Windows.
 """
 import os
 import subprocess
@@ -8,78 +8,78 @@ import sys
 import shutil
 
 def check_files():
-    """Verifica la presenza dei file essenziali"""
+    """Verifica l'integrità dei componenti essenziali del progetto."""
     required = ["server.pyw", "index.html"]
     missing = [f for f in required if not os.path.exists(f)]
     
     if missing:
-        print(f"❌ Errore: Mancano i seguenti file: {', '.join(missing)}")
+        print(f"❌ Errore Critico: Componenti mancanti: {', '.join(missing)}")
         return False
     return True
 
 def build():
     print("="*50)
-    print("   🖱️  LIQUID MOUSE BUILDER")
+    print("   🖱️  LIQUID MOUSE - DEPLOYMENT UTILITY")
     print("="*50)
 
-    # 1. Installa PyInstaller se necessario
-    print("\n📦 Verifica PyInstaller...")
+    # 1. Verifica infrastruttura di compilazione
+    print("\n📦 Verifica ambiente PyInstaller...")
     try:
         import PyInstaller
-        print("   ✅ PyInstaller trovato.")
+        print("   ✅ Infrastruttura di compilazione rilevata.")
     except ImportError:
-        print("   ⬇️  Installazione PyInstaller in corso...")
+        print("   ⬇️  Installazione dei moduli necessari in corso...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
 
-    # 2. Configurazione Build
+    # 2. Configurazione e Validazione
     if not check_files():
         return
 
-    # Opzioni PyInstaller
+    # Definizione parametri PyInstaller
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--noconsole",              # Niente finestra nera cmd
-        "--onefile",                # Unico file .exe
-        "--name", "LiquidMouse",    # Nome output
-        "--clean",                  # Pulisci cache
+        "--noconsole",              # Silenzia l'output del terminale utente
+        "--onefile",                # Pacchetto eseguibile singolo
+        "--name", "LiquidMouse",    # Identificativo dell'applicazione
+        "--clean",                  # Svuotamento della cache di build
         "--log-level", "WARN",
         
-        # Includi index.html nella root dell'exe
+        # Integrazione risorse statiche
         "--add-data", "index.html;.", 
     ]
 
-    # Aggiungi icona se esiste
+    # Gestione asset grafici (Icona)
     if os.path.exists("icon.ico"):
-        print("   🎨 Icona trovata: icon.ico")
+        print("   🎨 Asset grafico rilevato: icon.ico")
         cmd.extend(["--icon", "icon.ico", "--add-data", "icon.ico;."])
     else:
-        print("   ⚠️  Icona non trovata (verrà usata quella di default)")
+        print("   ⚠️  Asset grafico (icona) non rilevato. Verrà utilizzata la risorsa di sistema predefinita.")
 
     cmd.append("server.pyw")
 
-    # Pulizia preventiva: Rimuove il vecchio EXE se esiste
+    # Gestione sovrascrittura versioni precedenti
     exe_out = os.path.join("dist", "LiquidMouse.exe")
     if os.path.exists(exe_out):
         try:
             os.remove(exe_out)
-            print("   🗑️  Vecchia versione rimossa.")
+            print("   🗑️  Rimozione della versione precedente completata.")
         except OSError:
-            print(f"\n❌ ERRORE: Impossibile sovrascrivere il file.")
-            print("   ⚠️  Sembra che Liquid Mouse sia ancora APERTO. Chiudilo e riprova.")
+            print(f"\n❌ Errore di I/O: Impossibile sovrascrivere il binario esistente.")
+            print("   ⚠️  Il processo 'Liquid Mouse' risulta attualmente in esecuzione. Terminare l'applicazione e riprovare.")
             return
 
-    # 3. Esecuzione
-    print("\n🚀 Avvio compilazione (potrebbe richiedere qualche minuto)...")
+    # 3. Processo di Compilazione
+    print("\n🚀 Avvio del processo di build (la procedura potrebbe richiedere alcuni minuti)...")
     try:
         subprocess.check_call(cmd)
-        print("\n✅ BUILD COMPLETATA CON SUCCESSO!")
+        print("\n✅ OPERAZIONE COMPLETATA: Binario generato con successo.")
         
         exe_path = os.path.abspath(os.path.join("dist", "LiquidMouse.exe"))
-        print(f"\n📂 Il tuo file è pronto qui:\n   {exe_path}")
+        print(f"\n📂 Percorso di output:\n   {exe_path}")
         
     except subprocess.CalledProcessError:
-        print("\n❌ Errore durante la compilazione.")
+        print("\n❌ Errore fatale durante la fase di compilazione.")
 
 if __name__ == "__main__":
     build()
-    input("\nPremi Invio per uscire...")
+    input("\nPremere un tasto per terminare la sessione...")

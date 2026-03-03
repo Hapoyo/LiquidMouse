@@ -1,166 +1,107 @@
-# 🖱️ Liquid Mouse v1.6.0 (Enhanced Input Edition)
+# 🖱️ Liquid Mouse
 
-Liquid Mouse trasforma il tuo smartphone in un touchpad wireless fluido e professionale per il tuo computer, operante interamente sulla rete Wi-Fi locale.
+Liquid Mouse è una soluzione software avanzata progettata per trasformare il proprio dispositivo mobile in un'interfaccia di input wireless (touchpad) ad alte prestazioni. Il sistema opera esclusivamente all'interno della rete locale (LAN), garantendo elevati standard di privacy e prestazioni in tempo reale.
 
-## ✨ Funzionalità Principali
+## 🛠️ Caratteristiche Principali
 
-* **Fluid Touch:** Movimento del cursore a bassa latenza.
-* **Smart Menu:** Menu centrale a comparsa con strumenti rapidi e Clipboard (Copia/Incolla).
-* **Smart Scrolling:** Scorrimento inerziale ad alta sensibilità.
-* **Funzioni Avanzate:** Drag & Drop, Seleziona Tutto (Ctrl+A), Tastiera Remota.
-* **Server GUI:** Interfaccia moderna con supporto System Tray e Icone Personalizzate.
-* **Privacy First:** Nessun cloud, funziona solo sulla rete locale.
+* **Controllo Cursore a Bassa Latenza:** Utilizza lo smartphone come un touchpad reattivo.
+* **Connessione Immediata tramite QR Code:** Collega il dispositivo scansionando il codice QR generato dal server.
+* **Menu Rapido e Scorciatoie:** Accesso diretto a funzioni essenziali come Copia, Incolla e Seleziona Tutto.
+* **Scroll Fluido:** Scorrimento integrato per la navigazione dei documenti.
+* **Input Avanzato:** Supporto per trascinamento (Drag & Drop) e digitazione da tastiera remota.
+* **Modalità Background:** Il server può operare in modo silenzioso tramite la System Tray.
+* **Nessun Cloud:** L'intera comunicazione avviene localmente (LAN), garantendo massima privacy.
 
-## ⚠️ Limitazioni Importanti
+## ⚠️ Note Sulla Sicurezza e Limitazioni
 
-* **Schermata di Login/Blocco:** A causa delle restrizioni di sicurezza di Windows (Secure Desktop), l'applicazione **non può interagire** con la schermata di login o quando il PC è bloccato. È necessario utilizzare un mouse/tastiera fisica per inserire la password. Una volta effettuato l'accesso, Liquid Mouse inizierà a funzionare immediatamente.
+* **Restrizioni Secure Desktop:** In conformità con i protocolli di sicurezza di Microsoft Windows (Secure Desktop), l'applicazione non dispone dei privilegi necessari per interagire con le schermate di sistema critiche, come il login o il blocco utente. L'operatività standard riprende automaticamente una volta effettuato l'accesso al sistema.
 
-## 🚀 Guida Rapida
+## 🚀 Guida all'Installazione e Configurazione
 
-### Prerequisiti Minimi
+### Requisiti Minimi di Sistema
 
-- **Python 3.7+** installato
-- **Smartphone** con browser web
-- **WiFi:** Computer e smartphone sulla stessa rete
+* **Runtime:** Python 3.7 o versioni successive.
+* **Client:** Dispositivo mobile dotato di browser web moderno.
+* **Rete:** Connettività Wi-Fi condivisa tra Host (PC) e Client (Smartphone).
 
-### ⚡ Avvio Immediato
+### ⚡ Procedure di Avvio
 
-#### Opzione 1: EXE Compilato (Consigliato per Windows)
+#### Opzione 1: Eseguibile Binario (Consigliato per Windows)
 
-1. **Scarica** l'ultima versione da [Releases](https://github.com/tuonome/LiquidMouse/releases)
-2. **Estrai** il file `.exe` 
-3. **Doppio click** per avviare il server
-4. **Dal telefono:** Apri il browser, inserisci l'IP e connettiti
-5. **Pronto!** 🎉 Usa lo schermo come touchpad
+1. **Download:** Prelevare l'ultima release stabile dalla sezione [Releases](https://github.com/tuonome/LiquidMouse/releases).
+2. **Estrazione:** Decomprimere l'archivio e individuare il file `.exe`.
+3. **Inizializzazione:** Eseguire l'applicazione per avviare il servizio server.
+4. **Connessione Client:** Inquadrare il **QR Code** mostrato sulla console con la fotocamera dello smartphone oppure accedere all'URL specificato.
 
-#### Opzione 2: Python (Per Sviluppatori / macOS / Linux)
+#### Opzione 2: Esecuzione tramite Sorgente (Cross-platform)
 
-1. **Apri il terminale** nella cartella del progetto
+1. Posizionarsi nella directory radice del progetto tramite terminale.
+2. Installare le dipendenze necessarie: `pip install pystray Pillow qrcode`
+3. Avviare il servizio utilizzando il comando appropriato per il sistema operativo in uso:
+    * **Windows:** `python server.pyw`
+    * **macOS/Linux:** `python3 server.pyw`
+4. L'interfaccia mostrerà un **QR Code** e le credenziali di rete per la connessione:
 
-2. **Esegui:**
+    ```text
+    ==================================================
+       🖱️  LIQUID MOUSE SERVER CONTROL
+    ==================================================
+    📡 Host IP: 192.168.1.100
+    📱 Access URL: http://192.168.1.100:8000
+    [ QR CODE VISIBILE NELLA GUI ]
+    ==================================================
+    ```
 
-   ```
-   python server.pyw        # Windows
-   python3 server.pyw       # macOS/Linux
-   ```
+5. Scansionare il QR Code o inserire l'URL nel browser del dispositivo mobile per stabilire il collegamento.
 
-3. **Vedrai:**
+## 🖥️ Compatibilità Sistemi Operativi
 
-   ```
-   ==================================================
-      🖱️  LIQUID MOUSE SERVER
-   ==================================================
-   📡 IP: 192.168.1.100
-   📱 Apri nel telefono: http://192.168.1.100:8000
-   ==================================================
-   ```
+* Microsoft Windows 10/11
+* Apple macOS (Intel e Apple Silicon)
+* Distribuzioni Linux (Ubuntu, Debian, Fedora e derivate)
 
-4. **Dal telefono:** Apri il browser, inserisci l'IP e connettiti
+## 🛠️ Risoluzione Problemi (Troubleshooting)
 
-5. **Pronto!** 🎉 Usa lo schermo come touchpad
+### Assenza del Runtime Python
 
-### 🖥️ Sistemi Supportati
+* Consultare il portale ufficiale [python.org](https://python.org).
+* Assicurarsi di selezionare l'opzione "Add Python to PATH" durante la fase di installazione.
 
-- Windows 10/11
-- macOS (Intel/Apple Silicon)
-- Linux (Ubuntu, Debian, Fedora, ecc.)
+### Conflitti di Rete (Porte Occupate)
 
-### 🐛 Troubleshooting
-
-#### "Python non trovato"
-
-- Scarica da https://python.org
-- Spunta "Add Python to PATH" durante l'installazione
-
-#### "Porta 8765 o 8000 occupata"
+Nel caso in cui le porte 8765 o 8000 risultino già impegnate da altri processi:
 
 **Windows:**
 
-```
+```powershell
 netstat -ano | findstr :8765
-taskkill /PID <numero> /F
+taskkill /PID <numero_processo> /F
 ```
 
 **macOS/Linux:**
 
-```
+```bash
 lsof -i :8765
-kill -9 <numero>
+kill -9 <pid_processo>
 ```
 
-### 📱 Accesso da Smartphone
+## 📱 Dettagli sulla Connettività Mobile
 
-#### 🔗 URL Corrette
+### Protocolli di Indirizzamento
 
-- Stesso dispositivo (debug): `http://localhost:8000`
-- Stessa rete: `http://192.168.1.100:8000`
-- Rete diversa: Aggiungi SSL/TLS (vedi MANIFEST.md)
+* **Ambiente di test:** `http://localhost:8000`
+* **Rete Locale Standard:** `http://192.168.x.x:8000`
+* **Connessioni Sicure:** Per implementazioni SSL/TLS, fare riferimento al file `MANIFEST.md`.
 
-#### 🌐 Browser Compatibili
+### Browser Supportati
 
 | Browser | iOS | Android | Note |
-|---------|-----|---------|------|
-| Safari | ✅ | - | iOS 13+ |
-| Chrome | ✅ | ✅ | Consigliato |
-| Firefox | ⚠️ | ✅ | Possibili problemi su iOS |
-| Edge | ❌ | ✅ | Non testato su iOS |
-| Opera | ❌ | ✅ | Funziona |
+| :--- | :---: | :---: | :--- |
+| **Safari** | ✅ | - | Richiede iOS 13+ |
+| **Chrome** | ✅ | ✅ | Raccomandato per stabilità |
+| **Firefox** | ⚠️ | ✅ | Possibili limitazioni su iOS |
+| **Edge** | ❌ | ✅ | Supporto in fase di test su iOS |
+| **Opera** | ❌ | ✅ | Funzionalità standard verificata |
 
-## 📜 Changelog
-
-Tutti i cambiamenti importanti a questo progetto saranno documentati qui.
-
-### [1.5.0] - 2026-01-17 (Terminal Edition)
-
-#### ✨ Aggiunto
-
-- **Terminal GUI:** Nuova interfaccia server in stile terminale virtuale con animazioni di boot.
-- **Design System:** Aggiornato il tema grafico a "Terminal Dark" (Nero/Verde) su tutti i dispositivi.
-
-### [1.4.0] - 2026-01-16 (Smart Menu Edition)
-
-#### ✨ Aggiunto
-
-- **Smart Menu:** Nuovo pulsante centrale che apre un menu a raggiera con gli strumenti.
-- **Clipboard:** Aggiunti pulsanti Copia (Ctrl+C) e Incolla (Ctrl+V) nel menu centrale.
-- **UI:** Layout ottimizzato con margini ridotti per avvicinare i controlli al touchpad.
-
-#### 🔧 Modificato
-
-- **UX:** Raggruppati i tasti Tastiera, Drag e Select All nel nuovo menu per pulire l'interfaccia principale.
-
-### [1.3.2] - 2026-01-15 (Stability & Typing)
-
-#### ✨ Aggiunto
-
-- **Typing:** Supporto automatico per "smart quotes" (virgolette curve) da mobile.
-- **Debounce:** Filtro anti-rimbalzo per il tasto Backspace (evita cancellazioni doppie involontarie).
-- **Sicurezza:** Chiusura forzata pulita dell'applicazione (`os._exit`).
-
-#### 🔧 Modificato
-
-- **Docs:** Aggiornata documentazione con avvisi su Secure Desktop (Login Windows).
-- **Core:** Ottimizzazione gestione percorsi e caricamento risorse.
-
-### [1.2.0] - 2026-01-14 (Tray Edition)
-
-#### ✨ Aggiunto
-
-- **GUI (Interfaccia Grafica):** Sostituito il terminale nero con una finestra moderna in stile Liquid Mouse.
-- **System Tray:** Il server ora si riduce a icona nella barra delle applicazioni invece di chiudersi.
-- **Drag & Drop:** Nuovo pulsante "Lucchetto" per trascinare finestre e oggetti.
-- **Select All:** Nuovo pulsante "SEL ALL" per selezionare tutto (Ctrl+A).
-
-#### 🔧 Modificato
-
-- **Scroll:** Aumentata notevolmente la sensibilità dello scroll verticale per maggiore fluidità.
-- **Design:** Migliorata leggibilità nella pagina di configurazione (testo bianco su sfondo scuro).
-- **Stabilità:** Aggiunto rilascio automatico del mouse in caso di disconnessione durante il trascinamento.
-
-### [1.0.0] - 2026-01-12
-
-#### ✨ Aggiunto
-
-- Versione stabile iniziale del progetto.
-* Server WebSocket base.
-* Interfaccia web responsive.
+---
+© 2026 Liquid Mouse Project - Sviluppato per l'eccellenza operativa.

@@ -18,14 +18,15 @@ import sys
 import ctypes
 import time
 
-# --- GESTIONE DIPENDENZE ---
+# --- GESTIONE DEI MODULI E DELLE DIPENDENZE ---
 try:
     import pystray
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageDraw, ImageTk
+    import qrcode
 except ImportError:
     temp_root = tk.Tk()
     temp_root.withdraw()
-    messagebox.showerror("Errore Librerie", "Mancano le librerie 'pystray' o 'Pillow'.\n\nEsegui nel terminale:\npip install pystray Pillow")
+    messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
 # --- CONFIGURAZIONE SISTEMA ---
@@ -75,7 +76,7 @@ def get_local_ip():
 
 # --- BACKEND (WebSocket & HTTP) ---
 async def handler(websocket):
-    log_message("Dispositivo connesso", color=COLOR_ACCENT)
+    log_message("Sessione Client Attivata", color=COLOR_ACCENT)
     last_backspace_time = 0
     held_keys = set() # Tiene traccia dei tasti bloccati (Ctrl, Shift, ecc)
 
@@ -157,7 +158,7 @@ def start_http_server():
 
 async def start_websocket_server():
     ip = get_local_ip()
-    log_message("Server avviato. In attesa...", color="#aaaaaa")
+    log_message("Protocolli di comunicazione inizializzati.", color="#aaaaaa")
     try:
         async with websockets.serve(handler, "0.0.0.0", PORT, ping_interval=None):
             await asyncio.Future()
@@ -187,7 +188,6 @@ def create_tray_icon():
 
 def minimize_to_tray():
     root.withdraw()
-    if tray_icon: tray_icon.notify("Server attivo in background", "Liquid Mouse")
 
 def restore_window(icon=None, item=None):
     root.deiconify()
@@ -209,7 +209,7 @@ def setup_gui():
     global ip_label_var, status_var, status_label
     
     root.title("Liquid Mouse")
-    w, h = 440, 260
+    w, h = 520, 260
     ws = root.winfo_screenwidth()
     hs = root.winfo_screenheight()
     x = (ws/2) - (w/2)
@@ -272,21 +272,35 @@ def setup_gui():
     lbl_ip_header.place(x=40, y=90)
     
     ip_label_var = tk.StringVar(value="")
-    tk.Label(root, textvariable=ip_label_var, font=("Consolas", 18), bg=COLOR_BG, fg=COLOR_TEXT).place(x=40, y=110)
+    tk.Label(root, textvariable=ip_label_var, font=("Consolas", 16), bg=COLOR_BG, fg=COLOR_TEXT).place(x=40, y=110)
     
+    # -- QR CODE GENERATION --
+    qr_url = f"http://{get_local_ip()}:{HTTP_PORT}/?v={int(time.time())}"
+    try:
+        qr = qrcode.QRCode(version=1, box_size=3, border=1)
+        qr.add_data(qr_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        root.qr_photo = ImageTk.PhotoImage(img)
+        qr_label = tk.Label(root, image=root.qr_photo, bg=COLOR_BG)
+        qr_label.place(x=400, y=90)
+    except Exception as e:
+        log_message(f"QR Error: {e}", color=COLOR_ERROR)
+    
+
     lbl_status_header = tk.Label(root, text="", font=("Consolas", 8, "bold"), bg=COLOR_BG, fg=COLOR_MUTED)
     lbl_status_header.place(x=40, y=170)
 
     status_var = tk.StringVar(value="")
-    status_label = tk.Label(root, textvariable=status_var, font=("Consolas", 10), bg=COLOR_BG, fg=COLOR_MUTED)
+    status_label = tk.Label(root, textvariable=status_var, font=("Consolas", 9), bg=COLOR_BG, fg=COLOR_MUTED)
     status_label.place(x=40, y=190)
 
     anim_sequence = [
         (title_lbl, ">_ Liquid Mouse", 30),
-        (lbl_ip_header, "INDIRIZZO SERVER", 10),
+        (lbl_ip_header, "INDIRIZZO IP HOST", 10),
         (ip_label_var, f"{get_local_ip()}:{HTTP_PORT}", 20),
-        (lbl_status_header, "STATO", 10),
-        (status_var, "Avvio servizi...", 20)
+        (lbl_status_header, "STATO DEL SISTEMA", 10),
+        (status_var, "Inizializzazione...", 20)
     ]
     root.after(300, lambda: type_sequence(anim_sequence))
 
