@@ -227,13 +227,18 @@
         /* --- MENU OVERLAY AGGIORNATO (Griglia 3x3) --- */
         #menu-overlay {
             position: fixed;
-            inset: 0;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             background: rgba(43, 46, 74, 0.4);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             z-index: 500;
-            display: grid;
-            place-items: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
             opacity: 0;
             pointer-events: none;
             transition: opacity 0.2s ease;
@@ -248,8 +253,8 @@
             display: grid;
             grid-template-columns: repeat(3, 1fr);
             gap: 15px;
-            width: 85%;
-            max-width: 350px;
+            width: min(85vw, 350px);
+            margin: 0 auto;
             transform: translateY(20px);
             transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
@@ -371,8 +376,15 @@
                 </svg>
                 <span style="font-weight: bold; font-size: 14px;">TRASCINA</span>
             </div>
+
+            <div id="btn-media-play" class="fluid-panel menu-btn-item span-2">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24" style="margin-right:8px;">
+                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                </svg>
+                <span style="font-weight:bold;font-size:13px;">PLAY / PAUSA</span>
+            </div>
         </div>
-        <div style="position:absolute;bottom:30px;width:85%;max-width:350px;color:rgba(255,255,255,0.45);font-size:11px;letter-spacing:1px;">
+        <div style="position:absolute;bottom:30px;width:min(85vw,350px);left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.45);font-size:11px;letter-spacing:1px;">
             <div style="display:flex;justify-content:space-between;margin-bottom:6px;text-transform:uppercase;">
                 <span>Velocita Cursore</span>
                 <span id="sens-value"></span>
@@ -706,6 +718,10 @@
             updateTextDisplay("WIN"); closeMenu();
         });
 
+        document.getElementById('btn-media-play').addEventListener('click', () => {
+            if (ws) ws.send(JSON.stringify({ type: 'key', key: 'media_play_pause' }));
+        });
+
         // --- SLIDER SENSIBILITA' ---
         const sensSlider = document.getElementById('sensitivity-slider');
         const sensValue  = document.getElementById('sens-value');
@@ -742,7 +758,7 @@
             const val = hiddenInput.value;
             if (val.length > previousValue.length) {
                 const added = val.substring(previousValue.length);
-                for (let c of added) { ws.send(JSON.stringify({ type: 'text', char: c })); updateTextDisplay(c); }
+                ws.send(JSON.stringify({ type: 'text', char: added })); updateTextDisplay(added);
             } else if (val.length < previousValue.length) {
                 const del = previousValue.length - val.length;
                 for (let i = 0; i < del; i++) { ws.send(JSON.stringify({ type: 'key', key: 'backspace' })); updateTextDisplay('⌫'); }

@@ -26,7 +26,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "1.8.5"
+VERSION = "1.8.8"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -160,6 +160,7 @@ VK_MAP = {
     'f9': 0x78, 'f10': 0x79, 'f11': 0x7A, 'f12': 0x7B,
     'numlock': 0x90, 'scrolllock': 0x91, 'printscreen': 0x2C,
     'volumemute': 0xAD, 'volumedown': 0xAE, 'volumeup': 0xAF,
+    'media_next': 0xB0, 'media_prev': 0xB1, 'media_stop': 0xB2, 'media_play_pause': 0xB3,
 }
 
 def key_press(key):
