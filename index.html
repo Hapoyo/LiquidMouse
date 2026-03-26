@@ -377,7 +377,7 @@
                 <span style="font-weight: bold; font-size: 14px;">TRASCINA</span>
             </div>
         </div>
-        <div style="width:85%;max-width:350px;margin-top:15px;color:rgba(255,255,255,0.45);font-size:11px;letter-spacing:1px;">
+        <div style="position:absolute;bottom:30px;width:85%;max-width:350px;color:rgba(255,255,255,0.45);font-size:11px;letter-spacing:1px;">
             <div style="display:flex;justify-content:space-between;margin-bottom:6px;text-transform:uppercase;">
                 <span>Velocita Cursore</span>
                 <span id="sens-value"></span>
@@ -569,7 +569,7 @@
 
             if (e.touches.length === 2) {
                 const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-                twoFingerScrollAcc += (midY - twoFingerLastY) * 0.75;
+                twoFingerScrollAcc += (midY - twoFingerLastY) * 0.375;
                 twoFingerLastY = midY;
                 return;
             }
