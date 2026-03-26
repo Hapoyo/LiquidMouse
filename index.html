@@ -423,17 +423,40 @@
                 }
             }, 3000);
 
+            let pingInterval = null;
+            let pingTimestamp = 0;
+
             ws.onopen = () => {
                 clearTimeout(connectionTimeout);
                 disconnectHandled = false;
                 reconnectAttempts = 0;
                 statusDiv.innerText = "CONNESSIONE STABILITA"; statusDiv.style.color = "#88ffcc";
                 configPanel.classList.add('hidden'); saveIP(ip.trim());
+                // Ping ogni 5s per misurare latenza
+                clearInterval(pingInterval);
+                pingInterval = setInterval(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        pingTimestamp = Date.now();
+                        ws.send(JSON.stringify({ type: 'ping' }));
+                    }
+                }, 5000);
+            };
+
+            ws.onmessage = (e) => {
+                try {
+                    const msg = JSON.parse(e.data);
+                    if (msg.type === 'pong' && pingTimestamp > 0) {
+                        const rtt = Date.now() - pingTimestamp;
+                        statusDiv.innerText = `${rtt}ms`;
+                        statusDiv.style.color = rtt < 50 ? "#88ffcc" : rtt < 150 ? "#ffcc00" : "#ff6666";
+                    }
+                } catch (_) {}
             };
             // onerror si limita a pulire il timeout: onclose segue sempre onerror
             ws.onerror = () => { clearTimeout(connectionTimeout); };
             ws.onclose = () => {
                 clearTimeout(connectionTimeout);
+                clearInterval(pingInterval);
                 if (!disconnectHandled) {
                     disconnectHandled = true;
                     handleDisconnect(ip);
@@ -445,9 +468,10 @@
             resetLocks();
             if (reconnectAttempts < MAX_RECONNECTS) {
                 reconnectAttempts++;
+                const delay = Math.min(1500 * Math.pow(1.5, reconnectAttempts - 1), 15000);
                 statusDiv.innerText = `RICONNESSIONE (${reconnectAttempts}/${MAX_RECONNECTS})...`;
                 statusDiv.style.color = "#ffcc00";
-                setTimeout(() => connectServer(ip), 1500);
+                setTimeout(() => connectServer(ip), delay);
             } else {
                 statusDiv.innerText = "DISCONNESSO"; statusDiv.style.color = "#ff6666";
                 configPanel.classList.remove('hidden');
@@ -501,20 +525,23 @@
         let moveX = 0, moveY = 0, isMoving = false;
         let twoFingerScrollAcc = 0;
 
-        setInterval(() => {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
-            if (isMoving && (moveX !== 0 || moveY !== 0)) {
-                ws.send(JSON.stringify({ type: 'move', x: Math.round(moveX * sensitivity), y: Math.round(moveY * sensitivity) }));
-                moveX = 0; moveY = 0; isMoving = false;
-            }
-            if (Math.abs(twoFingerScrollAcc) >= 1) {
-                const amount = Math.round(twoFingerScrollAcc / 1.5);
-                if (amount !== 0) {
-                    ws.send(JSON.stringify({ type: 'scroll', amount: amount }));
-                    twoFingerScrollAcc -= amount * 1.5;
+        function sendLoop() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                if (isMoving && (moveX !== 0 || moveY !== 0)) {
+                    ws.send(JSON.stringify({ type: 'move', x: Math.round(moveX * sensitivity), y: Math.round(moveY * sensitivity) }));
+                    moveX = 0; moveY = 0; isMoving = false;
+                }
+                if (Math.abs(twoFingerScrollAcc) >= 1) {
+                    const amount = Math.round(twoFingerScrollAcc / 1.5);
+                    if (amount !== 0) {
+                        ws.send(JSON.stringify({ type: 'scroll', amount: amount }));
+                        twoFingerScrollAcc -= amount * 1.5;
+                    }
                 }
             }
-        }, 16);
+            requestAnimationFrame(sendLoop);
+        }
+        requestAnimationFrame(sendLoop);
 
         const pad = document.getElementById('touchpad');
         let lastX = 0, lastY = 0, touchActive = false;

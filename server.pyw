@@ -26,7 +26,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "1.8.4"
+VERSION = "1.8.5"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -237,8 +237,8 @@ async def handler(websocket):
                 msg_type = data.get('type', '')
 
                 if msg_type == 'move':
-                    x = int(float(data.get('x', 0)))
-                    y = int(float(data.get('y', 0)))
+                    x = max(-200, min(200, int(float(data.get('x', 0)))))
+                    y = max(-200, min(200, int(float(data.get('y', 0)))))
                     mouse_move(x, y)
 
                 elif msg_type == 'scroll':
@@ -277,6 +277,9 @@ async def handler(websocket):
 
                 elif msg_type == 'hotkey':
                     hotkey(*data.get('keys', []))
+
+                elif msg_type == 'ping':
+                    await websocket.send('{"type":"pong"}')
 
             except (ValueError, KeyError, TypeError) as e:
                 log_message(f"Cmd ignorato: {e}", color=COLOR_MUTED)
