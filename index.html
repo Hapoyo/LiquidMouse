@@ -78,26 +78,6 @@
             touch-action: none;
         }
 
-        #scrollbar {
-            width: 5%;
-            height: auto;
-            margin-bottom: 10px;
-            margin-left: 2%;
-            position: relative;
-            background: var(--glass-surface);
-            backdrop-filter: blur(25px);
-            -webkit-backdrop-filter: blur(25px);
-            border-radius: 20px;
-            border: 1px solid rgba(136, 255, 204, 0.1);
-            box-shadow: var(--shadow-out);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            color: rgba(136, 255, 204, 0.4);
-            touch-action: none;
-        }
-
         .touchpad-container {
             display: flex;
             align-items: stretch;
@@ -201,7 +181,6 @@
             justify-content: center;
             z-index: 1000;
             color: #ffffff;
-            /* Colore testo esplicito per visibilità */
         }
 
         .config-panel.hidden {
@@ -258,6 +237,7 @@
             -webkit-backdrop-filter: blur(10px);
             z-index: 500;
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             opacity: 0;
@@ -273,7 +253,6 @@
         .arrow-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            /* 3 Colonne */
             gap: 15px;
             width: 85%;
             max-width: 350px;
@@ -287,9 +266,7 @@
 
         .menu-btn-item {
             width: 100%;
-            /* Si adatta alla griglia */
             aspect-ratio: 1;
-            /* Mantiene proporzione quadrata */
             border-radius: 25px;
             display: flex;
             flex-direction: column;
@@ -332,11 +309,9 @@
 
     <div class="touchpad-container">
         <div id="touchpad" class="fluid-panel"></div>
-        <div id="scrollbar" class="fluid-panel"></div>
     </div>
 
     <div class="buttons-container">
-        <div id="btn-left" class="fluid-panel mouse-btn">L</div>
         <div id="btn-menu" class="fluid-panel mouse-btn">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                 stroke-linecap="round" stroke-linejoin="round">
@@ -345,7 +320,6 @@
                 <circle cx="5" cy="12" r="2"></circle>
             </svg>
         </div>
-        <div id="btn-right" class="fluid-panel mouse-btn">R</div>
     </div>
 
     <div id="menu-overlay">
@@ -398,6 +372,14 @@
                 <span style="font-weight: bold; font-size: 14px;">TRASCINA</span>
             </div>
         </div>
+        <div style="width:85%;max-width:350px;margin-top:15px;color:rgba(255,255,255,0.45);font-size:11px;letter-spacing:1px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;text-transform:uppercase;">
+                <span>Velocita Cursore</span>
+                <span id="sens-value"></span>
+            </div>
+            <input type="range" id="sensitivity-slider" min="0.5" max="4.0" step="0.1"
+                style="width:100%;accent-color:rgba(136,255,204,0.8);cursor:pointer;">
+        </div>
     </div>
 
     <script>
@@ -413,40 +395,50 @@
         function saveIP(ip) { localStorage.setItem('liquidMouseIP', ip); }
 
         let reconnectAttempts = 0;
-        const MAX_RECONNECTS = 3;
+        const MAX_RECONNECTS = 5;
 
         let connectionTimeout;
+        let disconnectHandled = false;
+
+        function closeWS() {
+            if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
+        }
 
         function connectServer(ip) {
             if (!ip.trim()) { alert('Inserire un indirizzo IP valido.'); return; }
             statusDiv.innerText = "CONNESSIONE... "; statusDiv.style.color = "#ffcc00";
-
-            if (ws) {
-                ws.onclose = null;
-                ws.onerror = null;
-                ws.close();
-            }
+            disconnectHandled = false;
+            closeWS();
 
             ws = new WebSocket(`ws://${ip.trim()}:8765`);
 
             clearTimeout(connectionTimeout);
             connectionTimeout = setTimeout(() => {
-                if (ws.readyState !== WebSocket.OPEN) {
+                if (ws.readyState !== WebSocket.OPEN && !disconnectHandled) {
+                    disconnectHandled = true;
                     ws.onclose = null;
                     ws.onerror = null;
                     ws.close();
                     handleDisconnect(ip);
                 }
-            }, 2000); // 2 Secondi Max per il tentativo
+            }, 3000);
 
             ws.onopen = () => {
                 clearTimeout(connectionTimeout);
+                disconnectHandled = false;
                 reconnectAttempts = 0;
                 statusDiv.innerText = "CONNESSIONE STABILITA"; statusDiv.style.color = "#88ffcc";
                 configPanel.classList.add('hidden'); saveIP(ip.trim());
             };
-            ws.onclose = () => { clearTimeout(connectionTimeout); handleDisconnect(ip); };
-            ws.onerror = () => { clearTimeout(connectionTimeout); handleDisconnect(ip); };
+            // onerror si limita a pulire il timeout: onclose segue sempre onerror
+            ws.onerror = () => { clearTimeout(connectionTimeout); };
+            ws.onclose = () => {
+                clearTimeout(connectionTimeout);
+                if (!disconnectHandled) {
+                    disconnectHandled = true;
+                    handleDisconnect(ip);
+                }
+            };
         }
 
         function handleDisconnect(ip) {
@@ -455,7 +447,7 @@
                 reconnectAttempts++;
                 statusDiv.innerText = `RICONNESSIONE (${reconnectAttempts}/${MAX_RECONNECTS})...`;
                 statusDiv.style.color = "#ffcc00";
-                setTimeout(() => connectServer(ip), 1000);
+                setTimeout(() => connectServer(ip), 1500);
             } else {
                 statusDiv.innerText = "DISCONNESSO"; statusDiv.style.color = "#ff6666";
                 configPanel.classList.remove('hidden');
@@ -466,11 +458,14 @@
         ipInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') { reconnectAttempts = 0; connectServer(ipInput.value); } });
 
         // Gestisce il risveglio dello smartphone (sleep/wake)
+        // Forza sempre la riconnessione: dopo sleep la WebSocket può risultare
+        // OPEN ma essere in realtà morta (stale), quindi chiudiamo e ricreiamo
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 const ipToConnect = ipInput.value || loadIP();
-                if (ipToConnect && (!ws || ws.readyState !== WebSocket.OPEN)) {
-                    reconnectAttempts = 0; // reset
+                if (ipToConnect) {
+                    reconnectAttempts = 0;
+                    closeWS();
                     connectServer(ipToConnect);
                 }
             }
@@ -498,71 +493,116 @@
             }, 300); // Ritardo essenziale per iOS/Android QR Scanner
         });
 
+        // --- SENSIBILITA' CURSORE ---
+        // Valore salvato in localStorage, applicato lato client prima dell'invio
+        let sensitivity = parseFloat(localStorage.getItem('lm_sensitivity') || '1.8');
+
         // --- MOVIMENTO CURSORE ---
         let moveX = 0, moveY = 0, isMoving = false;
+        let twoFingerScrollAcc = 0;
+
         setInterval(() => {
-            if (isMoving && ws && ws.readyState === WebSocket.OPEN && (moveX !== 0 || moveY !== 0)) {
-                ws.send(JSON.stringify({ type: 'move', x: moveX, y: moveY }));
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (isMoving && (moveX !== 0 || moveY !== 0)) {
+                ws.send(JSON.stringify({ type: 'move', x: Math.round(moveX * sensitivity), y: Math.round(moveY * sensitivity) }));
                 moveX = 0; moveY = 0; isMoving = false;
+            }
+            if (Math.abs(twoFingerScrollAcc) >= 1) {
+                const amount = Math.round(twoFingerScrollAcc / 1.5);
+                if (amount !== 0) {
+                    ws.send(JSON.stringify({ type: 'scroll', amount: amount }));
+                    twoFingerScrollAcc -= amount * 1.5;
+                }
             }
         }, 16);
 
         const pad = document.getElementById('touchpad');
         let lastX = 0, lastY = 0, touchActive = false;
+        let twoFingerLastY = 0;
+
+        // --- GESTURE: TAP-TO-CLICK, DOUBLE-TAP, LONG-PRESS ---
+        const TAP_MAX_MS   = 200;
+        const TAP_MAX_MOVE = 10;
+        const LONG_PRESS_MS = 650;
+
+        let tapStartTime = 0, tapStartX = 0, tapStartY = 0;
+        let tapMoved = false, longPressTimer = null;
 
         pad.addEventListener('touchstart', (e) => {
-            e.preventDefault(); touchActive = true;
-            lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
+            e.preventDefault();
+
+            if (e.touches.length === 2) {
+                // Due dita: prepara scroll, disabilita movimento cursore
+                twoFingerLastY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                touchActive = false;
+                clearTimeout(longPressTimer);
+                tapStartTime = 0;
+                return;
+            }
+
+            touchActive = true;
+            lastX = e.touches[0].clientX;
+            lastY = e.touches[0].clientY;
             moveX = 0; moveY = 0;
+
+            tapStartTime = Date.now();
+            tapStartX = lastX;
+            tapStartY = lastY;
+            tapMoved = false;
+
+            longPressTimer = setTimeout(() => {
+                if (!tapMoved) {
+                    sendClick('right');
+                    if (navigator.vibrate) navigator.vibrate(60);
+                    tapStartTime = 0; // evita tap-to-click dopo long press
+                }
+            }, LONG_PRESS_MS);
         }, { passive: false });
 
         pad.addEventListener('touchmove', (e) => {
-            e.preventDefault(); if (!touchActive) return;
-            const cx = e.touches[0].clientX; const cy = e.touches[0].clientY;
+            e.preventDefault();
+
+            if (e.touches.length === 2) {
+                const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                twoFingerScrollAcc += (midY - twoFingerLastY) * 1.5;
+                twoFingerLastY = midY;
+                return;
+            }
+
+            if (!touchActive) return;
+            const cx = e.touches[0].clientX, cy = e.touches[0].clientY;
+
+            if (Math.abs(cx - tapStartX) > TAP_MAX_MOVE || Math.abs(cy - tapStartY) > TAP_MAX_MOVE) {
+                tapMoved = true;
+                clearTimeout(longPressTimer);
+            }
+
             moveX += (cx - lastX); moveY += (cy - lastY);
             isMoving = true; lastX = cx; lastY = cy;
         }, { passive: false });
 
-        pad.addEventListener('touchend', () => { touchActive = false; }, { passive: false });
-        pad.addEventListener('touchcancel', () => { touchActive = false; }, { passive: false });
+        pad.addEventListener('touchend', () => {
+            touchActive = false;
+            clearTimeout(longPressTimer);
 
-        // --- SCROLL ---
-        let scrollAccumulator = 0;
-        const scrollbar = document.getElementById('scrollbar');
-        let scrollTouchActive = false;
-        let scrollLastY = 0;
-
-        setInterval(() => {
-            if (scrollTouchActive && ws && ws.readyState === WebSocket.OPEN && Math.abs(scrollAccumulator) >= 1) {
-                const scrollAmount = Math.round(scrollAccumulator / 1.5);
-                if (scrollAmount !== 0) {
-                    ws.send(JSON.stringify({ type: 'scroll', amount: scrollAmount }));
-                    scrollAccumulator -= scrollAmount * 1.5;
-                }
+            const duration = Date.now() - tapStartTime;
+            if (duration < TAP_MAX_MS && !tapMoved && tapStartTime > 0) {
+                // Tap rapido = click sinistro (il doppio tap produce due click = double-click OS)
+                sendClick('left');
             }
-        }, 16);
-
-        scrollbar.addEventListener('touchstart', (e) => {
-            e.preventDefault(); scrollTouchActive = true;
-            scrollLastY = e.touches[0].clientY; scrollAccumulator = 0;
+            tapStartTime = 0;
         }, { passive: false });
 
-        scrollbar.addEventListener('touchmove', (e) => {
-            e.preventDefault(); if (!scrollTouchActive) return;
-            const cy = e.touches[0].clientY;
-            const delta = cy - scrollLastY;
-            scrollAccumulator += delta * 3.0;
-            scrollLastY = cy;
+        pad.addEventListener('touchcancel', () => {
+            touchActive = false;
+            clearTimeout(longPressTimer);
+            tapStartTime = 0;
         }, { passive: false });
-
-        scrollbar.addEventListener('touchend', () => { scrollTouchActive = false; }, { passive: false });
 
         // --- CLICK ---
         const sendClick = (btn) => {
             if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'click', btn: btn }));
         };
-        document.getElementById('btn-left').addEventListener('click', () => sendClick('left'));
-        document.getElementById('btn-right').addEventListener('click', () => sendClick('right'));
 
         // --- MENU E LOCKS ---
         const btnMenu = document.getElementById('btn-menu');
@@ -594,7 +634,6 @@
                     ws.send(JSON.stringify({ type: 'key_toggle', key: key, state: isActive ? 'down' : 'up' }));
                 }
             }
-            // Chiudi menu solo se disattivi, altrimenti lascia aperto per combo? 
             // Meglio chiudere sempre per pulizia, l'utente vede lo stato dal bottone.
             closeMenu();
         }
@@ -635,6 +674,17 @@
             updateTextDisplay("ALL"); closeMenu();
         });
 
+        // --- SLIDER SENSIBILITA' ---
+        const sensSlider = document.getElementById('sensitivity-slider');
+        const sensValue  = document.getElementById('sens-value');
+        sensSlider.value = sensitivity;
+        sensValue.textContent = sensitivity.toFixed(1) + 'x';
+        sensSlider.addEventListener('input', () => {
+            sensitivity = parseFloat(sensSlider.value);
+            sensValue.textContent = sensitivity.toFixed(1) + 'x';
+            localStorage.setItem('lm_sensitivity', sensitivity);
+        });
+
         document.getElementById('btn-keyboard').addEventListener('click', () => {
             hiddenInput.value = '';
             previousValue = ''; // Reset essenziale: evita ghost input al riavvio della tastiera
@@ -654,7 +704,7 @@
             displayTimeout = setTimeout(() => { textDisplay.classList.remove('active'); displayedText = ''; }, 3000);
         }
 
-        let previousValue = ''; let inputHandled = false;
+        let previousValue = '';
         hiddenInput.addEventListener('input', (e) => {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
             const val = hiddenInput.value;
@@ -683,7 +733,7 @@
         });
 
         // --- EFFETTI TOUCH UI ---
-        ['btn-left', 'btn-right', 'btn-menu', 'touchpad', 'scrollbar'].forEach(id => {
+        ['btn-menu', 'touchpad'].forEach(id => {
             const el = document.getElementById(id);
             el.addEventListener('touchstart', () => el.classList.add('fluid-pressed'), { passive: true });
             el.addEventListener('touchend', () => el.classList.remove('fluid-pressed'), { passive: true });
