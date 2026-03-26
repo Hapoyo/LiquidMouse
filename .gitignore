@@ -19,6 +19,12 @@ env/
 build/
 dist/
 
+# Script locali (non per pubblicazione)
+release.py
+
+# Configurazione locale Claude
+.claude/
+
 # File di Sistema
 .DS_Store
 Thumbs.db

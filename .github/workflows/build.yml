@@ -1,0 +1,50 @@
+name: Build LiquidMouse
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installa dipendenze
+        run: pip install websockets pyautogui pystray Pillow qrcode pyinstaller
+
+      - name: Estrai versione
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(python -c "import re; m=re.search(r'VERSION\s*=\s*\"([^\"]+)\"', open('server.pyw').read()); print(m.group(1) if m else 'dev')")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build EXE
+        run: python -m PyInstaller --clean --log-level WARN LiquidMouse.spec
+
+      - name: Rinomina EXE con versione
+        shell: bash
+        run: mv dist/LiquidMouse.exe "dist/LiquidMouse_v${{ steps.version.outputs.version }}.exe"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LiquidMouse-v${{ steps.version.outputs.version }}
+          path: dist/LiquidMouse_v${{ steps.version.outputs.version }}.exe
+
+      - name: Crea Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/LiquidMouse_v${{ steps.version.outputs.version }}.exe
+          generate_release_notes: true
