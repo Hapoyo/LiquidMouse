@@ -26,7 +26,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -44,13 +44,17 @@ except Exception:
 PORT      = 8765
 HTTP_PORT = 8000
 
-# --- COLORI ---
-COLOR_BG          = "#0F0F0F"
-COLOR_TEXT        = "#FFFFFF"
-COLOR_ACCENT      = "#00FF00"
-COLOR_MUTED       = "#666666"
-COLOR_ERROR       = "#FF4444"
-COLOR_TRANSPARENT = "#FF00FF"
+# --- COLORI (Claude Code palette) ---
+COLOR_BG          = "#0D0D0D"
+COLOR_SURFACE     = "#161616"
+COLOR_TEXT         = "#E8E4E0"
+COLOR_ACCENT       = "#DA7756"
+COLOR_ACCENT_DIM   = "#8B4D37"
+COLOR_MUTED        = "#5A5868"
+COLOR_BORDER       = "#232323"
+COLOR_ERROR        = "#E55B5B"
+COLOR_OK           = "#5BA878"
+COLOR_TRANSPARENT  = "#FF00FF"
 
 # --- PERCORSO FILE ---
 if getattr(sys, 'frozen', False):
@@ -164,7 +168,7 @@ def key_press(key):
         vk = VK_MAP[key]
         _send(_ki(vk=vk), _ki(vk=vk, flags=KEYEVENTF_KEYUP))
     elif len(key) == 1:
-        _send_unicode_char(key)
+        key_text(key)
 
 def _send_vk(key, flags=0):
     vk = VK_MAP.get(key.lower())
@@ -280,7 +284,7 @@ async def handler(websocket):
                 log_message(f"Errore handler: {e}", color=COLOR_ERROR)
 
     except websockets.exceptions.ConnectionClosed:
-        log_message("In attesa di connessione...", color="#aaaaaa")
+        log_message("In attesa di connessione...", color=COLOR_MUTED)
     finally:
         mouse_button('up')
         for key in held_keys:
@@ -301,7 +305,7 @@ def start_http_server():
         log_message(f"HTTP Server crash: {e}", color=COLOR_ERROR)
 
 async def start_websocket_server():
-    log_message("Protocolli di comunicazione inizializzati.", color="#aaaaaa")
+    log_message("Protocolli di comunicazione inizializzati.", color=COLOR_MUTED)
     try:
         async with websockets.serve(handler, "0.0.0.0", PORT, ping_interval=20, ping_timeout=10):
             await asyncio.Future()
@@ -324,10 +328,10 @@ def create_tray_icon():
     if os.path.exists(ICON_PATH):
         try: return Image.open(ICON_PATH)
         except Exception: pass
-    image = Image.new('RGB', (64, 64), COLOR_BG)
+    image = Image.new('RGB', (64, 64), "#1A1A1A")
     dc = ImageDraw.Draw(image)
-    dc.ellipse((10, 10, 54, 54), fill=COLOR_BG, outline=COLOR_ACCENT, width=3)
-    dc.ellipse((24, 24, 40, 40), fill=COLOR_ACCENT)
+    dc.rounded_rectangle((4, 4, 60, 60), radius=12, fill="#1A1A1A", outline=COLOR_ACCENT, width=2)
+    dc.ellipse((22, 22, 42, 42), fill=COLOR_ACCENT)
     return image
 
 def minimize_to_tray():
@@ -353,12 +357,10 @@ def setup_gui():
     global ip_label_var, status_var, status_label
 
     root.title("Liquid Mouse")
-    w, h = 520, 260
-    ws_screen = root.winfo_screenwidth()
-    hs_screen = root.winfo_screenheight()
-    x = (ws_screen / 2) - (w / 2)
-    y = (hs_screen / 2) - (h / 2)
-    root.geometry('%dx%d+%d+%d' % (w, h, x, y))
+    w, h = 560, 300
+    sx = (root.winfo_screenwidth()  - w) // 2
+    sy = (root.winfo_screenheight() - h) // 2
+    root.geometry(f'{w}x{h}+{sx}+{sy}')
 
     root.overrideredirect(True)
     root.attributes('-alpha', 0.0)
@@ -371,101 +373,153 @@ def setup_gui():
     canvas = tk.Canvas(root, bg=COLOR_TRANSPARENT, highlightthickness=0)
     canvas.pack(fill="both", expand=True)
 
-    def create_rounded_rect(c, x1, y1, x2, y2, r, **kwargs):
-        points = (x1+r, y1, x1+r, y1, x2-r, y1, x2-r, y1, x2, y1, x2, y1+r,
-                  x2, y1+r, x2, y2-r, x2, y2-r, x2, y2, x2-r, y2, x2-r, y2,
-                  x1+r, y2, x1+r, y2, x1, y2, x1, y2-r, x1, y2-r, x1, y1+r,
-                  x1, y1+r, x1, y1)
-        return c.create_polygon(points, smooth=True, **kwargs)
+    # --- Forma finestra: rettangolo arrotondato con bordo sottile ---
+    def rounded_rect(c, x1, y1, x2, y2, r, **kw):
+        pts = (x1+r, y1, x1+r, y1, x2-r, y1, x2-r, y1, x2, y1, x2, y1+r,
+               x2, y1+r, x2, y2-r, x2, y2-r, x2, y2, x2-r, y2, x2-r, y2,
+               x1+r, y2, x1+r, y2, x1, y2, x1, y2-r, x1, y2-r, x1, y1+r,
+               x1, y1+r, x1, y1)
+        return c.create_polygon(pts, smooth=True, **kw)
 
-    create_rounded_rect(canvas, 10, 10, w-10, h-10, 20, fill=COLOR_BG, outline="#333333", width=1)
+    PAD = 8
+    rounded_rect(canvas, PAD, PAD, w-PAD, h-PAD, 22, fill=COLOR_BG, outline=COLOR_BORDER, width=1)
 
-    def get_pos(event):
-        root.x_offset = event.x
-        root.y_offset = event.y
-    def move_window(event):
-        root.geometry(f'+{event.x_root - root.x_offset}+{event.y_root - root.y_offset}')
+    # Linea separatore orizzontale
+    sep_y = 70
+    canvas.create_line(PAD+30, sep_y, w-PAD-30, sep_y, fill=COLOR_BORDER, width=1)
 
+    # Linea separatore sopra lo status
+    sep_y2 = h - 75
+    canvas.create_line(PAD+30, sep_y2, w-PAD-30, sep_y2, fill=COLOR_BORDER, width=1)
+
+    # --- Dragging finestra ---
+    def get_pos(e):
+        root.x_offset = e.x
+        root.y_offset = e.y
+    def move_window(e):
+        root.geometry(f'+{e.x_root - root.x_offset}+{e.y_root - root.y_offset}')
     canvas.bind("<Button-1>", get_pos)
     canvas.bind("<B1-Motion>", move_window)
 
-    title_lbl = tk.Label(root, text="", font=("Consolas", 14, "bold"), bg=COLOR_BG, fg=COLOR_TEXT)
-    title_lbl.place(x=40, y=40)
+    # --- Titolo con accento colorato ---
+    title_prefix = tk.Label(root, text="", font=("Consolas", 15, "bold"), bg=COLOR_BG, fg=COLOR_ACCENT)
+    title_prefix.place(x=36, y=32)
+    title_main = tk.Label(root, text="", font=("Consolas", 15, "bold"), bg=COLOR_BG, fg=COLOR_TEXT)
+    title_main.place(x=66, y=32)
 
-    def type_sequence(widgets_data, index=0):
-        if index >= len(widgets_data): return
-        target, text, speed = widgets_data[index]
-        def type_char(current_idx=0):
-            cursor = "\u2588" if current_idx < len(text) else ""
-            display = text[:current_idx] + cursor
-            if isinstance(target, tk.StringVar): target.set(display)
-            else: target.config(text=display)
-            if current_idx < len(text):
-                root.after(speed, lambda: type_char(current_idx + 1))
-            else:
-                if isinstance(target, tk.StringVar): target.set(text)
-                else: target.config(text=text)
-                type_sequence(widgets_data, index + 1)
-        type_char()
+    # Badge versione (angolo in alto a destra, prima del close button)
+    tk.Label(root, text=f"v{VERSION}", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED).place(x=w-100, y=38)
 
-    cx, cy, cr = w-35, 35, 12
-    close_bg = canvas.create_oval(cx-cr, cy-cr, cx+cr, cy+cr, fill="#FF5555", outline="#FF5555")
-    close_fg = canvas.create_text(cx, cy, text="\u00d7", font=("Arial", 13, "bold"), fill="white")
-    for item in (close_bg, close_fg):
-        canvas.tag_bind(item, "<Button-1>", lambda e: minimize_to_tray())
-        canvas.tag_bind(item, "<Enter>", lambda e: canvas.config(cursor="hand2"))
-        canvas.tag_bind(item, "<Leave>", lambda e: canvas.config(cursor=""))
+    # --- Bottone chiudi: stile minimale con hover ---
+    cx, cy = w - 36, 36
+    close_bg = canvas.create_text(cx, cy, text="\u2715", font=("Consolas", 12), fill=COLOR_MUTED)
+    def _close_enter(e):
+        canvas.itemconfig(close_bg, fill=COLOR_ERROR)
+        canvas.config(cursor="hand2")
+    def _close_leave(e):
+        canvas.itemconfig(close_bg, fill=COLOR_MUTED)
+        canvas.config(cursor="")
+    canvas.tag_bind(close_bg, "<Button-1>", lambda e: minimize_to_tray())
+    canvas.tag_bind(close_bg, "<Enter>", _close_enter)
+    canvas.tag_bind(close_bg, "<Leave>", _close_leave)
 
-    lbl_ip_header = tk.Label(root, text="", font=("Consolas", 8, "bold"), bg=COLOR_BG, fg=COLOR_MUTED)
-    lbl_ip_header.place(x=40, y=90)
+    # --- Sezione IP ---
+    lbl_ip_header = tk.Label(root, text="", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED)
+    lbl_ip_header.place(x=36, y=88)
 
     ip_label_var = tk.StringVar(value="")
-    tk.Label(root, textvariable=ip_label_var, font=("Consolas", 16), bg=COLOR_BG, fg=COLOR_TEXT).place(x=40, y=110)
+    tk.Label(root, textvariable=ip_label_var, font=("Consolas", 18), bg=COLOR_BG, fg=COLOR_TEXT).place(x=36, y=112)
 
+    # --- QR Code con sfondo arrotondato ---
     qr_url = f"http://{LOCAL_IP}:{HTTP_PORT}/?v={int(time.time())}"
     try:
-        qr = qrcode.QRCode(version=1, box_size=3, border=1)
+        qr = qrcode.QRCode(version=1, box_size=3, border=2)
         qr.add_data(qr_url)
         qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white")
-        root.qr_photo = ImageTk.PhotoImage(img)
-        tk.Label(root, image=root.qr_photo, bg=COLOR_BG).place(x=400, y=90)
+        qr_raw = qr.make_image(fill_color=COLOR_TEXT, back_color=COLOR_BG).convert("RGBA")
+        # Sfondo arrotondato per il QR
+        qr_w, qr_h = qr_raw.size
+        pad_qr = 8
+        bg_img = Image.new("RGBA", (qr_w + pad_qr*2, qr_h + pad_qr*2), COLOR_SURFACE)
+        mask = Image.new("L", bg_img.size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, bg_img.size[0], bg_img.size[1]), radius=10, fill=255)
+        bg_img.putalpha(mask)
+        bg_img.paste(qr_raw, (pad_qr, pad_qr), qr_raw.split()[3] if qr_raw.mode == "RGBA" else None)
+        root.qr_photo = ImageTk.PhotoImage(bg_img)
+        tk.Label(root, image=root.qr_photo, bg=COLOR_BG, bd=0).place(x=w-150, y=85)
     except Exception as e:
         log_message(f"QR Error: {e}", color=COLOR_ERROR)
 
-    lbl_status_header = tk.Label(root, text="", font=("Consolas", 8, "bold"), bg=COLOR_BG, fg=COLOR_MUTED)
-    lbl_status_header.place(x=40, y=170)
+    # Etichetta sotto QR
+    tk.Label(root, text="SCANSIONA", font=("Consolas", 7), bg=COLOR_BG, fg=COLOR_MUTED).place(x=w-138, y=195)
+
+    # --- Sezione stato ---
+    lbl_status_header = tk.Label(root, text="", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED)
+    lbl_status_header.place(x=36, y=h-65)
+
+    # Indicatore pallino stato
+    root._status_dot = canvas.create_oval(36, h-42, 44, h-34, fill=COLOR_MUTED, outline="")
 
     status_var = tk.StringVar(value="")
     status_label = tk.Label(root, textvariable=status_var, font=("Consolas", 9), bg=COLOR_BG, fg=COLOR_MUTED)
-    status_label.place(x=40, y=190)
+    status_label.place(x=52, y=h-46)
 
-    anim_sequence = [
-        (title_lbl,        ">_ Liquid Mouse",        30),
-        (lbl_ip_header,    "INDIRIZZO IP HOST",       10),
-        (ip_label_var,     f"{LOCAL_IP}:{HTTP_PORT}", 20),
-        (lbl_status_header,"STATO DEL SISTEMA",       10),
-        (status_var,       "Inizializzazione...",     20),
+    # --- Animazione typewriter ---
+    def type_sequence(widgets_data, idx=0):
+        if idx >= len(widgets_data): return
+        target, text, speed = widgets_data[idx]
+        def _type(ci=0):
+            cursor = "\u2588" if ci < len(text) else ""
+            display = text[:ci] + cursor
+            if isinstance(target, tk.StringVar): target.set(display)
+            else: target.config(text=display)
+            if ci < len(text):
+                root.after(speed, lambda: _type(ci + 1))
+            else:
+                if isinstance(target, tk.StringVar): target.set(text)
+                else: target.config(text=text)
+                root.after(80, lambda: type_sequence(widgets_data, idx + 1))
+        _type()
+
+    anim_data = [
+        (title_prefix,      ">_",                      40),
+        (title_main,        " Liquid Mouse",            25),
+        (lbl_ip_header,     "HOST",                     15),
+        (ip_label_var,      f"{LOCAL_IP}:{HTTP_PORT}",  18),
+        (lbl_status_header, "STATO",                    15),
+        (status_var,        "Inizializzazione...",      18),
     ]
-    root.after(300, lambda: type_sequence(anim_sequence))
+    root.after(400, lambda: type_sequence(anim_data))
 
-    def fade_in(alpha=0):
-        alpha += 0.04
-        if alpha < 1.0:
-            root.attributes('-alpha', alpha)
-            root.after(15, lambda: fade_in(alpha))
-        else:
-            root.attributes('-alpha', 1.0)
+    # --- Fade-in con easing cubico (~60fps) ---
+    FADE_STEPS = 45
+    def ease_out_cubic(t):
+        return 1.0 - (1.0 - t) ** 3
 
-    root.after(100, fade_in)
+    def fade_in(step=0):
+        if step <= FADE_STEPS:
+            alpha = ease_out_cubic(step / FADE_STEPS)
+            root.attributes('-alpha', min(alpha, 1.0))
+            root.after(16, lambda: fade_in(step + 1))
+
+    root.after(80, fade_in)
     threading.Thread(target=run_services, daemon=True).start()
     root.after(500, lambda: threading.Thread(target=run_tray_service, daemon=True).start())
 
-def log_message(message, color="#aaaaaa"):
+def log_message(message, color=None):
+    if color is None: color = COLOR_MUTED
     def _update():
         if status_var:
             status_var.set(message)
             if status_label: status_label.config(fg=color)
+        # Aggiorna il colore del pallino stato
+        dot_color = COLOR_OK if color == COLOR_ACCENT else (COLOR_ERROR if color == COLOR_ERROR else COLOR_MUTED)
+        try: root.children  # verifica che la GUI esista
+        except: return
+        if hasattr(root, '_status_dot'):
+            canvas = list(root.children.values())[0]
+            if isinstance(canvas, tk.Canvas):
+                canvas.itemconfig(root._status_dot, fill=dot_color)
     root.after(0, _update)
 
 if __name__ == "__main__":

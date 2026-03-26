@@ -4,7 +4,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="version" content="LiquidMouse">
     <title>LiquidMouse</title>
     <style>
         :root {
@@ -362,7 +361,13 @@
             <div id="btn-select-all" class="fluid-panel menu-btn-item">
                 <span style="font-size: 11px; line-height: 1.1;"><b>SELEZIONA</b><br>TUTTO</span>
             </div>
-            <div id="btn-drag" class="fluid-panel menu-btn-item span-2"
+            <div id="btn-win" class="fluid-panel menu-btn-item">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M3 5.5L10.5 4.5V11.5H3V5.5ZM11.5 4.35L21 3V11.5H11.5V4.35ZM3 12.5H10.5V19.5L3 18.5V12.5ZM11.5 12.5H21V21L11.5 19.65V12.5Z"/>
+                </svg>
+                <span style="font-size: 11px; margin-top: 2px;">WIN</span>
+            </div>
+            <div id="btn-drag" class="fluid-panel menu-btn-item"
                 style="color: #ffcc00; flex-direction: row; gap: 10px;">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                     stroke-linecap="round" stroke-linejoin="round">
@@ -564,7 +569,7 @@
 
             if (e.touches.length === 2) {
                 const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-                twoFingerScrollAcc += (midY - twoFingerLastY) * 1.5;
+                twoFingerScrollAcc += (midY - twoFingerLastY) * 0.75;
                 twoFingerLastY = midY;
                 return;
             }
@@ -672,6 +677,11 @@
         document.getElementById('btn-select-all').addEventListener('click', () => {
             if (ws) ws.send(JSON.stringify({ type: 'hotkey', keys: ['ctrl', 'a'] }));
             updateTextDisplay("ALL"); closeMenu();
+        });
+
+        document.getElementById('btn-win').addEventListener('click', () => {
+            if (ws) ws.send(JSON.stringify({ type: 'key', key: 'win' }));
+            updateTextDisplay("WIN"); closeMenu();
         });
 
         // --- SLIDER SENSIBILITA' ---
