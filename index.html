@@ -232,8 +232,8 @@
             width: 100%;
             height: 100%;
             background: rgba(43, 46, 74, 0.4);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
             z-index: 500;
             display: flex;
             flex-direction: column;
@@ -274,6 +274,7 @@
             font-size: 14px;
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
             text-align: center;
+            cursor: pointer;
         }
 
         .menu-btn-item svg {
@@ -688,38 +689,56 @@
         });
         function closeMenu() { menuOverlay.classList.remove('visible'); }
 
-        // Gestione Bottoni Menu
-        document.getElementById('btn-drag').addEventListener('click', () => toggleLock('drag', 'btn-drag'));
-        document.getElementById('btn-ctrl').addEventListener('click', () => toggleLock('ctrl', 'btn-ctrl'));
-        document.getElementById('btn-shift').addEventListener('click', () => toggleLock('shift', 'btn-shift'));
+        // Helper: registra touchend (no 300ms delay iOS) con fallback click per mouse/desktop.
+        // e.preventDefault() su touchend impedisce il click sintetico successivo.
+        function addMenuTap(id, handler) {
+            const el = document.getElementById(id);
+            let moved = false;
+            el.addEventListener('touchstart', () => { moved = false; }, { passive: true });
+            el.addEventListener('touchmove',  () => { moved = true;  }, { passive: true });
+            el.addEventListener('touchend', (e) => {
+                if (!moved) { e.preventDefault(); handler(); }
+            });
+            el.addEventListener('click', handler); // fallback desktop/mouse
+        }
 
-        document.getElementById('btn-esc').addEventListener('click', () => {
-            if (ws) ws.send(JSON.stringify({ type: 'key', key: 'esc' }));
+        const send = (msg) => {
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+        };
+
+        // Gestione Bottoni Menu
+        addMenuTap('btn-drag',  () => toggleLock('drag',  'btn-drag'));
+        addMenuTap('btn-ctrl',  () => toggleLock('ctrl',  'btn-ctrl'));
+        addMenuTap('btn-shift', () => toggleLock('shift', 'btn-shift'));
+
+        addMenuTap('btn-esc', () => {
+            send({ type: 'key', key: 'esc' });
             updateTextDisplay("ESC"); closeMenu();
         });
 
-        document.getElementById('btn-copy').addEventListener('click', () => {
-            if (ws) ws.send(JSON.stringify({ type: 'hotkey', keys: ['ctrl', 'c'] }));
+        addMenuTap('btn-copy', () => {
+            send({ type: 'hotkey', keys: ['ctrl', 'c'] });
             updateTextDisplay("COPIA"); closeMenu();
         });
 
-        document.getElementById('btn-paste').addEventListener('click', () => {
-            if (ws) ws.send(JSON.stringify({ type: 'hotkey', keys: ['ctrl', 'v'] }));
+        addMenuTap('btn-paste', () => {
+            send({ type: 'hotkey', keys: ['ctrl', 'v'] });
             updateTextDisplay("INCOLLA"); closeMenu();
         });
 
-        document.getElementById('btn-select-all').addEventListener('click', () => {
-            if (ws) ws.send(JSON.stringify({ type: 'hotkey', keys: ['ctrl', 'a'] }));
+        addMenuTap('btn-select-all', () => {
+            send({ type: 'hotkey', keys: ['ctrl', 'a'] });
             updateTextDisplay("ALL"); closeMenu();
         });
 
-        document.getElementById('btn-win').addEventListener('click', () => {
-            if (ws) ws.send(JSON.stringify({ type: 'key', key: 'win' }));
+        addMenuTap('btn-win', () => {
+            send({ type: 'key', key: 'win' });
             updateTextDisplay("WIN"); closeMenu();
         });
 
-        document.getElementById('btn-media-play').addEventListener('click', () => {
-            if (ws) ws.send(JSON.stringify({ type: 'key', key: 'media_play_pause' }));
+        addMenuTap('btn-media-play', () => {
+            send({ type: 'key', key: 'media_play_pause' });
+            closeMenu();
         });
 
         // --- SLIDER SENSIBILITA' ---
@@ -733,7 +752,7 @@
             localStorage.setItem('lm_sensitivity', sensitivity);
         });
 
-        document.getElementById('btn-keyboard').addEventListener('click', () => {
+        addMenuTap('btn-keyboard', () => {
             hiddenInput.value = '';
             previousValue = ''; // Reset essenziale: evita ghost input al riavvio della tastiera
             hiddenInput.focus();
@@ -787,8 +806,9 @@
             el.addEventListener('touchend', () => el.classList.remove('fluid-pressed'), { passive: true });
         });
         document.querySelectorAll('.menu-btn-item').forEach(el => {
-            el.addEventListener('touchstart', () => el.classList.add('fluid-pressed'), { passive: true });
-            el.addEventListener('touchend', () => el.classList.remove('fluid-pressed'), { passive: true });
+            el.addEventListener('touchstart',  () => el.classList.add('fluid-pressed'),    { passive: true });
+            el.addEventListener('touchend',    () => el.classList.remove('fluid-pressed'), { passive: true });
+            el.addEventListener('touchcancel', () => el.classList.remove('fluid-pressed'), { passive: true });
         });
 
     </script>

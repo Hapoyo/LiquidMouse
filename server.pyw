@@ -26,7 +26,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "1.8.8"
+VERSION = "1.8.9"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -190,7 +190,15 @@ def key_text(text):
         _send(*inputs)
 
 def hotkey(*keys):
-    vks = [VK_MAP[k.lower()] for k in keys if k.lower() in VK_MAP]
+    vks = []
+    for k in keys:
+        k_lower = k.lower()
+        if k_lower in VK_MAP:
+            vks.append(VK_MAP[k_lower])
+        elif len(k) == 1 and k.isalpha():
+            vks.append(ord(k.upper()))   # es. 'c' → 0x43, 'v' → 0x56
+        elif len(k) == 1 and k.isdigit():
+            vks.append(ord(k))           # es. '1' → 0x31
     downs = [_ki(vk=vk) for vk in vks]
     ups   = [_ki(vk=vk, flags=KEYEVENTF_KEYUP) for vk in reversed(vks)]
     _send(*downs, *ups)
