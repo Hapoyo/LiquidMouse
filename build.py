@@ -5,7 +5,9 @@ Utility per la generazione dell'eseguibile standalone (EXE) per sistemi Windows.
 import os
 import subprocess
 import sys
-import shutil
+
+# Fix encoding console Windows (cp1252 non supporta emoji)
+sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 # Percorso assoluto della directory del progetto, indipendente dalla cwd di lancio
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -43,38 +45,25 @@ def build():
     if not check_files():
         return
 
-    # Definizione parametri PyInstaller
+    spec_file = os.path.join(SCRIPT_DIR, "LiquidMouse.spec")
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--noconsole",              # Silenzia l'output del terminale utente
-        "--onefile",                # Pacchetto eseguibile singolo
-        "--name", "LiquidMouse",    # Identificativo dell'applicazione
-        "--clean",                  # Svuotamento della cache di build
+        "--clean",
         "--log-level", "WARN",
-        
-        # Integrazione risorse statiche
-        "--add-data", "index.html;.", 
+        spec_file,
     ]
 
-    # Gestione asset grafici (Icona)
-    if os.path.exists("icon.ico"):
-        print("   🎨 Asset grafico rilevato: icon.ico")
-        cmd.extend(["--icon", "icon.ico", "--add-data", "icon.ico;."])
-    else:
-        print("   ⚠️  Asset grafico (icona) non rilevato. Verrà utilizzata la risorsa di sistema predefinita.")
-
-    cmd.append("server.pyw")
-
-    # Gestione sovrascrittura versioni precedenti
+    # Rimozione preventiva: se il file è bloccato (app in esecuzione), fallisce qui
+    # con messaggio chiaro invece di attendere l'errore criptico di PyInstaller
     exe_out = os.path.join("dist", "LiquidMouse.exe")
-    if os.path.exists(exe_out):
-        try:
-            os.remove(exe_out)
-            print("   🗑️  Rimozione della versione precedente completata.")
-        except OSError:
-            print(f"\n❌ Errore di I/O: Impossibile sovrascrivere il binario esistente.")
-            print("   ⚠️  Il processo 'Liquid Mouse' risulta attualmente in esecuzione. Terminare l'applicazione e riprovare.")
-            return
+    try:
+        os.remove(exe_out)
+        print("   🗑️  Versione precedente rimossa.")
+    except FileNotFoundError:
+        pass
+    except OSError:
+        print("\n❌ Impossibile sovrascrivere il binario: l'applicazione è in esecuzione. Chiuderla e riprovare.")
+        return
 
     # 3. Processo di Compilazione
     print("\n🚀 Avvio del processo di build (la procedura potrebbe richiedere alcuni minuti)...")
@@ -90,4 +79,5 @@ def build():
 
 if __name__ == "__main__":
     build()
-    input("\nPremere un tasto per terminare la sessione...")
+    if sys.stdin.isatty():
+        input("\nPremere un tasto per terminare...")

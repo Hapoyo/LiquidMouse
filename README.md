@@ -1,17 +1,16 @@
 # LiquidMouse
 
-Trasforma lo smartphone in un touchpad e tastiera wireless per Windows.
-Il server gira sul PC, il client si apre nel browser del telefono — nessuna app da installare.
+Trasforma lo smartphone in touchpad e tastiera wireless per Windows.
+Nessuna app da installare — il client gira nel browser.
 
 ## Requisiti
 
 - Windows 10 / 11
 - PC e smartphone sulla stessa rete Wi-Fi
-- Browser moderno (Chrome o Safari consigliati)
 
 ## Installazione
 
-**Eseguibile** — scarica l'ultima versione dalla sezione [Releases](https://github.com/Hapoyo/LiquidMouse/releases) ed esegui `LiquidMouse.exe`.
+**Eseguibile** — scarica `LiquidMouse.exe` dalla sezione [Releases](https://github.com/Hapoyo/LiquidMouse/releases).
 
 **Da sorgente** — Python 3.7+:
 
@@ -23,25 +22,22 @@ python server.pyw
 ## Utilizzo
 
 1. Avvia LiquidMouse sul PC
-2. Scansiona il QR Code con lo smartphone (o digita l'URL)
-3. Usa il touchpad nella pagina che si apre
-4. Per chiudere: tasto destro sull'icona nella system tray → Esci
+2. Scansiona il QR Code con lo smartphone o digita l'IP mostrato
+3. Per chiudere: tray icon → Esci
 
 ## Funzionalità
 
-- Touchpad con tap, doppio tap e long-press (click destro)
-- Scroll a due dita
-- Tastiera virtuale integrata
-- Sensibilità del cursore regolabile
-- Menu rapido: Copia, Incolla, Ctrl, Shift, Drag, Seleziona tutto, ESC
-- Whitelist IP — solo il primo dispositivo connesso viene autorizzato
-- Solo rete locale, nessun cloud
+- Touchpad con tap, doppio tap, long-press (click destro) e scroll a due dita
+- Tastiera virtuale con supporto Unicode completo
+- Menu rapido: Copia, Incolla, ESC, Ctrl/Shift lock, Drag lock, Seleziona tutto, Win, Play/Pausa
+- Sensibilità cursore regolabile e salvata in locale
+- Sicurezza: whitelist IP, solo rete locale, nessun cloud
 
 ## Risoluzione problemi
 
-**Lo smartphone non si connette** — verifica che PC e telefono siano sulla stessa rete Wi-Fi e che il firewall di Windows non blocchi le porte 8765 e 8000.
+**Smartphone non si connette** — verifica che PC e telefono siano sulla stessa rete Wi-Fi e che il firewall Windows non blocchi le porte `8000` e `8765`.
 
-**Porte occupate** — libera i processi con `netstat -ano | findstr :8765`, poi `taskkill /PID <id> /F`.
+**Porte occupate** — identifica il processo con `netstat -ano | findstr :8765`, poi terminalo con `taskkill /PID <id> /F`.
 
 ## Browser supportati
 
