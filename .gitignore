@@ -24,6 +24,7 @@ release.py
 
 # Configurazione locale Claude
 .claude/
+CLAUDE.md
 
 # File di Sistema
 .DS_Store
