@@ -423,7 +423,7 @@
             disconnectHandled = false;
             closeWS();
 
-            ws = new WebSocket(`ws://${ip.trim()}:8765`);
+            ws = new WebSocket(`wss://${ip.trim()}:8765`);
 
             clearTimeout(connectionTimeout);
             connectionTimeout = setTimeout(() => {

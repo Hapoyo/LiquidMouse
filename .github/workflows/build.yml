@@ -22,7 +22,7 @@ jobs:
           python-version: '3.12'
 
       - name: Installa dipendenze
-        run: pip install websockets pyautogui pystray Pillow qrcode pyinstaller
+        run: pip install websockets pyautogui pystray Pillow qrcode pyinstaller cryptography
 
       - name: Estrai versione
         id: version

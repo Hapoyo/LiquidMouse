@@ -14,6 +14,10 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 import os
 import sys
 import time
+import ssl
+import tempfile
+import datetime
+import ipaddress
 
 # --- GESTIONE DEI MODULI E DELLE DIPENDENZE ---
 try:
@@ -222,6 +226,49 @@ def get_local_ip():
 
 LOCAL_IP = get_local_ip()
 
+# --- SSL: CERTIFICATO SELF-SIGNED ---
+def create_ssl_context():
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, LOCAL_IP)])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
+        .not_valid_after(datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=365))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.IPAddress(ipaddress.IPv4Address(LOCAL_IP))]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+    key_pem  = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    )
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pem') as cf:
+        cf.write(cert_pem)
+        cert_file = cf.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pem') as kf:
+        kf.write(key_pem)
+        key_file = kf.name
+    try:
+        ctx.load_cert_chain(cert_file, key_file)
+    finally:
+        os.unlink(cert_file)
+        os.unlink(key_file)
+    return ctx
+
 # --- BACKEND (WebSocket & HTTP) ---
 async def handler(websocket):
     global TRUSTED_IP
@@ -306,20 +353,21 @@ async def handler(websocket):
 class _QuietHTTPHandler(SimpleHTTPRequestHandler):
     def log_message(self, *args): pass
 
-def start_http_server():
+def start_http_server(ssl_ctx):
     try:
         os.chdir(BASE_DIR)
         httpd = HTTPServer(("0.0.0.0", HTTP_PORT), _QuietHTTPHandler)
+        httpd.socket = ssl_ctx.wrap_socket(httpd.socket, server_side=True)
         httpd.serve_forever()
     except OSError:
         log_message(f"Errore: Porta {HTTP_PORT} occupata!", color=COLOR_ERROR)
     except Exception as e:
         log_message(f"HTTP Server crash: {e}", color=COLOR_ERROR)
 
-async def start_websocket_server():
+async def start_websocket_server(ssl_ctx):
     log_message("Protocolli di comunicazione inizializzati.", color=COLOR_MUTED)
     try:
-        async with websockets.serve(handler, "0.0.0.0", PORT, ping_interval=20, ping_timeout=10):
+        async with websockets.serve(handler, "0.0.0.0", PORT, ssl=ssl_ctx, ping_interval=20, ping_timeout=10):
             await asyncio.Future()
     except OSError:
         log_message(f"ERRORE CRITICO: Porta {PORT} occupata!", color=COLOR_ERROR)
@@ -327,8 +375,9 @@ async def start_websocket_server():
         log_message(f"WebSocket Server crash: {e}", color=COLOR_ERROR)
 
 def run_services():
-    threading.Thread(target=start_http_server, daemon=True).start()
-    asyncio.run(start_websocket_server())
+    ssl_ctx = create_ssl_context()
+    threading.Thread(target=start_http_server, args=(ssl_ctx,), daemon=True).start()
+    asyncio.run(start_websocket_server(ssl_ctx))
 
 # --- GUI & SYSTEM TRAY ---
 root         = tk.Tk()
@@ -443,7 +492,7 @@ def setup_gui():
     tk.Label(root, textvariable=ip_label_var, font=("Consolas", 18), bg=COLOR_BG, fg=COLOR_TEXT).place(x=36, y=112)
 
     # --- QR Code con sfondo arrotondato ---
-    qr_url = f"http://{LOCAL_IP}:{HTTP_PORT}/?v={int(time.time())}"
+    qr_url = f"https://{LOCAL_IP}:{HTTP_PORT}/?v={int(time.time())}"
     try:
         qr = qrcode.QRCode(version=1, box_size=3, border=2)
         qr.add_data(qr_url)
