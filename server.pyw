@@ -30,7 +30,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "1.8.9"
+VERSION = "1.9.0"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
