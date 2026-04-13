@@ -10,12 +10,11 @@ import socket
 import threading
 import tkinter as tk
 from tkinter import messagebox
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import HTTPServer, SimpleHTTPRequestHandler, BaseHTTPRequestHandler
 import os
 import sys
 import time
 import ssl
-import tempfile
 import datetime
 import ipaddress
 
@@ -30,7 +29,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "1.9.0"
+VERSION = "1.9.1"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -47,6 +46,9 @@ except Exception:
 # --- CONFIGURAZIONE ---
 PORT      = 8765
 HTTP_PORT = 8000
+CERT_PORT = 8001
+
+CERT_PEM_DATA = b""
 
 # --- COLORI (Claude Code palette) ---
 COLOR_BG          = "#0D0D0D"
@@ -227,7 +229,7 @@ def get_local_ip():
 LOCAL_IP = get_local_ip()
 
 # --- SSL: CERTIFICATO SELF-SIGNED ---
-def create_ssl_context():
+def _generate_cert():
     from cryptography import x509
     from cryptography.x509.oid import NameOID
     from cryptography.hazmat.primitives import hashes, serialization
@@ -255,18 +257,38 @@ def create_ssl_context():
         serialization.PrivateFormat.TraditionalOpenSSL,
         serialization.NoEncryption(),
     )
+    return cert_pem, key_pem
+
+def create_ssl_context():
+    global CERT_PEM_DATA
+    cert_path = os.path.join(BASE_DIR, "liquidmouse_cert.pem")
+    key_path  = os.path.join(BASE_DIR, "liquidmouse_key.pem")
+
+    # Riutilizza il certificato esistente se valido per l'IP corrente
+    if os.path.exists(cert_path) and os.path.exists(key_path):
+        try:
+            from cryptography import x509
+            cert_pem = open(cert_path, "rb").read()
+            cert = x509.load_pem_x509_certificate(cert_pem)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            if cert.not_valid_after_utc > now + datetime.timedelta(days=30):
+                san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+                ips = [str(ip) for ip in san.value.get_values_for_type(x509.IPAddress)]
+                if LOCAL_IP in ips:
+                    CERT_PEM_DATA = cert_pem
+                    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                    ctx.load_cert_chain(cert_path, key_path)
+                    return ctx
+        except Exception:
+            pass  # Rigenera se il certificato è corrotto o incompatibile
+
+    # Genera e salva un nuovo certificato
+    cert_pem, key_pem = _generate_cert()
+    with open(cert_path, "wb") as f: f.write(cert_pem)
+    with open(key_path,  "wb") as f: f.write(key_pem)
+    CERT_PEM_DATA = cert_pem
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pem') as cf:
-        cf.write(cert_pem)
-        cert_file = cf.name
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pem') as kf:
-        kf.write(key_pem)
-        key_file = kf.name
-    try:
-        ctx.load_cert_chain(cert_file, key_file)
-    finally:
-        os.unlink(cert_file)
-        os.unlink(key_file)
+    ctx.load_cert_chain(cert_path, key_path)
     return ctx
 
 # --- BACKEND (WebSocket & HTTP) ---
@@ -353,6 +375,26 @@ async def handler(websocket):
 class _QuietHTTPHandler(SimpleHTTPRequestHandler):
     def log_message(self, *args): pass
 
+class _CertHTTPHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        data = CERT_PEM_DATA
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-x509-ca-cert")
+        self.send_header("Content-Disposition", 'attachment; filename="liquidmouse.crt"')
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+    def log_message(self, *args): pass
+
+def start_cert_server():
+    try:
+        httpd = HTTPServer(("0.0.0.0", CERT_PORT), _CertHTTPHandler)
+        httpd.serve_forever()
+    except OSError:
+        log_message(f"Errore: Porta {CERT_PORT} occupata!", color=COLOR_ERROR)
+    except Exception as e:
+        log_message(f"Cert server crash: {e}", color=COLOR_ERROR)
+
 def start_http_server(ssl_ctx):
     try:
         os.chdir(BASE_DIR)
@@ -377,6 +419,7 @@ async def start_websocket_server(ssl_ctx):
 def run_services():
     ssl_ctx = create_ssl_context()
     threading.Thread(target=start_http_server, args=(ssl_ctx,), daemon=True).start()
+    threading.Thread(target=start_cert_server, daemon=True).start()
     asyncio.run(start_websocket_server(ssl_ctx))
 
 # --- GUI & SYSTEM TRAY ---
@@ -406,9 +449,48 @@ def terminate_application(icon=None, item=None):
     if icon: icon.stop()
     root.after(100, root.destroy)
 
+def show_cert_dialog(icon=None, item=None):
+    cert_url = f"http://{LOCAL_IP}:{CERT_PORT}/cert"
+    def _open():
+        win = tk.Toplevel(root)
+        win.title("Installa certificato")
+        win.configure(bg=COLOR_BG)
+        win.resizable(False, False)
+        w, h = 360, 340
+        sx = (win.winfo_screenwidth()  - w) // 2
+        sy = (win.winfo_screenheight() - h) // 2
+        win.geometry(f'{w}x{h}+{sx}+{sy}')
+
+        tk.Label(win, text="Installa certificato su iPhone", font=("Consolas", 11, "bold"),
+                 bg=COLOR_BG, fg=COLOR_ACCENT).pack(pady=(18, 4))
+
+        try:
+            qr = qrcode.QRCode(version=1, box_size=4, border=2)
+            qr.add_data(cert_url)
+            qr.make(fit=True)
+            qr_img = qr.make_image(fill_color=COLOR_TEXT, back_color=COLOR_BG).convert("RGBA")
+            win._qr_photo = ImageTk.PhotoImage(qr_img)
+            tk.Label(win, image=win._qr_photo, bg=COLOR_BG, bd=0).pack(pady=6)
+        except Exception:
+            pass
+
+        tk.Label(win, text=cert_url, font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED).pack()
+
+        istruzioni = (
+            "1. Scansiona il QR con Safari (non la fotocamera)\n"
+            "2. Consenti il download → vai in Impostazioni\n"
+            "3. Impostazioni › Profilo scaricato › Installa\n"
+            "4. Impostazioni › Generali › Info › Impostazioni\n"
+            "   certificato attendibilità › Abilita certificato"
+        )
+        tk.Label(win, text=istruzioni, font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_TEXT,
+                 justify="left", wraplength=320).pack(padx=18, pady=(8, 14))
+    root.after(0, _open)
+
 def run_tray_service():
     menu = (
         pystray.MenuItem('Apri', restore_window, default=True),
+        pystray.MenuItem('Installa certificato su telefono', show_cert_dialog),
         pystray.MenuItem('Reset connessione', lambda icon, item: reset_trusted_ip()),
         pystray.MenuItem('Esci', terminate_application),
     )
