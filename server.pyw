@@ -44,13 +44,13 @@ except Exception:
 # --- CONFIGURAZIONE ---
 PORT      = 8765
 HTTP_PORT = 8000
+_PONG     = '{"type":"pong"}'
 
 # --- COLORI (Claude Code palette) ---
 COLOR_BG          = "#0D0D0D"
 COLOR_SURFACE     = "#161616"
 COLOR_TEXT         = "#E8E4E0"
 COLOR_ACCENT       = "#DA7756"
-COLOR_ACCENT_DIM   = "#8B4D37"
 COLOR_MUTED        = "#5A5868"
 COLOR_BORDER       = "#232323"
 COLOR_ERROR        = "#E55B5B"
@@ -289,7 +289,7 @@ async def handler(websocket):
                     hotkey(*data.get('keys', []))
 
                 elif msg_type == 'ping':
-                    await websocket.send('{"type":"pong"}')
+                    await websocket.send(_PONG)
 
             except (ValueError, KeyError, TypeError) as e:
                 log_message(f"Cmd ignorato: {e}", color=COLOR_MUTED)
@@ -336,6 +336,7 @@ root         = tk.Tk()
 ip_label_var = None
 status_var   = None
 status_label = None
+_main_canvas = None
 
 def create_tray_icon():
     if os.path.exists(ICON_PATH):
@@ -367,7 +368,7 @@ def run_tray_service():
     pystray.Icon("LiquidMouse", create_tray_icon(), "Liquid Mouse", menu).run()
 
 def setup_gui():
-    global ip_label_var, status_var, status_label
+    global ip_label_var, status_var, status_label, _main_canvas
 
     root.title("Liquid Mouse")
     w, h = 560, 300
@@ -385,6 +386,7 @@ def setup_gui():
 
     canvas = tk.Canvas(root, bg=COLOR_TRANSPARENT, highlightthickness=0)
     canvas.pack(fill="both", expand=True)
+    _main_canvas = canvas
 
     # --- Forma finestra: rettangolo arrotondato con bordo sottile ---
     def rounded_rect(c, x1, y1, x2, y2, r, **kw):
@@ -525,14 +527,12 @@ def log_message(message, color=None):
         if status_var:
             status_var.set(message)
             if status_label: status_label.config(fg=color)
-        # Aggiorna il colore del pallino stato
         dot_color = COLOR_OK if color == COLOR_ACCENT else (COLOR_ERROR if color == COLOR_ERROR else COLOR_MUTED)
-        try: root.children  # verifica che la GUI esista
-        except: return
-        if hasattr(root, '_status_dot'):
-            canvas = list(root.children.values())[0]
-            if isinstance(canvas, tk.Canvas):
-                canvas.itemconfig(root._status_dot, fill=dot_color)
+        if _main_canvas and hasattr(root, '_status_dot'):
+            try:
+                _main_canvas.itemconfig(root._status_dot, fill=dot_color)
+            except AttributeError:
+                pass
     root.after(0, _update)
 
 if __name__ == "__main__":
