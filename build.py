@@ -68,7 +68,7 @@ def build():
     # 3. Processo di Compilazione
     print("\n🚀 Avvio del processo di build (la procedura potrebbe richiedere alcuni minuti)...")
     try:
-        subprocess.check_call(cmd)
+        subprocess.check_call(cmd, cwd=SCRIPT_DIR)
         print("\n✅ OPERAZIONE COMPLETATA: Binario generato con successo.")
         
         exe_path = os.path.abspath(os.path.join("dist", "LiquidMouse.exe"))

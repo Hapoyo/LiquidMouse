@@ -27,7 +27,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "1.9.2"
+VERSION = "1.9.3"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -300,16 +300,17 @@ async def handler(websocket):
         log_message("In attesa di connessione...", color=COLOR_MUTED)
     finally:
         mouse_button('up')
-        for key in held_keys:
+        for key in list(held_keys):
             key_up(key)
         held_keys.clear()
 
 class _QuietHTTPHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=BASE_DIR, **kwargs)
     def log_message(self, *args): pass
 
 def start_http_server():
     try:
-        os.chdir(BASE_DIR)
         httpd = HTTPServer(("0.0.0.0", HTTP_PORT), _QuietHTTPHandler)
         httpd.serve_forever()
     except OSError:
@@ -459,7 +460,7 @@ def setup_gui():
         mask = Image.new("L", bg_img.size, 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, bg_img.size[0], bg_img.size[1]), radius=10, fill=255)
         bg_img.putalpha(mask)
-        bg_img.paste(qr_raw, (pad_qr, pad_qr), qr_raw.split()[3] if qr_raw.mode == "RGBA" else None)
+        bg_img.paste(qr_raw, (pad_qr, pad_qr), qr_raw.split()[3])
         root.qr_photo = ImageTk.PhotoImage(bg_img)
         tk.Label(root, image=root.qr_photo, bg=COLOR_BG, bd=0).place(x=w-150, y=85)
     except Exception as e:
@@ -527,7 +528,8 @@ def log_message(message, color=None):
         if status_var:
             status_var.set(message)
             if status_label: status_label.config(fg=color)
-        dot_color = COLOR_OK if color == COLOR_ACCENT else (COLOR_ERROR if color == COLOR_ERROR else COLOR_MUTED)
+        _dot_map = {COLOR_OK: COLOR_OK, COLOR_ACCENT: COLOR_OK, COLOR_ERROR: COLOR_ERROR}
+        dot_color = _dot_map.get(color, COLOR_MUTED)
         if _main_canvas and hasattr(root, '_status_dot'):
             try:
                 _main_canvas.itemconfig(root._status_dot, fill=dot_color)

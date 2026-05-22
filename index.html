@@ -424,7 +424,12 @@
         }
 
         function connectServer(ip) {
-            if (!ip.trim()) { alert('Inserire un indirizzo IP valido.'); return; }
+            const _ip = ip.trim();
+            if (!_ip) { alert('Inserire un indirizzo IP valido.'); return; }
+            if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(_ip) && !/^[a-zA-Z0-9.-]+$/.test(_ip)) {
+                alert('Indirizzo non valido.'); return;
+            }
+            ip = _ip;
             statusDiv.innerText = "CONNESSIONE... "; statusDiv.style.color = "#ffcc00";
             disconnectHandled = false;
             closeWS();
@@ -763,16 +768,10 @@
             localStorage.setItem('lm_sensitivity', sensitivity);
         });
 
-        addMenuTap('btn-keyboard', () => {
-            hiddenInput.value = '';
-            previousValue = ''; // Reset essenziale: evita ghost input al riavvio della tastiera
-            hiddenInput.focus();
-            closeMenu();
-        });
-
         // --- DISPLAY TESTO & TASTIERA ---
         const textDisplay = document.getElementById('text-display');
         let displayedText = ''; let displayTimeout;
+        let previousValue = '';
 
         function updateTextDisplay(char) {
             displayedText = (char.length > 1) ? char : (char === '⌫' ? displayedText.slice(0, -1) : (char === '↵' ? displayedText + '\n' : displayedText + char));
@@ -782,7 +781,12 @@
             displayTimeout = setTimeout(() => { textDisplay.classList.remove('active'); displayedText = ''; }, 3000);
         }
 
-        let previousValue = '';
+        addMenuTap('btn-keyboard', () => {
+            hiddenInput.value = '';
+            previousValue = ''; // Reset essenziale: evita ghost input al riavvio della tastiera
+            hiddenInput.focus();
+            closeMenu();
+        });
         hiddenInput.addEventListener('input', (e) => {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
             const val = hiddenInput.value;
@@ -802,11 +806,11 @@
                 e.preventDefault(); ws.send(JSON.stringify({ type: 'key', key: 'enter' }));
                 updateTextDisplay('↵'); previousValue = ''; hiddenInput.value = '';
             } else if (e.key === 'Backspace') {
-                setTimeout(() => {
-                    if (hiddenInput.value.length === previousValue.length) {
-                        ws.send(JSON.stringify({ type: 'key', key: 'backspace' })); updateTextDisplay('⌫');
-                    }
-                }, 10);
+                if (hiddenInput.value.length === 0) {
+                    // Campo vuoto: 'input' non scatta, invia backspace manualmente
+                    ws.send(JSON.stringify({ type: 'key', key: 'backspace' })); updateTextDisplay('⌫');
+                }
+                // Campo non vuoto: l'evento 'input' gestisce la cancellazione
             }
         });
 
