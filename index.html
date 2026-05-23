@@ -753,8 +753,11 @@
                     } else if (msg.type === 'term_closed') {
                         document.getElementById('session-dot-bar').classList.remove('alive');
                         document.getElementById('tab-terminal-dot').style.display = 'none';
+                        document.getElementById('terminal-active').classList.remove('visible');
+                        document.getElementById('session-picker').style.display = '';
                         showTermError(`Sessione terminata (exit ${msg.exit_code})`);
                         termSessionId = null;
+                        ws.send(JSON.stringify({type: 'term_list'}));
                     } else if (msg.type === 'term_error') {
                         showTermError(msg.msg);
                     }
@@ -1196,11 +1199,6 @@
             list.innerHTML = '';
             const alive = sessions.filter(s => s.alive);
 
-            if (alive.length === 0) {
-                ws.send(JSON.stringify({type: 'term_create'}));
-                return;
-            }
-
             alive.forEach(s => {
                 const age = Math.round((Date.now()/1000 - s.created_at) / 60);
                 const card = document.createElement('div');
@@ -1224,9 +1222,15 @@
                 <div class="session-card-label">
                     <div class="name-new">Nuova sessione</div>
                 </div>
-                <button class="session-card-btn btn-new">+ NUOVA</button>`;
-            newCard.querySelector('.btn-new').addEventListener('click', () => {
-                ws.send(JSON.stringify({type: 'term_create'}));
+                <div style="display:flex;gap:8px">
+                    <button class="session-card-btn btn-new btn-cmd">CMD</button>
+                    <button class="session-card-btn btn-new btn-claude">CLAUDE</button>
+                </div>`;
+            newCard.querySelector('.btn-cmd').addEventListener('click', () => {
+                ws.send(JSON.stringify({type: 'term_create', cmd: 'cmd.exe'}));
+            });
+            newCard.querySelector('.btn-claude').addEventListener('click', () => {
+                ws.send(JSON.stringify({type: 'term_create', cmd: 'claude'}));
             });
             list.appendChild(newCard);
         }

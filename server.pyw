@@ -17,6 +17,7 @@ import sys
 import time
 import base64
 import uuid
+import shutil
 from dataclasses import dataclass, field
 
 try:
@@ -36,7 +37,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.0.5"
+VERSION = "2.0.6"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -236,14 +237,19 @@ class SessionManager:
     def __init__(self):
         self._sessions: dict = {}
 
-    def create(self, cmd: str = "claude") -> "PTYSession":
+    def create(self, cmd: str = "cmd.exe") -> "PTYSession":
         if not WINPTY_AVAILABLE:
             raise RuntimeError("Terminal Mode richiede Windows con pywinpty installato")
         sid = uuid.uuid4().hex[:8]
+        # Risolvi il path reale — su Windows claude è un .cmd, non un .exe
+        argv = self._resolve_argv(cmd)
+        log_message(f"Terminal: spawn {argv}", color=COLOR_MUTED)
         try:
-            pty = _winpty_mod.PtyProcess.spawn(cmd, dimensions=(40, 120))
+            pty = _winpty_mod.PtyProcess.spawn(argv, dimensions=(40, 120))
         except FileNotFoundError:
             raise RuntimeError(f"'{cmd}' non trovato — verifica PATH")
+        except Exception as e:
+            raise RuntimeError(f"Errore spawn PTY: {e}")
         session = PTYSession(
             id=sid, cmd=cmd, pty=pty,
             created_at=time.time(), alive=True
@@ -251,6 +257,21 @@ class SessionManager:
         self._sessions[sid] = session
         asyncio.ensure_future(self._read_loop(session))
         return session
+
+    @staticmethod
+    def _resolve_argv(cmd: str) -> list:
+        # Se è già un path assoluto usalo direttamente
+        if os.path.isabs(cmd) and os.path.exists(cmd):
+            return [cmd]
+        # Cerca .exe prima, poi .cmd/.bat via shutil.which
+        exe = shutil.which(cmd)
+        if exe and exe.lower().endswith(('.cmd', '.bat')):
+            # I file batch devono passare per cmd.exe
+            return ["cmd.exe", "/c", exe]
+        if exe:
+            return [exe]
+        # Fallback: prova come stringa grezza (pywinpty fa il suo PATH lookup)
+        return [cmd]
 
     async def attach(self, sid: str, ws) -> None:
         session = self._sessions.get(sid)
@@ -306,11 +327,16 @@ class SessionManager:
 
     async def _read_loop(self, session: "PTYSession") -> None:
         loop = asyncio.get_event_loop()
+        exit_code = 0
         while session.alive:
             try:
                 raw = await loop.run_in_executor(None, session.pty.read, 4096)
                 if not raw:
                     if not session.pty.isalive():
+                        try:
+                            exit_code = session.pty.exitstatus or 0
+                        except Exception:
+                            exit_code = 0
                         break
                     await asyncio.sleep(0.01)
                     continue
@@ -327,15 +353,17 @@ class SessionManager:
                         session.ws = None
             except EOFError:
                 break
-            except Exception:
+            except Exception as e:
+                log_message(f"Terminal read error [{session.id}]: {e}", color=COLOR_ERROR)
                 break
         session.alive = False
+        log_message(f"Terminal: sessione {session.id} ({session.cmd}) terminata (exit {exit_code})", color=COLOR_MUTED)
         if session.ws:
             try:
                 await session.ws.send(json.dumps({
                     "type": "term_closed",
                     "id": session.id,
-                    "exit_code": 0
+                    "exit_code": exit_code
                 }))
             except Exception:
                 pass
@@ -437,7 +465,7 @@ async def handler(websocket):
                     }))
 
                 elif msg_type == 'term_create':
-                    cmd = data.get('cmd', 'claude')
+                    cmd = data.get('cmd', 'cmd.exe')
                     try:
                         session = _session_manager.create(cmd)
                         await websocket.send(json.dumps({
