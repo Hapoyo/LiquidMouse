@@ -37,7 +37,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.0.6"
+VERSION = "2.0.7"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -244,8 +244,10 @@ class SessionManager:
         # Risolvi il path reale — su Windows claude è un .cmd, non un .exe
         argv = self._resolve_argv(cmd)
         log_message(f"Terminal: spawn {argv}", color=COLOR_MUTED)
+        home = os.path.expanduser("~")
+        env = os.environ.copy()
         try:
-            pty = _winpty_mod.PtyProcess.spawn(argv, dimensions=(40, 120))
+            pty = _winpty_mod.PtyProcess.spawn(argv, dimensions=(40, 120), cwd=home, env=env)
         except FileNotFoundError:
             raise RuntimeError(f"'{cmd}' non trovato — verifica PATH")
         except Exception as e:
