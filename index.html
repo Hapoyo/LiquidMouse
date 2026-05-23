@@ -32,13 +32,17 @@
             background: var(--bg-color);
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            align-items: stretch;
+            justify-content: flex-start;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             overflow: hidden;
             user-select: none;
-            padding-bottom: env(safe-area-inset-bottom);
             box-sizing: border-box;
+        }
+        #content-touchpad {
+            align-items: center;
+            justify-content: center;
+            padding-bottom: env(safe-area-inset-bottom);
         }
 
         .fluid-panel {
@@ -645,6 +649,8 @@
         // --- TERMINAL STATE ---
         let termSessionId = null;
         let xterm = null;
+        let xtermOpened = false;
+        let xtermPendingData = [];
         let rawVisible = false;
 
         function switchTab(name) {
@@ -737,7 +743,11 @@
                     } else if (msg.type === 'term_output') {
                         if (xterm) {
                             const bytes = Uint8Array.from(atob(msg.data), c => c.charCodeAt(0));
-                            xterm.write(bytes);
+                            if (xtermOpened) {
+                                xterm.write(bytes);
+                            } else {
+                                xtermPendingData.push(bytes);
+                            }
                         }
                         parsedWrite(msg.data);
                     } else if (msg.type === 'term_closed') {
@@ -1114,12 +1124,19 @@
                 fontFamily: 'Menlo, Consolas, "Courier New", monospace',
                 scrollback: 1000,
             });
-            xterm.open(document.getElementById('xterm-container'));
             xterm.onData(data => {
                 if (ws && ws.readyState === WebSocket.OPEN && termSessionId) {
                     ws.send(JSON.stringify({type:'term_input', id: termSessionId, data}));
                 }
             });
+        }
+
+        function openXtermIfNeeded() {
+            if (xtermOpened || !xterm) return;
+            xterm.open(document.getElementById('xterm-container'));
+            xtermOpened = true;
+            xtermPendingData.forEach(bytes => xterm.write(bytes));
+            xtermPendingData = [];
         }
 
         function onTerminalTabOpen() {
@@ -1153,7 +1170,10 @@
             const container = document.getElementById('xterm-container');
             container.style.display = rawVisible ? 'block' : 'none';
             document.getElementById('raw-toggle').textContent = rawVisible ? '▲ RAW TERMINAL' : '▼ RAW TERMINAL';
-            if (rawVisible && xterm) xterm.refresh(0, xterm.rows - 1);
+            if (rawVisible) {
+                openXtermIfNeeded();
+                if (xterm) xterm.refresh(0, xterm.rows - 1);
+            }
         });
 
         document.getElementById('btn-send-term').addEventListener('click', sendPrompt);
