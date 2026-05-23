@@ -15,6 +15,15 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 import os
 import sys
 import time
+import base64
+import uuid
+from dataclasses import dataclass, field
+
+try:
+    import winpty as _winpty_mod
+    WINPTY_AVAILABLE = True
+except ImportError:
+    WINPTY_AVAILABLE = False
 
 # --- GESTIONE DEI MODULI E DELLE DIPENDENZE ---
 try:
@@ -27,7 +36,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "1.9.3"
+VERSION = "2.0.0"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -204,6 +213,133 @@ def hotkey(*keys):
     ups   = [_ki(vk=vk, flags=KEYEVENTF_KEYUP) for vk in reversed(vks)]
     _send(*downs, *ups)
 
+# --- TERMINAL MODE: ConPTY / PTY SESSION ---
+
+def _append_ring(buf: bytearray, data: bytes, maxsize: int = 65536):
+    buf += data
+    if len(buf) > maxsize:
+        del buf[:len(buf) - maxsize]
+
+
+@dataclass
+class PTYSession:
+    id: str
+    cmd: str
+    pty: object          # winpty.PtyProcess oppure None
+    output_buffer: bytearray = field(default_factory=bytearray)
+    ws: object = None    # websockets connection oppure None
+    created_at: float = 0.0
+    alive: bool = True
+
+
+class SessionManager:
+    def __init__(self):
+        self._sessions: dict = {}
+
+    def create(self, cmd: str = "claude") -> "PTYSession":
+        if not WINPTY_AVAILABLE:
+            raise RuntimeError("Terminal Mode richiede Windows con pywinpty installato")
+        sid = uuid.uuid4().hex[:8]
+        try:
+            pty = _winpty_mod.PtyProcess.spawn(cmd, dimensions=(40, 120))
+        except FileNotFoundError:
+            raise RuntimeError(f"'{cmd}' non trovato — verifica PATH")
+        session = PTYSession(
+            id=sid, cmd=cmd, pty=pty,
+            created_at=time.time(), alive=True
+        )
+        self._sessions[sid] = session
+        asyncio.ensure_future(self._read_loop(session))
+        return session
+
+    async def attach(self, sid: str, ws) -> None:
+        session = self._sessions.get(sid)
+        if not session:
+            raise RuntimeError("sessione non trovata")
+        if session.ws is not None:
+            raise RuntimeError("sessione già in uso da altro client")
+        session.ws = ws
+        buf = bytes(session.output_buffer)
+        for i in range(0, max(len(buf), 1), 4096):
+            chunk = buf[i:i + 4096]
+            if chunk:
+                await ws.send(json.dumps({
+                    "type": "term_output",
+                    "id": sid,
+                    "data": base64.b64encode(chunk).decode()
+                }))
+
+    def detach(self, sid: str) -> None:
+        session = self._sessions.get(sid)
+        if session:
+            session.ws = None
+
+    def send(self, sid: str, data: str) -> None:
+        session = self._sessions.get(sid)
+        if not session or not session.alive:
+            raise RuntimeError("sessione non disponibile")
+        session.pty.write(data)
+
+    def resize(self, sid: str, cols: int, rows: int) -> None:
+        session = self._sessions.get(sid)
+        if session and session.alive:
+            try:
+                session.pty.set_size(rows, cols)
+            except Exception:
+                pass
+
+    def kill(self, sid: str) -> None:
+        session = self._sessions.get(sid)
+        if session:
+            session.alive = False
+            try:
+                session.pty.close()
+            except Exception:
+                pass
+            self._sessions.pop(sid, None)
+
+    def list_sessions(self) -> list:
+        return [
+            {"id": s.id, "cmd": s.cmd, "alive": s.alive, "created_at": s.created_at}
+            for s in self._sessions.values()
+        ]
+
+    async def _read_loop(self, session: "PTYSession") -> None:
+        loop = asyncio.get_event_loop()
+        while session.alive:
+            try:
+                raw = await loop.run_in_executor(None, session.pty.read, 4096)
+                if not raw:
+                    break
+                chunk = raw.encode("utf-8", errors="replace") if isinstance(raw, str) else raw
+                _append_ring(session.output_buffer, chunk)
+                if session.ws:
+                    try:
+                        await session.ws.send(json.dumps({
+                            "type": "term_output",
+                            "id": session.id,
+                            "data": base64.b64encode(chunk).decode()
+                        }))
+                    except Exception:
+                        session.ws = None
+            except EOFError:
+                break
+            except Exception:
+                break
+        session.alive = False
+        if session.ws:
+            try:
+                await session.ws.send(json.dumps({
+                    "type": "term_closed",
+                    "id": session.id,
+                    "exit_code": 0
+                }))
+            except Exception:
+                pass
+
+
+_session_manager = SessionManager()
+
 # --- SICUREZZA: WHITELIST IP ---
 TRUSTED_IP = None
 
@@ -290,6 +426,63 @@ async def handler(websocket):
 
                 elif msg_type == 'ping':
                     await websocket.send(_PONG)
+
+                elif msg_type == 'term_list':
+                    await websocket.send(json.dumps({
+                        "type": "term_sessions",
+                        "sessions": _session_manager.list_sessions()
+                    }))
+
+                elif msg_type == 'term_create':
+                    cmd = data.get('cmd', 'claude')
+                    try:
+                        session = _session_manager.create(cmd)
+                        await websocket.send(json.dumps({
+                            "type": "term_created", "id": session.id
+                        }))
+                    except RuntimeError as e:
+                        await websocket.send(json.dumps({
+                            "type": "term_error", "id": "", "msg": str(e)
+                        }))
+
+                elif msg_type == 'term_attach':
+                    sid = data.get('id', '')
+                    try:
+                        await _session_manager.attach(sid, websocket)
+                    except RuntimeError as e:
+                        await websocket.send(json.dumps({
+                            "type": "term_error", "id": sid, "msg": str(e)
+                        }))
+
+                elif msg_type == 'term_detach':
+                    sid = data.get('id', '')
+                    _session_manager.detach(sid)
+
+                elif msg_type == 'term_input':
+                    sid = data.get('id', '')
+                    input_data = data.get('data', '')
+                    try:
+                        _session_manager.send(sid, input_data)
+                    except RuntimeError as e:
+                        await websocket.send(json.dumps({
+                            "type": "term_error", "id": sid, "msg": str(e)
+                        }))
+
+                elif msg_type == 'term_resize':
+                    sid = data.get('id', '')
+                    _session_manager.resize(
+                        sid,
+                        int(data.get('cols', 120)),
+                        int(data.get('rows', 40))
+                    )
+
+                elif msg_type == 'term_kill':
+                    sid = data.get('id', '')
+                    _session_manager.kill(sid)
+                    await websocket.send(json.dumps({
+                        "type": "term_sessions",
+                        "sessions": _session_manager.list_sessions()
+                    }))
 
             except (ValueError, KeyError, TypeError) as e:
                 log_message(f"Cmd ignorato: {e}", color=COLOR_MUTED)

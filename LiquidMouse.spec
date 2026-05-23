@@ -5,8 +5,9 @@ a = Analysis(
     ['server.pyw'],
     pathex=[],
     binaries=[],
-    datas=[('index.html', '.'), ('icon.ico', '.')],
+    datas=[('index.html', '.'), ('icon.ico', '.'), ('xterm.js', '.'), ('xterm.css', '.')],
     hiddenimports=[
+        'winpty',
         'websockets',
         'websockets.server',
         'websockets.client',
