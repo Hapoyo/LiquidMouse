@@ -36,7 +36,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
