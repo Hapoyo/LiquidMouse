@@ -37,7 +37,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.0.7"
+VERSION = "2.0.8"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -328,17 +328,23 @@ class SessionManager:
         ]
 
     async def _read_loop(self, session: "PTYSession") -> None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         exit_code = 0
+        _dbg = open(os.path.join(os.path.expanduser("~"), "Desktop", "lm_term_debug.txt"), "a", encoding="utf-8")
+        def dbg(msg): _dbg.write(msg + "\n"); _dbg.flush()
+        dbg(f"read_loop START sid={session.id} cmd={session.cmd}")
         while session.alive:
             try:
+                dbg("calling read...")
                 raw = await loop.run_in_executor(None, session.pty.read, 4096)
+                dbg(f"read returned: {repr(raw[:40]) if raw else 'EMPTY'}, isalive={session.pty.isalive()}")
                 if not raw:
                     if not session.pty.isalive():
                         try:
                             exit_code = session.pty.exitstatus or 0
                         except Exception:
                             exit_code = 0
+                        dbg(f"empty read + dead → exit_code={exit_code}")
                         break
                     await asyncio.sleep(0.01)
                     continue
@@ -354,12 +360,17 @@ class SessionManager:
                     except Exception:
                         session.ws = None
             except EOFError:
+                dbg("EOFError → break")
                 break
             except Exception as e:
+                import traceback as _tb
+                dbg(f"Exception: {type(e).__name__}: {e}\n{_tb.format_exc()}")
                 log_message(f"Terminal read error [{session.id}]: {e}", color=COLOR_ERROR)
                 break
         session.alive = False
-        log_message(f"Terminal: sessione {session.id} ({session.cmd}) terminata (exit {exit_code})", color=COLOR_MUTED)
+        dbg(f"read_loop END exit_code={exit_code}")
+        _dbg.close()
+        log_message(f"Terminal: sessione {session.id} ({session.cmd}) terminata (exit {exit_code})", color=COLOR_ACCENT)
         if session.ws:
             try:
                 await session.ws.send(json.dumps({
