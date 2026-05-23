@@ -36,7 +36,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.0.3"
+VERSION = "2.0.4"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -310,7 +310,10 @@ class SessionManager:
             try:
                 raw = await loop.run_in_executor(None, session.pty.read, 4096)
                 if not raw:
-                    break
+                    if not session.pty.isalive():
+                        break
+                    await asyncio.sleep(0.01)
+                    continue
                 chunk = raw.encode("utf-8", errors="replace") if isinstance(raw, str) else raw
                 _append_ring(session.output_buffer, chunk)
                 if session.ws:
