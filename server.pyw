@@ -37,7 +37,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.0.8"
+VERSION = "2.0.9"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -214,7 +214,124 @@ def hotkey(*keys):
     ups   = [_ki(vk=vk, flags=KEYEVENTF_KEYUP) for vk in reversed(vks)]
     _send(*downs, *ups)
 
-# --- TERMINAL MODE: ConPTY / PTY SESSION ---
+# --- TERMINAL MODE: ConPTY nativo via ctypes ---
+import ctypes.wintypes as _wt
+import subprocess as _subprocess
+
+_k32 = ctypes.windll.kernel32
+
+class _COORD(ctypes.Structure):
+    _fields_ = [("X", _wt.SHORT), ("Y", _wt.SHORT)]
+
+class _STARTUPINFOEX(ctypes.Structure):
+    _fields_ = [("StartupInfo", _wt.STARTUPINFO), ("lpAttributeList", ctypes.c_void_p)]
+
+_EXTENDED_STARTUPINFO_PRESENT   = 0x00080000
+_PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016
+_STILL_ACTIVE = 259
+
+class _ConPTY:
+    """ConPTY diretto via ctypes — nessuna dipendenza esterna."""
+
+    def __init__(self, argv: list, cwd: str, cols: int = 120, rows: int = 40):
+        self._hproc = self._hpc = self._stdin_w = self._stdout_r = None
+        h_sin_r, h_sin_w, h_sout_r, h_sout_w = (_wt.HANDLE() for _ in range(4))
+
+        if not _k32.CreatePipe(ctypes.byref(h_sin_r), ctypes.byref(h_sin_w), None, 0):
+            raise OSError(f"CreatePipe(stdin) err {_k32.GetLastError()}")
+        if not _k32.CreatePipe(ctypes.byref(h_sout_r), ctypes.byref(h_sout_w), None, 0):
+            _k32.CloseHandle(h_sin_r); _k32.CloseHandle(h_sin_w)
+            raise OSError(f"CreatePipe(stdout) err {_k32.GetLastError()}")
+
+        hpc = _wt.HANDLE()
+        hr = _k32.CreatePseudoConsole(_COORD(cols, rows), h_sin_r, h_sout_w, 0, ctypes.byref(hpc))
+        _k32.CloseHandle(h_sin_r); _k32.CloseHandle(h_sout_w)
+        if hr != 0:
+            _k32.CloseHandle(h_sin_w); _k32.CloseHandle(h_sout_r)
+            raise OSError(f"CreatePseudoConsole hr={hr:#010x}")
+
+        self._hpc, self._stdin_w, self._stdout_r = hpc, h_sin_w, h_sout_r
+
+        attr_sz = ctypes.c_size_t(0)
+        _k32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(attr_sz))
+        attr_buf = (ctypes.c_byte * attr_sz.value)()
+        attr_ptr = ctypes.cast(attr_buf, ctypes.c_void_p)
+        _k32.InitializeProcThreadAttributeList(attr_ptr, 1, 0, ctypes.byref(attr_sz))
+        _k32.UpdateProcThreadAttribute(attr_ptr, 0,
+            _PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hpc, ctypes.sizeof(hpc), None, None)
+
+        si = _STARTUPINFOEX()
+        ctypes.memset(ctypes.byref(si), 0, ctypes.sizeof(si))
+        si.StartupInfo.cb = ctypes.sizeof(si)
+        si.lpAttributeList = attr_ptr
+
+        pi = _wt.PROCESS_INFORMATION()
+        cmd_str = _subprocess.list2cmdline(argv) if isinstance(argv, list) else argv
+        ok = _k32.CreateProcessW(None, cmd_str, None, None, False,
+            _EXTENDED_STARTUPINFO_PRESENT, None, cwd, ctypes.byref(si), ctypes.byref(pi))
+        _k32.DeleteProcThreadAttributeList(attr_ptr)
+        if not ok:
+            err = _k32.GetLastError()
+            self._cleanup()
+            raise OSError(f"CreateProcessW err={err} cmd={cmd_str!r}")
+        self._hproc = pi.hProcess
+        _k32.CloseHandle(pi.hThread)
+
+    def read(self, size: int = 4096) -> bytes:
+        buf = (ctypes.c_char * size)()
+        n = _wt.DWORD(0)
+        ok = _k32.ReadFile(self._stdout_r, buf, size, ctypes.byref(n), None)
+        if not ok or n.value == 0:
+            raise EOFError("ConPTY EOF")
+        return bytes(buf[:n.value])
+
+    def write(self, data) -> None:
+        if isinstance(data, str):
+            data = data.encode("utf-8", errors="replace")
+        n = _wt.DWORD(0)
+        _k32.WriteFile(self._stdin_w, data, len(data), ctypes.byref(n), None)
+
+    def isalive(self) -> bool:
+        if not self._hproc: return False
+        ec = _wt.DWORD(); _k32.GetExitCodeProcess(self._hproc, ctypes.byref(ec))
+        return ec.value == _STILL_ACTIVE
+
+    @property
+    def exitstatus(self) -> int:
+        if not self._hproc: return 0
+        ec = _wt.DWORD(); _k32.GetExitCodeProcess(self._hproc, ctypes.byref(ec))
+        return 0 if ec.value == _STILL_ACTIVE else ec.value
+
+    def set_size(self, rows: int, cols: int) -> None:
+        if self._hpc:
+            try: _k32.ResizePseudoConsole(self._hpc, _COORD(cols, rows))
+            except Exception: pass
+
+    def close(self) -> None:
+        if self._hproc:
+            try: _k32.TerminateProcess(self._hproc, 0)
+            except Exception: pass
+        self._cleanup()
+
+    def _cleanup(self):
+        for h in [self._hproc, self._stdin_w, self._stdout_r]:
+            if h:
+                try: _k32.CloseHandle(h)
+                except Exception: pass
+        if self._hpc:
+            try: _k32.ClosePseudoConsole(self._hpc)
+            except Exception: pass
+        self._hproc = self._hpc = self._stdin_w = self._stdout_r = None
+
+
+def _resolve_argv(cmd: str) -> list:
+    if os.path.isabs(cmd) and os.path.exists(cmd):
+        return [cmd]
+    exe = shutil.which(cmd)
+    if exe and exe.lower().endswith(('.cmd', '.bat')):
+        return ["cmd.exe", "/c", exe]
+    return [exe] if exe else [cmd]
+
 
 def _append_ring(buf: bytearray, data: bytes, maxsize: int = 65536):
     buf += data
@@ -226,9 +343,9 @@ def _append_ring(buf: bytearray, data: bytes, maxsize: int = 65536):
 class PTYSession:
     id: str
     cmd: str
-    pty: object          # winpty.PtyProcess oppure None
+    pty: object
     output_buffer: bytearray = field(default_factory=bytearray)
-    ws: object = None    # websockets connection oppure None
+    ws: object = None
     created_at: float = 0.0
     alive: bool = True
 
@@ -238,42 +355,18 @@ class SessionManager:
         self._sessions: dict = {}
 
     def create(self, cmd: str = "cmd.exe") -> "PTYSession":
-        if not WINPTY_AVAILABLE:
-            raise RuntimeError("Terminal Mode richiede Windows con pywinpty installato")
         sid = uuid.uuid4().hex[:8]
-        # Risolvi il path reale — su Windows claude è un .cmd, non un .exe
-        argv = self._resolve_argv(cmd)
-        log_message(f"Terminal: spawn {argv}", color=COLOR_MUTED)
+        argv = _resolve_argv(cmd)
         home = os.path.expanduser("~")
-        env = os.environ.copy()
+        log_message(f"Terminal: spawn {argv}", color=COLOR_ACCENT)
         try:
-            pty = _winpty_mod.PtyProcess.spawn(argv, dimensions=(40, 120), cwd=home, env=env)
-        except FileNotFoundError:
-            raise RuntimeError(f"'{cmd}' non trovato — verifica PATH")
-        except Exception as e:
-            raise RuntimeError(f"Errore spawn PTY: {e}")
-        session = PTYSession(
-            id=sid, cmd=cmd, pty=pty,
-            created_at=time.time(), alive=True
-        )
+            pty = _ConPTY(argv, cwd=home)
+        except OSError as e:
+            raise RuntimeError(f"Errore PTY: {e}")
+        session = PTYSession(id=sid, cmd=cmd, pty=pty, created_at=time.time(), alive=True)
         self._sessions[sid] = session
-        asyncio.ensure_future(self._read_loop(session))
+        asyncio.get_running_loop().create_task(self._read_loop(session))
         return session
-
-    @staticmethod
-    def _resolve_argv(cmd: str) -> list:
-        # Se è già un path assoluto usalo direttamente
-        if os.path.isabs(cmd) and os.path.exists(cmd):
-            return [cmd]
-        # Cerca .exe prima, poi .cmd/.bat via shutil.which
-        exe = shutil.which(cmd)
-        if exe and exe.lower().endswith(('.cmd', '.bat')):
-            # I file batch devono passare per cmd.exe
-            return ["cmd.exe", "/c", exe]
-        if exe:
-            return [exe]
-        # Fallback: prova come stringa grezza (pywinpty fa il suo PATH lookup)
-        return [cmd]
 
     async def attach(self, sid: str, ws) -> None:
         session = self._sessions.get(sid)
@@ -287,96 +380,71 @@ class SessionManager:
             chunk = buf[i:i + 4096]
             if chunk:
                 await ws.send(json.dumps({
-                    "type": "term_output",
-                    "id": sid,
+                    "type": "term_output", "id": sid,
                     "data": base64.b64encode(chunk).decode()
                 }))
 
     def detach(self, sid: str) -> None:
-        session = self._sessions.get(sid)
-        if session:
-            session.ws = None
+        s = self._sessions.get(sid)
+        if s: s.ws = None
 
     def send(self, sid: str, data: str) -> None:
-        session = self._sessions.get(sid)
-        if not session or not session.alive:
+        s = self._sessions.get(sid)
+        if not s or not s.alive:
             raise RuntimeError("sessione non disponibile")
-        session.pty.write(data)
+        s.pty.write(data)
 
     def resize(self, sid: str, cols: int, rows: int) -> None:
-        session = self._sessions.get(sid)
-        if session and session.alive:
-            try:
-                session.pty.set_size(rows, cols)
-            except Exception:
-                pass
+        s = self._sessions.get(sid)
+        if s and s.alive:
+            try: s.pty.set_size(rows, cols)
+            except Exception: pass
 
     def kill(self, sid: str) -> None:
-        session = self._sessions.get(sid)
-        if session:
-            session.alive = False
-            try:
-                session.pty.close()
-            except Exception:
-                pass
+        s = self._sessions.get(sid)
+        if s:
+            s.alive = False
+            try: s.pty.close()
+            except Exception: pass
             self._sessions.pop(sid, None)
 
     def list_sessions(self) -> list:
-        return [
-            {"id": s.id, "cmd": s.cmd, "alive": s.alive, "created_at": s.created_at}
-            for s in self._sessions.values()
-        ]
+        return [{"id": s.id, "cmd": s.cmd, "alive": s.alive, "created_at": s.created_at}
+                for s in self._sessions.values()]
 
     async def _read_loop(self, session: "PTYSession") -> None:
         loop = asyncio.get_running_loop()
         exit_code = 0
-        _dbg = open(os.path.join(os.path.expanduser("~"), "Desktop", "lm_term_debug.txt"), "a", encoding="utf-8")
-        def dbg(msg): _dbg.write(msg + "\n"); _dbg.flush()
-        dbg(f"read_loop START sid={session.id} cmd={session.cmd}")
         while session.alive:
             try:
-                dbg("calling read...")
                 raw = await loop.run_in_executor(None, session.pty.read, 4096)
-                dbg(f"read returned: {repr(raw[:40]) if raw else 'EMPTY'}, isalive={session.pty.isalive()}")
                 if not raw:
                     if not session.pty.isalive():
-                        try:
-                            exit_code = session.pty.exitstatus or 0
-                        except Exception:
-                            exit_code = 0
-                        dbg(f"empty read + dead → exit_code={exit_code}")
+                        exit_code = session.pty.exitstatus
                         break
                     await asyncio.sleep(0.01)
                     continue
-                chunk = raw.encode("utf-8", errors="replace") if isinstance(raw, str) else raw
-                _append_ring(session.output_buffer, chunk)
+                _append_ring(session.output_buffer, raw)
                 if session.ws:
                     try:
                         await session.ws.send(json.dumps({
-                            "type": "term_output",
-                            "id": session.id,
-                            "data": base64.b64encode(chunk).decode()
+                            "type": "term_output", "id": session.id,
+                            "data": base64.b64encode(raw).decode()
                         }))
                     except Exception:
                         session.ws = None
             except EOFError:
-                dbg("EOFError → break")
+                exit_code = session.pty.exitstatus
                 break
             except Exception as e:
-                import traceback as _tb
-                dbg(f"Exception: {type(e).__name__}: {e}\n{_tb.format_exc()}")
-                log_message(f"Terminal read error [{session.id}]: {e}", color=COLOR_ERROR)
+                log_message(f"Terminal errore [{session.id}]: {e}", color=COLOR_ERROR)
                 break
         session.alive = False
-        dbg(f"read_loop END exit_code={exit_code}")
-        _dbg.close()
-        log_message(f"Terminal: sessione {session.id} ({session.cmd}) terminata (exit {exit_code})", color=COLOR_ACCENT)
+        log_message(f"Terminal: {session.cmd} terminato (exit {exit_code})", color=COLOR_ACCENT)
         if session.ws:
             try:
                 await session.ws.send(json.dumps({
-                    "type": "term_closed",
-                    "id": session.id,
-                    "exit_code": exit_code
+                    "type": "term_closed", "id": session.id, "exit_code": exit_code
                 }))
             except Exception:
                 pass
