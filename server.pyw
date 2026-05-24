@@ -37,7 +37,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.0.9"
+VERSION = "2.0.10"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -223,10 +223,41 @@ _k32 = ctypes.windll.kernel32
 class _COORD(ctypes.Structure):
     _fields_ = [("X", _wt.SHORT), ("Y", _wt.SHORT)]
 
-class _STARTUPINFOEX(ctypes.Structure):
-    _fields_ = [("StartupInfo", _wt.STARTUPINFO), ("lpAttributeList", ctypes.c_void_p)]
+class _STARTUPINFO(ctypes.Structure):
+    _fields_ = [
+        ("cb",              _wt.DWORD),
+        ("lpReserved",      _wt.LPWSTR),
+        ("lpDesktop",       _wt.LPWSTR),
+        ("lpTitle",         _wt.LPWSTR),
+        ("dwX",             _wt.DWORD),
+        ("dwY",             _wt.DWORD),
+        ("dwXSize",         _wt.DWORD),
+        ("dwYSize",         _wt.DWORD),
+        ("dwXCountChars",   _wt.DWORD),
+        ("dwYCountChars",   _wt.DWORD),
+        ("dwFillAttribute", _wt.DWORD),
+        ("dwFlags",         _wt.DWORD),
+        ("wShowWindow",     _wt.WORD),
+        ("cbReserved2",     _wt.WORD),
+        ("lpReserved2",     ctypes.c_char_p),
+        ("hStdInput",       _wt.HANDLE),
+        ("hStdOutput",      _wt.HANDLE),
+        ("hStdError",       _wt.HANDLE),
+    ]
 
-_EXTENDED_STARTUPINFO_PRESENT   = 0x00080000
+class _STARTUPINFOEX(ctypes.Structure):
+    _fields_ = [("StartupInfo", _STARTUPINFO), ("lpAttributeList", ctypes.c_void_p)]
+
+class _PROCESS_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("hProcess",    _wt.HANDLE),
+        ("hThread",     _wt.HANDLE),
+        ("dwProcessId", _wt.DWORD),
+        ("dwThreadId",  _wt.DWORD),
+    ]
+
+_EXTENDED_STARTUPINFO_PRESENT        = 0x00080000
+_CREATE_NO_WINDOW                    = 0x08000000
 _PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016
 _STILL_ACTIVE = 259
 
@@ -262,13 +293,14 @@ class _ConPTY:
 
         si = _STARTUPINFOEX()
         ctypes.memset(ctypes.byref(si), 0, ctypes.sizeof(si))
-        si.StartupInfo.cb = ctypes.sizeof(si)
+        si.StartupInfo.cb = ctypes.sizeof(_STARTUPINFOEX)
         si.lpAttributeList = attr_ptr
 
-        pi = _wt.PROCESS_INFORMATION()
+        pi = _PROCESS_INFORMATION()
         cmd_str = _subprocess.list2cmdline(argv) if isinstance(argv, list) else argv
         ok = _k32.CreateProcessW(None, cmd_str, None, None, False,
-            _EXTENDED_STARTUPINFO_PRESENT, None, cwd, ctypes.byref(si), ctypes.byref(pi))
+            _EXTENDED_STARTUPINFO_PRESENT | _CREATE_NO_WINDOW,
+            None, cwd, ctypes.byref(si), ctypes.byref(pi))
         _k32.DeleteProcThreadAttributeList(attr_ptr)
         if not ok:
             err = _k32.GetLastError()
