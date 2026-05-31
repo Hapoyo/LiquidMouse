@@ -23,7 +23,8 @@ from dataclasses import dataclass, field
 try:
     import winpty as _winpty_mod
     WINPTY_AVAILABLE = True
-except ImportError:
+except Exception:
+    _winpty_mod = None
     WINPTY_AVAILABLE = False
 
 # --- GESTIONE DEI MODULI E DELLE DIPENDENZE ---
@@ -37,7 +38,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.0.10"
+VERSION = "2.0.11"
 
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
@@ -356,6 +357,53 @@ class _ConPTY:
         self._hproc = self._hpc = self._stdin_w = self._stdout_r = None
 
 
+class _PyWinPTY:
+    """Wrapper pywinpty con stessa interfaccia bytes di _ConPTY."""
+
+    def __init__(self, argv: list, cwd: str, cols: int = 120, rows: int = 40):
+        self._p = _winpty_mod.PtyProcess.spawn(argv, dimensions=(rows, cols), cwd=cwd)
+
+    def read(self, size: int = 4096) -> bytes:
+        s = self._p.read(size)
+        if s is None or s == "":
+            if not self._p.isalive():
+                raise EOFError("PtyProcess EOF")
+            return b""
+        return s.encode("utf-8", errors="replace") if isinstance(s, str) else s
+
+    def write(self, data) -> None:
+        if isinstance(data, bytes):
+            data = data.decode("utf-8", errors="replace")
+        self._p.write(data)
+
+    def isalive(self) -> bool:
+        try: return self._p.isalive()
+        except Exception: return False
+
+    @property
+    def exitstatus(self) -> int:
+        try: return self._p.exitstatus or 0
+        except Exception: return 0
+
+    def set_size(self, rows: int, cols: int) -> None:
+        try: self._p.setwinsize(rows, cols)
+        except Exception: pass
+
+    def close(self) -> None:
+        try: self._p.close(force=True)
+        except Exception: pass
+
+
+def _make_pty(argv: list, cwd: str, cols: int = 120, rows: int = 40):
+    """Sceglie backend PTY: pywinpty quando disponibile, ConPTY ctypes fallback."""
+    if WINPTY_AVAILABLE:
+        try:
+            return _PyWinPTY(argv, cwd, cols, rows)
+        except Exception as e:
+            log_message(f"pywinpty fallita ({e}), fallback ConPTY", color=COLOR_MUTED)
+    return _ConPTY(argv, cwd, cols, rows)
+
+
 def _resolve_argv(cmd: str) -> list:
     if os.path.isabs(cmd) and os.path.exists(cmd):
         return [cmd]
@@ -390,10 +438,11 @@ class SessionManager:
         sid = uuid.uuid4().hex[:8]
         argv = _resolve_argv(cmd)
         home = os.path.expanduser("~")
-        log_message(f"Terminal: spawn {argv}", color=COLOR_ACCENT)
+        backend = "pywinpty" if WINPTY_AVAILABLE else "ConPTY-ctypes"
+        log_message(f"Terminal: spawn {argv} via {backend}", color=COLOR_ACCENT)
         try:
-            pty = _ConPTY(argv, cwd=home)
-        except OSError as e:
+            pty = _make_pty(argv, cwd=home)
+        except (OSError, Exception) as e:
             raise RuntimeError(f"Errore PTY: {e}")
         session = PTYSession(id=sid, cmd=cmd, pty=pty, created_at=time.time(), alive=True)
         self._sessions[sid] = session

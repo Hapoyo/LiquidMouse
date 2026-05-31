@@ -385,54 +385,24 @@
         #terminal-active {
             flex: 1; display: none;
             flex-direction: column; overflow: hidden;
+            min-height: 0;
         }
         #terminal-active.visible { display: flex; }
-        #parsed-output {
-            flex: 1; overflow-y: auto;
-            padding: 10px; display: flex;
-            flex-direction: column; gap: 8px;
-        }
-        .bubble-tool-result {
-            background: rgba(91,168,120,0.08);
-            border: 1px solid rgba(91,168,120,0.2);
-            border-radius: 10px; padding: 10px;
-            font-size: 11px;
-        }
-        .bubble-tool-result .tool-name { color: #5BA878; font-weight: bold; margin-bottom: 2px; }
-        .bubble-tool-result .tool-meta { color: #5A5868; font-size: 10px; }
-        .bubble-text {
-            background: rgba(255,255,255,0.04);
-            border-radius: 10px; padding: 10px;
-            font-size: 12px; color: rgba(255,255,255,0.78);
-            line-height: 1.5; white-space: pre-wrap; word-break: break-word;
-        }
-        .bubble-confirm {
-            background: rgba(218,119,86,0.1);
-            border: 1px solid rgba(218,119,86,0.35);
-            border-radius: 10px; padding: 10px;
-        }
-        .bubble-confirm .confirm-label {
-            color: #DA7756; font-size: 10px;
-            font-weight: bold; margin-bottom: 8px;
-        }
-        .confirm-btns { display: flex; gap: 6px; }
-        .confirm-btns button {
-            flex: 1; border: none; border-radius: 7px;
-            padding: 7px; font-weight: bold;
-            font-size: 12px; cursor: pointer;
-        }
-        .cbtn-y   { background: rgba(91,168,120,0.2); color: #5BA878; }
-        .cbtn-n   { background: rgba(229,91,91,0.2);  color: #E55B5B; }
-        .cbtn-d   { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); font-size: 11px; }
-        #raw-toggle {
-            text-align: center; color: #5A5868;
-            font-size: 10px; letter-spacing: 1px;
-            padding: 6px; cursor: pointer;
-            border-top: 1px solid rgba(255,255,255,0.04);
-        }
         #xterm-container {
-            height: 200px; background: #000;
-            overflow: hidden; display: none;
+            flex: 1; min-height: 0;
+            background: #0D0D0D;
+            overflow: hidden;
+            padding: 4px;
+            box-sizing: border-box;
+        }
+        #xterm-container .xterm,
+        #xterm-container .xterm-viewport,
+        #xterm-container .xterm-screen {
+            height: 100% !important;
+        }
+        #xterm-container .xterm-viewport::-webkit-scrollbar { width: 6px; }
+        #xterm-container .xterm-viewport::-webkit-scrollbar-thumb {
+            background: rgba(218,119,86,0.4); border-radius: 3px;
         }
         #bottom-bar {
             background: #161616;
@@ -440,41 +410,28 @@
             padding: 8px;
             flex-shrink: 0;
             padding-bottom: calc(8px + env(safe-area-inset-bottom));
-        }
-        #quick-btns {
-            display: flex; gap: 6px;
-            margin-bottom: 7px; align-items: center;
+            display: flex; gap: 6px; align-items: center;
+            flex-wrap: wrap;
         }
         .qbtn {
-            border: none; border-radius: 7px;
-            padding: 5px 10px; font-size: 11px;
+            border: none; border-radius: 8px;
+            padding: 8px 12px; font-size: 12px;
             font-weight: bold; cursor: pointer;
+            min-width: 40px;
         }
         .qbtn-y   { background: rgba(91,168,120,0.18); color: #5BA878; border: 1px solid rgba(91,168,120,0.25); }
         .qbtn-n   { background: rgba(229,91,91,0.18);  color: #E55B5B; border: 1px solid rgba(229,91,91,0.25); }
-        .qbtn-esc { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); border: 1px solid rgba(255,255,255,0.1); }
-        .qbtn-c   { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); border: 1px solid rgba(255,255,255,0.1); }
+        .qbtn-esc { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.1); }
+        .qbtn-c   { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.1); }
+        .qbtn-tab { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.1); }
+        .qbtn-kbd { background: rgba(218,119,86,0.2); color: #DA7756; border: 1px solid rgba(218,119,86,0.3); margin-left: auto; }
+        .qbtn-kill { background: rgba(229,91,91,0.15); color: #E55B5B; border: 1px solid rgba(229,91,91,0.25); }
         #session-dot-bar {
-            margin-left: auto; width: 8px; height: 8px;
+            width: 10px; height: 10px;
             border-radius: 50%; background: #5A5868;
+            margin-right: 4px;
         }
-        #session-dot-bar.alive { background: #5BA878; }
-        #prompt-bar { display: flex; gap: 6px; }
-        #term-prompt {
-            flex: 1; background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 10px; padding: 8px 10px;
-            color: rgba(255,255,255,0.85); font-size: 13px;
-            resize: none; outline: none;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            min-height: 36px; max-height: 100px;
-        }
-        #btn-send-term {
-            background: #DA7756; border: none;
-            border-radius: 10px; padding: 8px 14px;
-            color: white; font-size: 16px;
-            font-weight: bold; cursor: pointer;
-        }
+        #session-dot-bar.alive { background: #5BA878; box-shadow: 0 0 6px rgba(91,168,120,0.5); }
         #term-error-banner {
             background: rgba(229,91,91,0.15);
             border: 1px solid rgba(229,91,91,0.3);
@@ -483,6 +440,12 @@
             margin: 8px; display: none;
         }
         #term-error-banner.visible { display: block; }
+        /* hidden input per attivare keyboard mobile */
+        #term-kbd-input {
+            position: absolute;
+            left: -2000px; top: -2000px;
+            opacity: 0; width: 1px; height: 1px;
+        }
     </style>
 </head>
 
@@ -607,33 +570,26 @@
     </div><!-- #content-touchpad -->
 
     <div id="content-terminal" class="tab-content">
-        <!-- Error banner -->
         <div id="term-error-banner"></div>
 
-        <!-- Session picker -->
         <div id="session-picker">
             <div style="color:rgba(255,255,255,0.3);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">Terminal Mode</div>
             <div id="session-list" style="width:100%;max-width:360px;display:flex;flex-direction:column;gap:10px"></div>
         </div>
 
-        <!-- Active terminal -->
         <div id="terminal-active">
-            <div id="parsed-output"></div>
-            <div id="raw-toggle">▼ RAW TERMINAL</div>
             <div id="xterm-container"></div>
             <div id="bottom-bar">
-                <div id="quick-btns">
-                    <button class="qbtn qbtn-y"   onclick="termQuick('y\r')">y</button>
-                    <button class="qbtn qbtn-n"   onclick="termQuick('n\r')">n</button>
-                    <button class="qbtn qbtn-esc" onclick="termQuick('\x1b')">esc</button>
-                    <button class="qbtn qbtn-c"   onclick="termQuick('\x03')">^C</button>
-                    <div id="session-dot-bar"></div>
-                </div>
-                <div id="prompt-bar">
-                    <textarea id="term-prompt" rows="1" placeholder="scrivi prompt..." autocorrect="off" autocapitalize="off" autocomplete="off"></textarea>
-                    <button id="btn-send-term">↑</button>
-                </div>
+                <div id="session-dot-bar"></div>
+                <button class="qbtn qbtn-tab" onclick="termQuick('\t')">⇥</button>
+                <button class="qbtn qbtn-esc" onclick="termQuick('\x1b')">esc</button>
+                <button class="qbtn qbtn-c"   onclick="termQuick('\x03')">^C</button>
+                <button class="qbtn qbtn-y"   onclick="termQuick('y\r')">y</button>
+                <button class="qbtn qbtn-n"   onclick="termQuick('n\r')">n</button>
+                <button class="qbtn qbtn-kill" onclick="termKillSession()">✕</button>
+                <button class="qbtn qbtn-kbd" id="btn-show-kbd">⌨ TASTIERA</button>
             </div>
+            <input type="text" id="term-kbd-input" autocomplete="off" autocorrect="off" autocapitalize="off">
         </div>
     </div><!-- #content-terminal -->
 
@@ -651,7 +607,8 @@
         let xterm = null;
         let xtermOpened = false;
         let xtermPendingData = [];
-        let rawVisible = false;
+        let lastSentSize = { cols: 0, rows: 0 };
+        let resizeRaf = null;
 
         function switchTab(name) {
             if (name === 'stream') return;
@@ -741,15 +698,12 @@
                         termSessionId = msg.id;
                         attachSession(msg.id);
                     } else if (msg.type === 'term_output') {
-                        if (xterm) {
-                            const bytes = Uint8Array.from(atob(msg.data), c => c.charCodeAt(0));
-                            if (xtermOpened) {
-                                xterm.write(bytes);
-                            } else {
-                                xtermPendingData.push(bytes);
-                            }
+                        const bytes = Uint8Array.from(atob(msg.data), c => c.charCodeAt(0));
+                        if (xterm && xtermOpened) {
+                            xterm.write(bytes);
+                        } else {
+                            xtermPendingData.push(bytes);
                         }
-                        parsedWrite(msg.data);
                     } else if (msg.type === 'term_closed') {
                         document.getElementById('session-dot-bar').classList.remove('alive');
                         document.getElementById('tab-terminal-dot').style.display = 'none';
@@ -1113,19 +1067,44 @@
             el.addEventListener('touchcancel', () => el.classList.remove('fluid-pressed'), { passive: true });
         });
 
-        // --- TERMINAL MODE ---
+        // --- TERMINAL MODE: xterm.js primary, fit-to-viewport, mobile keyboard ---
+        const TERM_FONT_SIZE = 13;
+        const TERM_FONT_FAMILY = 'Menlo, Consolas, "Courier New", monospace';
+
+        // Misura char metrics tramite span hidden (no FitAddon).
+        function measureCharSize() {
+            const span = document.createElement('span');
+            span.style.cssText = `visibility:hidden;position:absolute;left:-9999px;` +
+                `font-family:${TERM_FONT_FAMILY};font-size:${TERM_FONT_SIZE}px;white-space:pre;line-height:1.2;`;
+            span.textContent = 'M'.repeat(100);
+            document.body.appendChild(span);
+            const rect = span.getBoundingClientRect();
+            document.body.removeChild(span);
+            return { w: rect.width / 100, h: rect.height };
+        }
+
         function initXterm() {
             if (xterm) return;
             xterm = new Terminal({
-                cols: 120, rows: 20,
+                cols: 80, rows: 24,
                 theme: {
                     background: '#0D0D0D',
                     foreground: '#E8E4E0',
                     cursor: '#DA7756',
+                    cursorAccent: '#0D0D0D',
+                    selectionBackground: 'rgba(218,119,86,0.3)',
+                    black: '#0D0D0D', red: '#E55B5B', green: '#5BA878', yellow: '#DA7756',
+                    blue: '#5A8FD8', magenta: '#B58FD8', cyan: '#5BBDA8', white: '#E8E4E0',
+                    brightBlack: '#5A5868', brightRed: '#FF7B7B', brightGreen: '#7BC898',
+                    brightYellow: '#FFB876', brightBlue: '#7AAFE8', brightMagenta: '#D5AFE8',
+                    brightCyan: '#7BDDC8', brightWhite: '#FFFFFF',
                 },
-                fontSize: 11,
-                fontFamily: 'Menlo, Consolas, "Courier New", monospace',
-                scrollback: 1000,
+                fontSize: TERM_FONT_SIZE,
+                fontFamily: TERM_FONT_FAMILY,
+                scrollback: 5000,
+                cursorBlink: true,
+                convertEol: false,
+                allowProposedApi: true,
             });
             xterm.onData(data => {
                 if (ws && ws.readyState === WebSocket.OPEN && termSessionId) {
@@ -1140,7 +1119,35 @@
             xtermOpened = true;
             xtermPendingData.forEach(bytes => xterm.write(bytes));
             xtermPendingData = [];
+            // Primo fit dopo che layout è stabile.
+            requestAnimationFrame(() => requestAnimationFrame(fitXterm));
         }
+
+        function fitXterm() {
+            if (!xterm || !xtermOpened) return;
+            const container = document.getElementById('xterm-container');
+            const w = container.clientWidth - 8;
+            const h = container.clientHeight - 8;
+            if (w <= 0 || h <= 0) return;
+            const { w: cw, h: ch } = measureCharSize();
+            const cols = Math.max(20, Math.floor(w / cw));
+            const rows = Math.max(5, Math.floor(h / ch));
+            if (cols !== lastSentSize.cols || rows !== lastSentSize.rows) {
+                try { xterm.resize(cols, rows); } catch (_) {}
+                if (ws && ws.readyState === WebSocket.OPEN && termSessionId) {
+                    ws.send(JSON.stringify({type: 'term_resize', id: termSessionId, cols, rows}));
+                }
+                lastSentSize = { cols, rows };
+            }
+        }
+
+        function scheduleFit() {
+            if (resizeRaf) cancelAnimationFrame(resizeRaf);
+            resizeRaf = requestAnimationFrame(fitXterm);
+        }
+
+        window.addEventListener('resize', scheduleFit);
+        window.addEventListener('orientationchange', () => setTimeout(scheduleFit, 200));
 
         function onTerminalTabOpen() {
             initXterm();
@@ -1166,33 +1173,50 @@
             if (ws && ws.readyState === WebSocket.OPEN && termSessionId) {
                 ws.send(JSON.stringify({type:'term_input', id: termSessionId, data}));
             }
+            if (xterm) xterm.focus();
         }
 
-        document.getElementById('raw-toggle').addEventListener('click', () => {
-            rawVisible = !rawVisible;
-            const container = document.getElementById('xterm-container');
-            container.style.display = rawVisible ? 'block' : 'none';
-            document.getElementById('raw-toggle').textContent = rawVisible ? '▲ RAW TERMINAL' : '▼ RAW TERMINAL';
-            if (rawVisible) {
-                openXtermIfNeeded();
-                if (xterm) xterm.refresh(0, xterm.rows - 1);
-            }
-        });
-
-        document.getElementById('btn-send-term').addEventListener('click', sendPrompt);
-        document.getElementById('term-prompt').addEventListener('keydown', e => {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
-        });
-
-        function sendPrompt() {
-            const el = document.getElementById('term-prompt');
-            const text = el.value.trim();
-            if (!text || !termSessionId) return;
+        function termKillSession() {
+            if (!termSessionId) return;
+            if (!confirm('Terminare la sessione?')) return;
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: text + '\r'}));
-                el.value = '';
+                ws.send(JSON.stringify({type:'term_kill', id: termSessionId}));
             }
         }
+
+        // Tastiera mobile: hidden input, sync ad xterm
+        const termKbdInput = document.getElementById('term-kbd-input');
+        let termKbdPrev = '';
+        document.getElementById('btn-show-kbd').addEventListener('click', () => {
+            termKbdInput.value = '';
+            termKbdPrev = '';
+            termKbdInput.focus();
+        });
+        termKbdInput.addEventListener('input', () => {
+            if (!ws || ws.readyState !== WebSocket.OPEN || !termSessionId) return;
+            const val = termKbdInput.value;
+            if (val.length > termKbdPrev.length) {
+                const added = val.substring(termKbdPrev.length);
+                ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: added}));
+            } else if (val.length < termKbdPrev.length) {
+                const del = termKbdPrev.length - val.length;
+                ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\b'.repeat(del)}));
+            }
+            termKbdPrev = val;
+        });
+        termKbdInput.addEventListener('keydown', e => {
+            if (!ws || ws.readyState !== WebSocket.OPEN || !termSessionId) return;
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\r'}));
+                termKbdInput.value = ''; termKbdPrev = '';
+            } else if (e.key === 'Backspace' && termKbdInput.value.length === 0) {
+                ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\b'}));
+            } else if (e.key === 'ArrowUp')    { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[A'})); }
+            else if (e.key === 'ArrowDown')  { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[B'})); }
+            else if (e.key === 'ArrowRight') { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[C'})); }
+            else if (e.key === 'ArrowLeft')  { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[D'})); }
+        });
 
         function renderSessionPicker(sessions) {
             const list = document.getElementById('session-list');
@@ -1222,12 +1246,16 @@
                 <div class="session-card-label">
                     <div class="name-new">Nuova sessione</div>
                 </div>
-                <div style="display:flex;gap:8px">
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
                     <button class="session-card-btn btn-new btn-cmd">CMD</button>
+                    <button class="session-card-btn btn-new btn-pwsh">PWSH</button>
                     <button class="session-card-btn btn-new btn-claude">CLAUDE</button>
                 </div>`;
             newCard.querySelector('.btn-cmd').addEventListener('click', () => {
                 ws.send(JSON.stringify({type: 'term_create', cmd: 'cmd.exe'}));
+            });
+            newCard.querySelector('.btn-pwsh').addEventListener('click', () => {
+                ws.send(JSON.stringify({type: 'term_create', cmd: 'powershell.exe'}));
             });
             newCard.querySelector('.btn-claude').addEventListener('click', () => {
                 ws.send(JSON.stringify({type: 'term_create', cmd: 'claude'}));
@@ -1241,85 +1269,10 @@
             document.getElementById('session-dot-bar').classList.add('alive');
             document.getElementById('tab-terminal-dot').style.display = 'block';
             ws.send(JSON.stringify({type: 'term_attach', id: sid}));
-        }
-
-        // --- PARSED VIEW ---
-        const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[^[\]]/g;
-        const CONFIRM_RE = /\[y\/n|Allow\s.+\?|Bash command:/i;
-        const TOOL_OK_RE = /^[✓●⠿]\s+\S/;
-
-        let parsedBuffer = '';
-        let lastBubbleType = null;
-
-        function stripAnsi(str) {
-            return str.replace(ANSI_RE, '').replace(/\r/g, '');
-        }
-
-        function parsedWrite(b64data) {
-            const bytes = Uint8Array.from(atob(b64data), c => c.charCodeAt(0));
-            const text = new TextDecoder('utf-8', {fatal: false}).decode(bytes);
-            const stripped = stripAnsi(text);
-            parsedBuffer += stripped;
-
-            const lines = parsedBuffer.split('\n');
-            parsedBuffer = lines.pop();
-
-            lines.forEach(line => {
-                const trimmed = line.trim();
-                if (!trimmed) return;
-
-                if (CONFIRM_RE.test(trimmed)) {
-                    appendConfirmCard(trimmed);
-                    lastBubbleType = 'confirm';
-                } else if (TOOL_OK_RE.test(trimmed)) {
-                    appendToolBubble(trimmed);
-                    lastBubbleType = 'tool';
-                } else {
-                    appendTextBubble(trimmed);
-                    lastBubbleType = 'text';
-                }
-            });
-
-            const out = document.getElementById('parsed-output');
-            out.scrollTop = out.scrollHeight;
-        }
-
-        function appendToolBubble(line) {
-            const out = document.getElementById('parsed-output');
-            const parts = line.replace(/^[✓●⠿]\s+/, '').split('·');
-            const div = document.createElement('div');
-            div.className = 'bubble-tool-result';
-            div.innerHTML = `<div class="tool-name">✓ ${parts[0] || ''}</div>` +
-                (parts[1] ? `<div class="tool-meta">${parts[1].trim()}</div>` : '');
-            out.appendChild(div);
-        }
-
-        function appendTextBubble(line) {
-            const out = document.getElementById('parsed-output');
-            const last = out.lastElementChild;
-            if (last && last.classList.contains('bubble-text') && lastBubbleType === 'text') {
-                last.textContent += '\n' + line;
-            } else {
-                const div = document.createElement('div');
-                div.className = 'bubble-text';
-                div.textContent = line;
-                out.appendChild(div);
-            }
-        }
-
-        function appendConfirmCard(line) {
-            const out = document.getElementById('parsed-output');
-            const hasDiff = /\[y\/n\/d/.test(line);
-            const div = document.createElement('div');
-            div.className = 'bubble-confirm';
-            div.innerHTML = `
-                <div class="confirm-label">🔧 ${line.substring(0, 60)}</div>
-                <div class="confirm-btns">
-                    <button class="cbtn-y" onclick="termQuick('y\\r')">✓ y</button>
-                    <button class="cbtn-n" onclick="termQuick('n\\r')">✗ n</button>
-                    ${hasDiff ? '<button class="cbtn-d" onclick="termQuick(\'d\\r\')">diff</button>' : ''}
-                </div>`;
-            out.appendChild(div);
+            openXtermIfNeeded();
+            // Fit dopo che layout si è assestato
+            setTimeout(fitXterm, 50);
+            setTimeout(fitXterm, 250);
         }
 
     </script>

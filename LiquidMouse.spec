@@ -1,13 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
+
+# pywinpty: bundle dynamic libs (conpty.dll, winpty.dll) e data files (LICENSE etc.)
+_winpty_bins = collect_dynamic_libs('winpty')
+_winpty_data = collect_data_files('winpty')
+_winpty_mods = collect_submodules('winpty')
 
 
 a = Analysis(
     ['server.pyw'],
     pathex=[],
-    binaries=[],
-    datas=[('index.html', '.'), ('icon.ico', '.'), ('xterm.js', '.'), ('xterm.css', '.')],
+    binaries=_winpty_bins,
+    datas=[('index.html', '.'), ('icon.ico', '.'), ('xterm.js', '.'), ('xterm.css', '.')] + _winpty_data,
     hiddenimports=[
         'winpty',
+        'winpty.ptyprocess',
         'websockets',
         'websockets.server',
         'websockets.client',
@@ -29,7 +36,7 @@ a = Analysis(
         'cryptography.hazmat.primitives.serialization',
         'cryptography.hazmat.primitives.asymmetric',
         'cryptography.hazmat.primitives.asymmetric.rsa',
-    ],
+    ] + _winpty_mods,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
