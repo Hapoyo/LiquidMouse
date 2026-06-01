@@ -277,12 +277,21 @@ def _ki(vk=0, scan=0, flags=0):
     i.value.ki.dwFlags = flags
     return i
 
+# Buffer riutilizzabili per i path a 60Hz (move/scroll): mutati in place a ogni
+# evento per evitare di allocare una INPUT + array a ogni movimento del cursore.
+_move_arr   = (INPUT * 1)(_mi(MOUSEEVENTF_MOVE))
+_scroll_arr = (INPUT * 1)(_mi(MOUSEEVENTF_WHEEL))
+
 def mouse_move(dx, dy):
     if dx == 0 and dy == 0: return
-    _send(_mi(MOUSEEVENTF_MOVE, dx=dx, dy=dy))
+    mi = _move_arr[0].value.mi
+    mi.dx = dx
+    mi.dy = dy
+    _user32.SendInput(1, _move_arr, _INPUT_SIZE)
 
 def mouse_scroll(amount):
-    _send(_mi(MOUSEEVENTF_WHEEL, data=amount * WHEEL_DELTA))
+    _scroll_arr[0].value.mi.mouseData = ctypes.c_ulong(ctypes.c_long(amount * WHEEL_DELTA).value).value
+    _user32.SendInput(1, _scroll_arr, _INPUT_SIZE)
 
 def mouse_click(button='left'):
     if button == 'left':
@@ -1288,14 +1297,15 @@ def setup_gui():
     threading.Thread(target=run_services, daemon=True).start()
     root.after(500, lambda: threading.Thread(target=run_tray_service, daemon=True).start())
 
+_DOT_MAP = {COLOR_OK: COLOR_OK, COLOR_ACCENT: COLOR_OK, COLOR_ERROR: COLOR_ERROR}
+
 def log_message(message, color=None):
     if color is None: color = COLOR_MUTED
     def _update():
         if status_var:
             status_var.set(message)
             if status_label: status_label.config(fg=color)
-        _dot_map = {COLOR_OK: COLOR_OK, COLOR_ACCENT: COLOR_OK, COLOR_ERROR: COLOR_ERROR}
-        dot_color = _dot_map.get(color, COLOR_MUTED)
+        dot_color = _DOT_MAP.get(color, COLOR_MUTED)
         if _main_canvas and hasattr(root, '_status_dot'):
             try:
                 _main_canvas.itemconfig(root._status_dot, fill=dot_color)
