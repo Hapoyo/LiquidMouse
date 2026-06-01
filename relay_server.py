@@ -62,8 +62,10 @@ async def _handle_client(websocket: websockets.WebSocketServerProtocol, code: st
     if not session:
         await websocket.close(1008, "session not found")
         return
+    if session.get("client") is not None:
+        await websocket.close(1008, "session already in use")
+        return
 
-    session["client"] = websocket
     client_ip = websocket.remote_address[0]
     log.info(f"Client connected  code={code}  ip={client_ip}")
 
@@ -72,8 +74,9 @@ async def _handle_client(websocket: websockets.WebSocketServerProtocol, code: st
             "type": "client_connected", "ip": client_ip
         }))
     except Exception:
-        session["client"] = None
         return
+    # Assign only after successful handshake to avoid dangling pointer
+    session["client"] = websocket
 
     try:
         async for raw in websocket:
@@ -116,9 +119,25 @@ async def _ws_handler(websocket: websockets.WebSocketServerProtocol) -> None:
         await websocket.close(1008, "unknown path")
 
 
+_STATIC_WHITELIST = {"/xterm.js", "/xterm.css", "/favicon.ico"}
+_STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
+
 class _RelayHTTPHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=_STATIC_DIR, **kwargs)
+
     def do_GET(self):
-        path = self.path.split("?")[0].rstrip("/")
+        raw_path = self.path.split("?")[0]
+        # Path traversal protection: canonicalize and reject any ../ escape
+        if ".." in raw_path:
+            self.send_error(HTTPStatus.FORBIDDEN, "Forbidden")
+            return
+        path = raw_path.rstrip("/")
+        # Static asset whitelist
+        if path in _STATIC_WHITELIST:
+            super().do_GET()
+            return
+        # Relay session URL (/CODE) or root → serve index.html
         if path == "" or (len(path) > 1 and "/" not in path[1:]):
             body = _load_index_html()
             self.send_response(HTTPStatus.OK)
@@ -126,8 +145,8 @@ class _RelayHTTPHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-        else:
-            super().do_GET()
+            return
+        self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
     def log_message(self, *args):
         pass

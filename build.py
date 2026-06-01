@@ -90,11 +90,18 @@ def build():
     print("\n🚀 Avvio del processo di build (la procedura potrebbe richiedere alcuni minuti)...")
     try:
         subprocess.check_call(cmd, cwd=SCRIPT_DIR)
-        print("\n✅ OPERAZIONE COMPLETATA: Binario generato con successo.")
-        
         exe_path = os.path.abspath(os.path.join("dist", "LiquidMouse.exe"))
+        # Validazione post-build: EXE deve esistere e avere dimensione minima ragionevole
+        if not os.path.exists(exe_path):
+            print("\n❌ PyInstaller terminato con successo ma l'EXE non è stato generato.")
+            return
+        size_mb = os.path.getsize(exe_path) / (1024 * 1024)
+        if size_mb < 5:
+            print(f"\n⚠️  EXE generato ma dimensione anomala ({size_mb:.1f}MB). Verificare i moduli.")
+        else:
+            print(f"\n✅ OPERAZIONE COMPLETATA: Binario generato ({size_mb:.1f}MB).")
         print(f"\n📂 Percorso di output:\n   {exe_path}")
-        
+
     except subprocess.CalledProcessError:
         print("\n❌ Errore fatale durante la fase di compilazione.")
 

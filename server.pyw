@@ -46,7 +46,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.1.1"
+VERSION = "2.1.2"
 
 # --- CONFIGURAZIONE PERSISTENTE ---
 _config: dict = {}
@@ -62,16 +62,20 @@ def load_config() -> dict:
     global _config
     path = get_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    config_loaded = False
     if path.exists():
         try:
             with open(path, encoding='utf-8') as f:
                 _config = json.load(f)
+                config_loaded = True
         except Exception:
             _config = {}
     else:
         _config = {}
-    if 'pin_plain' not in _config:
-        pin = secrets.token_urlsafe(6)
+    # Genera PIN solo se config completamente mancante o malformata,
+    # non se manca solo la key (evita rigenerazione su upgrade)
+    if not config_loaded or 'pin_hash' not in _config:
+        pin = secrets.token_urlsafe(8)
         _config['pin_plain'] = pin
         _config['pin_hash'] = hashlib.sha256(pin.encode()).hexdigest()
         _save_config()
@@ -102,9 +106,12 @@ def _check_auth_blocked(ip: str) -> bool:
     if not entry:
         return False
     count, last_t = entry
-    if count >= AUTH_MAX_FAILS and (time.time() - last_t) < AUTH_BLOCK_SECS:
-        return True
-    if (time.time() - last_t) >= AUTH_BLOCK_SECS:
+    now = time.time()
+    if count >= AUTH_MAX_FAILS:
+        if (now - last_t) < AUTH_BLOCK_SECS:
+            return True
+        _auth_failures.pop(ip, None)
+    elif (now - last_t) >= AUTH_BLOCK_SECS:
         _auth_failures.pop(ip, None)
     return False
 
@@ -158,6 +165,12 @@ def ensure_ssl_cert(local_ip: str) -> ssl.SSLContext | None:
             _config['ssl_key']  = key_pem.decode()
             _config['ssl_ip']   = local_ip
             _save_config()
+
+        # Cleanup eventuali file temp residui da una precedente generazione (IP changed)
+        for old_path in _ssl_temp_files:
+            try:
+                if os.path.exists(old_path): os.unlink(old_path)
+            except Exception: pass
 
         cf = tempfile.NamedTemporaryFile(delete=False, suffix='.crt', mode='wb')
         cf.write(cert_pem); cf.close()
@@ -581,6 +594,7 @@ class PTYSession:
 class SessionManager:
     def __init__(self):
         self._sessions: dict = {}
+        self._attach_lock = asyncio.Lock()
 
     def create(self, cmd: str = "cmd.exe") -> "PTYSession":
         sid = uuid.uuid4().hex[:8]
@@ -598,12 +612,13 @@ class SessionManager:
         return session
 
     async def attach(self, sid: str, ws) -> None:
-        session = self._sessions.get(sid)
-        if not session:
-            raise RuntimeError("sessione non trovata")
-        if session.ws is not None:
-            raise RuntimeError("sessione già in uso da altro client")
-        session.ws = ws
+        async with self._attach_lock:
+            session = self._sessions.get(sid)
+            if not session:
+                raise RuntimeError("sessione non trovata")
+            if session.ws is not None:
+                raise RuntimeError("sessione già in uso da altro client")
+            session.ws = ws
         buf = bytes(session.output_buffer)
         for i in range(0, max(len(buf), 1), 4096):
             chunk = buf[i:i + 4096]
@@ -647,6 +662,9 @@ class SessionManager:
         while session.alive:
             try:
                 raw = await loop.run_in_executor(None, session.pty.read, 4096)
+                if not session.alive:
+                    # kill() invocato durante la read in executor: esci subito
+                    break
                 if not raw:
                     if not session.pty.isalive():
                         exit_code = session.pty.exitstatus
@@ -663,10 +681,11 @@ class SessionManager:
                     except Exception:
                         session.ws = None
             except EOFError:
-                exit_code = session.pty.exitstatus
+                exit_code = session.pty.exitstatus if session.alive else 0
                 break
             except Exception as e:
-                log_message(f"Terminal errore [{session.id}]: {e}", color=COLOR_ERROR)
+                if session.alive:
+                    log_message(f"Terminal errore [{session.id}]: {e}", color=COLOR_ERROR)
                 break
         session.alive = False
         log_message(f"Terminal: {session.cmd} terminato (exit {exit_code})", color=COLOR_ACCENT)
@@ -778,8 +797,7 @@ async def handler(websocket):
             log_message(f"Auth fallita ({fails}/{AUTH_MAX_FAILS}) da {client_ip}", color=COLOR_ERROR)
             return
         _clear_auth_fail(client_ip)
-        token = secrets.token_hex(16)
-        await websocket.send(json.dumps({"type": "auth_ok", "token": token}))
+        await websocket.send(json.dumps({"type": "auth_ok"}))
         log_message(f"Connessione remota autorizzata: {client_ip}", color=COLOR_ACCENT)
         # Segnale sonoro per notificare l'accesso remoto
         try:
@@ -798,7 +816,9 @@ async def handler(websocket):
         log_message(f"Sessione attiva: {client_ip}", color=COLOR_ACCENT)
 
     last_backspace_time = 0
+    last_ping_time = 0.0
     held_keys = set()
+    TERM_INPUT_MAX = 8192
 
     try:
         async for message in websocket:
@@ -849,6 +869,11 @@ async def handler(websocket):
                     hotkey(*data.get('keys', []))
 
                 elif msg_type == 'ping':
+                    now_t = time.time()
+                    # Rate limit ping: max 1 ogni 100ms
+                    if now_t - last_ping_time < 0.1:
+                        continue
+                    last_ping_time = now_t
                     await websocket.send(_PONG)
 
                 elif msg_type == 'term_list':
@@ -885,6 +910,8 @@ async def handler(websocket):
                 elif msg_type == 'term_input':
                     sid = data.get('id', '')
                     input_data = data.get('data', '')
+                    if len(input_data) > TERM_INPUT_MAX:
+                        input_data = input_data[:TERM_INPUT_MAX]
                     try:
                         _session_manager.send(sid, input_data)
                     except RuntimeError as e:
@@ -936,14 +963,24 @@ def start_http_server():
         log_message(f"HTTP Server crash: {e}", color=COLOR_ERROR)
 
 def start_https_server(ssl_ctx: ssl.SSLContext):
+    httpd = None
     try:
         httpd = HTTPServer(("0.0.0.0", HTTPS_PORT), _QuietHTTPHandler)
-        httpd.socket = ssl_ctx.wrap_socket(httpd.socket, server_side=True)
+        try:
+            httpd.socket = ssl_ctx.wrap_socket(httpd.socket, server_side=True)
+        except ssl.SSLError as e:
+            log_message(f"HTTPS SSL setup fallito: {e}", color=COLOR_ERROR)
+            httpd.server_close()
+            return
         httpd.serve_forever()
     except OSError:
         log_message(f"Errore: Porta HTTPS {HTTPS_PORT} occupata!", color=COLOR_ERROR)
     except Exception as e:
         log_message(f"HTTPS Server crash: {e}", color=COLOR_ERROR)
+    finally:
+        if httpd:
+            try: httpd.server_close()
+            except Exception: pass
 
 # --- UPNP ---
 def _cleanup_upnp():
