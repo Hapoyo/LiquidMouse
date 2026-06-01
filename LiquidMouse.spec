@@ -36,6 +36,7 @@ a = Analysis(
         'cryptography.hazmat.primitives.serialization',
         'cryptography.hazmat.primitives.asymmetric',
         'cryptography.hazmat.primitives.asymmetric.rsa',
+        'miniupnpc',
     ] + _winpty_mods,
     hookspath=[],
     hooksconfig={},

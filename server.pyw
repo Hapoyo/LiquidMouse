@@ -18,6 +18,14 @@ import time
 import base64
 import uuid
 import shutil
+import secrets
+import hashlib
+import pathlib
+import ssl
+import ipaddress
+import tempfile
+import atexit
+import contextlib
 from dataclasses import dataclass, field
 
 try:
@@ -40,6 +48,129 @@ except ImportError:
 
 VERSION = "2.0.12"
 
+# --- CONFIGURAZIONE PERSISTENTE ---
+_config: dict = {}
+_ssl_context: ssl.SSLContext | None = None
+_ssl_temp_files: list = []
+
+def get_config_path() -> pathlib.Path:
+    appdata = os.environ.get('APPDATA', str(pathlib.Path.home()))
+    return pathlib.Path(appdata) / 'LiquidMouse' / 'config.json'
+
+def load_config() -> dict:
+    global _config
+    path = get_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        try:
+            with open(path, encoding='utf-8') as f:
+                _config = json.load(f)
+        except Exception:
+            _config = {}
+    else:
+        _config = {}
+    if 'pin_plain' not in _config:
+        pin = secrets.token_urlsafe(6)
+        _config['pin_plain'] = pin
+        _config['pin_hash'] = hashlib.sha256(pin.encode()).hexdigest()
+        _save_config()
+    return _config
+
+def _save_config() -> None:
+    try:
+        path = get_config_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(_config, f, indent=2)
+    except Exception:
+        pass
+
+# --- SICUREZZA AUTH REMOTA ---
+_auth_failures: dict[str, tuple[int, float]] = {}
+AUTH_MAX_FAILS   = 5
+AUTH_BLOCK_SECS  = 1800  # 30 minuti
+
+def _is_private_ip(ip: str) -> bool:
+    try:
+        return ipaddress.ip_address(ip).is_private
+    except ValueError:
+        return False
+
+def _check_auth_blocked(ip: str) -> bool:
+    entry = _auth_failures.get(ip)
+    if not entry:
+        return False
+    count, last_t = entry
+    if count >= AUTH_MAX_FAILS and (time.time() - last_t) < AUTH_BLOCK_SECS:
+        return True
+    if (time.time() - last_t) >= AUTH_BLOCK_SECS:
+        _auth_failures.pop(ip, None)
+    return False
+
+def _record_auth_fail(ip: str) -> None:
+    prev = _auth_failures.get(ip, (0, 0.0))
+    _auth_failures[ip] = (prev[0] + 1, time.time())
+
+def _clear_auth_fail(ip: str) -> None:
+    _auth_failures.pop(ip, None)
+
+# --- CERTIFICATO TLS AUTO-FIRMATO ---
+def ensure_ssl_cert(local_ip: str) -> ssl.SSLContext | None:
+    global _ssl_context, _ssl_temp_files
+    if _ssl_context and _config.get('ssl_ip') == local_ip:
+        return _ssl_context
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        import datetime
+
+        if _config.get('ssl_cert') and _config.get('ssl_ip') == local_ip:
+            cert_pem = _config['ssl_cert'].encode()
+            key_pem  = _config['ssl_key'].encode()
+        else:
+            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+            name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"LiquidMouse")])
+            try:
+                san = x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(local_ip))])
+            except ValueError:
+                san = x509.SubjectAlternativeName([x509.DNSName(local_ip)])
+            cert = (
+                x509.CertificateBuilder()
+                .subject_name(name).issuer_name(name)
+                .public_key(key.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(datetime.datetime.utcnow())
+                .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=3650))
+                .add_extension(san, critical=False)
+                .sign(key, hashes.SHA256())
+            )
+            cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+            key_pem  = key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.TraditionalOpenSSL,
+                serialization.NoEncryption()
+            )
+            _config['ssl_cert'] = cert_pem.decode()
+            _config['ssl_key']  = key_pem.decode()
+            _config['ssl_ip']   = local_ip
+            _save_config()
+
+        cf = tempfile.NamedTemporaryFile(delete=False, suffix='.crt', mode='wb')
+        cf.write(cert_pem); cf.close()
+        kf = tempfile.NamedTemporaryFile(delete=False, suffix='.key', mode='wb')
+        kf.write(key_pem); kf.close()
+        _ssl_temp_files = [cf.name, kf.name]
+        atexit.register(lambda: [os.unlink(p) for p in _ssl_temp_files if os.path.exists(p)])
+
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cf.name, kf.name)
+        _ssl_context = ctx
+        return ctx
+    except Exception as e:
+        return None
+
 # --- FIX ICONA TASKBAR WINDOWS ---
 try:
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f'liquidmouse.server.{VERSION}')
@@ -53,9 +184,12 @@ except Exception:
     ctypes.windll.user32.SetProcessDPIAware()
 
 # --- CONFIGURAZIONE ---
-PORT      = 8765
-HTTP_PORT = 8000
-_PONG     = '{"type":"pong"}'
+PORT       = 8765   # WS locale
+HTTP_PORT  = 8000   # HTTP locale
+HTTPS_PORT = 8443   # HTTPS remoto (con TLS)
+WSS_PORT   = 8766   # WSS remoto (con TLS)
+RELAY_URL  = "wss://relay.liquidmouse.app"
+_PONG      = '{"type":"pong"}'
 
 # --- COLORI (Claude Code palette) ---
 COLOR_BG          = "#0D0D0D"
@@ -552,20 +686,103 @@ def get_local_ip():
 
 LOCAL_IP = get_local_ip()
 
+# --- STATO CONNESSIONE REMOTA ---
+_remote_mode    = "none"   # "upnp" | "relay" | "none"
+_external_ip    = None
+_relay_code     = None
+_upnp_obj       = None
+_upnp_ports     = []
+
+# --- RELAY SOCKET ADAPTER ---
+class _RelaySocket:
+    """Adatta il canale relay all'interfaccia websockets per handler()."""
+    def __init__(self, relay_ws, client_ip: str = "relay"):
+        self._relay  = relay_ws
+        self._queue  = asyncio.Queue()
+        self.remote_address = (client_ip, 0)
+        self.local_address  = ("relay", WSS_PORT)
+        self.closed = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            msg = await self._queue.get()
+            if msg is None:
+                raise StopAsyncIteration
+            return msg
+        except asyncio.CancelledError:
+            raise StopAsyncIteration
+
+    async def send(self, msg: str) -> None:
+        if not self.closed:
+            try:
+                await self._relay.send(json.dumps({"type": "server_msg", "data": msg}))
+            except Exception:
+                pass
+
+    async def close(self) -> None:
+        self.closed = True
+        self._queue.put_nowait(None)
+
+    def push(self, msg: str) -> None:
+        if not self.closed:
+            self._queue.put_nowait(msg)
+
 # --- BACKEND (WebSocket & HTTP) ---
 async def handler(websocket):
     global TRUSTED_IP
-    client_ip = websocket.remote_address[0]
+    client_ip  = websocket.remote_address[0]
+    is_remote  = not _is_private_ip(client_ip)
 
-    if TRUSTED_IP is None:
-        TRUSTED_IP = client_ip
-        log_message(f"Autorizzato: {client_ip}", color=COLOR_ACCENT)
-    elif client_ip != TRUSTED_IP:
-        log_message(f"Rifiutato: {client_ip}", color=COLOR_ERROR)
-        await websocket.close()
-        return
+    if is_remote:
+        # Connessione remota: autenticazione PIN obbligatoria
+        if _check_auth_blocked(client_ip):
+            await websocket.send(json.dumps({"type": "auth_blocked"}))
+            await websocket.close()
+            log_message(f"Bloccato (brute force): {client_ip}", color=COLOR_ERROR)
+            return
+        try:
+            auth_raw  = await asyncio.wait_for(websocket.recv(), timeout=10.0)
+            auth_data = json.loads(auth_raw)
+        except (asyncio.TimeoutError, json.JSONDecodeError, Exception):
+            await websocket.close()
+            return
+        if auth_data.get('type') != 'auth':
+            await websocket.close()
+            return
+        pin_hash = hashlib.sha256(auth_data.get('pin', '').encode()).hexdigest()
+        if pin_hash != _config.get('pin_hash', ''):
+            _record_auth_fail(client_ip)
+            fails = _auth_failures.get(client_ip, (0, 0))[0]
+            await websocket.send(json.dumps({
+                "type": "auth_fail",
+                "remaining": max(0, AUTH_MAX_FAILS - fails)
+            }))
+            await websocket.close()
+            log_message(f"Auth fallita ({fails}/{AUTH_MAX_FAILS}) da {client_ip}", color=COLOR_ERROR)
+            return
+        _clear_auth_fail(client_ip)
+        token = secrets.token_hex(16)
+        await websocket.send(json.dumps({"type": "auth_ok", "token": token}))
+        log_message(f"Connessione remota autorizzata: {client_ip}", color=COLOR_ACCENT)
+        # Segnale sonoro per notificare l'accesso remoto
+        try:
+            ctypes.windll.user32.MessageBeep(0xFFFFFFFF)
+        except Exception:
+            pass
+    else:
+        # Connessione locale: whitelist IP (comportamento originale)
+        if TRUSTED_IP is None:
+            TRUSTED_IP = client_ip
+            log_message(f"Autorizzato: {client_ip}", color=COLOR_ACCENT)
+        elif client_ip != TRUSTED_IP:
+            log_message(f"Rifiutato: {client_ip}", color=COLOR_ERROR)
+            await websocket.close()
+            return
+        log_message(f"Sessione attiva: {client_ip}", color=COLOR_ACCENT)
 
-    log_message(f"Sessione attiva: {client_ip}", color=COLOR_ACCENT)
     last_backspace_time = 0
     held_keys = set()
 
@@ -704,10 +921,138 @@ def start_http_server():
     except Exception as e:
         log_message(f"HTTP Server crash: {e}", color=COLOR_ERROR)
 
-async def start_websocket_server():
-    log_message("Protocolli di comunicazione inizializzati.", color=COLOR_MUTED)
+def start_https_server(ssl_ctx: ssl.SSLContext):
     try:
-        async with websockets.serve(handler, "0.0.0.0", PORT, ping_interval=20, ping_timeout=10):
+        httpd = HTTPServer(("0.0.0.0", HTTPS_PORT), _QuietHTTPHandler)
+        httpd.socket = ssl_ctx.wrap_socket(httpd.socket, server_side=True)
+        httpd.serve_forever()
+    except OSError:
+        log_message(f"Errore: Porta HTTPS {HTTPS_PORT} occupata!", color=COLOR_ERROR)
+    except Exception as e:
+        log_message(f"HTTPS Server crash: {e}", color=COLOR_ERROR)
+
+# --- UPNP ---
+def _cleanup_upnp():
+    global _upnp_obj
+    if _upnp_obj:
+        for port in _upnp_ports:
+            try: _upnp_obj.deleteportmapping(port, 'TCP')
+            except Exception: pass
+
+def _setup_upnp_sync() -> str | None:
+    """Blocking UPnP discovery — run via executor to avoid blocking event loop."""
+    global _upnp_obj, _external_ip
+    try:
+        import miniupnpc
+        u = miniupnpc.UPnP()
+        u.discoverdelay = 300
+        if u.discover() == 0:
+            return None
+        u.selectigd()
+        ext_ip = u.externalipaddress()
+        if not ext_ip or ext_ip == '0.0.0.0':
+            return None
+        for port in [HTTPS_PORT, WSS_PORT]:
+            try:
+                u.addportmapping(port, 'TCP', LOCAL_IP, port, 'LiquidMouse', '')
+                _upnp_ports.append(port)
+            except Exception:
+                pass
+        _upnp_obj = u
+        _external_ip = ext_ip
+        atexit.register(_cleanup_upnp)
+        return ext_ip
+    except ImportError:
+        return None
+    except Exception:
+        return None
+
+async def setup_upnp() -> str | None:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _setup_upnp_sync)
+
+# --- RELAY ---
+async def run_relay_client() -> None:
+    global _remote_mode, _relay_code
+    try:
+        async with websockets.connect(
+            f"{RELAY_URL}/register",
+            ping_interval=30, ping_timeout=10, open_timeout=10
+        ) as relay_ws:
+            await relay_ws.send(json.dumps({"type": "register", "version": VERSION}))
+            resp = json.loads(await asyncio.wait_for(relay_ws.recv(), timeout=10))
+            if resp.get('type') != 'session':
+                return
+            _relay_code  = resp['code']
+            _remote_mode = 'relay'
+            log_message(f"Relay attivo: {_relay_code}", color=COLOR_ACCENT)
+            _update_remote_ui()
+
+            relay_socket: _RelaySocket | None = None
+
+            async for raw in relay_ws:
+                try:
+                    msg = json.loads(raw)
+                except Exception:
+                    continue
+                mtype = msg.get('type')
+                if mtype == 'client_connected':
+                    relay_socket = _RelaySocket(relay_ws, msg.get('ip', 'relay'))
+                    asyncio.get_running_loop().create_task(handler(relay_socket))
+                elif mtype == 'client_message' and relay_socket:
+                    relay_socket.push(msg.get('data', ''))
+                elif mtype == 'client_disconnected' and relay_socket:
+                    await relay_socket.close()
+                    relay_socket = None
+    except Exception as e:
+        log_message(f"Relay: disconnesso ({type(e).__name__})", color=COLOR_MUTED)
+    finally:
+        if _remote_mode == 'relay':
+            _remote_mode = 'none'
+            _relay_code  = None
+
+def _update_remote_ui():
+    """Aggiorna label remoto nella GUI (chiamare dal thread asyncio o via root.after)."""
+    if _remote_status_var:
+        if _remote_mode == 'upnp':
+            root.after(0, lambda: _remote_status_var.set(
+                f"UPnP  {_external_ip}:{HTTPS_PORT}   PIN: {_config.get('pin_plain','')}"
+            ))
+        elif _remote_mode == 'relay':
+            root.after(0, lambda: _remote_status_var.set(
+                f"Relay  {_relay_code}   PIN: {_config.get('pin_plain','')}"
+            ))
+        else:
+            root.after(0, lambda: _remote_status_var.set("Remoto non disponibile"))
+
+async def start_websocket_server():
+    global _remote_mode
+    log_message("Protocolli di comunicazione inizializzati.", color=COLOR_MUTED)
+    ssl_ctx = ensure_ssl_cert(LOCAL_IP)
+
+    # 1. Prova UPnP
+    ext_ip = await setup_upnp()
+    if ext_ip:
+        _remote_mode = 'upnp'
+        log_message(f"UPnP attivo: {ext_ip}", color=COLOR_OK)
+        _update_remote_ui()
+    else:
+        # 2. Fallback relay (task separato, non blocca il server WS)
+        asyncio.get_running_loop().create_task(run_relay_client())
+
+    servers = [
+        websockets.serve(handler, "0.0.0.0", PORT, ping_interval=20, ping_timeout=10),
+    ]
+    if ssl_ctx:
+        servers.append(
+            websockets.serve(handler, "0.0.0.0", WSS_PORT, ssl=ssl_ctx,
+                             ping_interval=20, ping_timeout=10)
+        )
+
+    try:
+        async with contextlib.AsyncExitStack() as stack:
+            for srv in servers:
+                await stack.enter_async_context(srv)
             await asyncio.Future()
     except OSError:
         log_message(f"ERRORE CRITICO: Porta {PORT} occupata!", color=COLOR_ERROR)
@@ -716,14 +1061,18 @@ async def start_websocket_server():
 
 def run_services():
     threading.Thread(target=start_http_server, daemon=True).start()
+    ssl_ctx = ensure_ssl_cert(LOCAL_IP)
+    if ssl_ctx:
+        threading.Thread(target=start_https_server, args=(ssl_ctx,), daemon=True).start()
     asyncio.run(start_websocket_server())
 
 # --- GUI & SYSTEM TRAY ---
-root         = tk.Tk()
-ip_label_var = None
-status_var   = None
-status_label = None
-_main_canvas = None
+root                = tk.Tk()
+ip_label_var        = None
+status_var          = None
+status_label        = None
+_main_canvas        = None
+_remote_status_var  = None
 
 def create_tray_icon():
     if os.path.exists(ICON_PATH):
@@ -746,19 +1095,29 @@ def terminate_application(icon=None, item=None):
     if icon: icon.stop()
     root.after(100, root.destroy)
 
+def _get_remote_tray_label():
+    if _remote_mode == 'upnp':
+        return f'Remoto: UPnP  {_external_ip}:{HTTPS_PORT}'
+    elif _remote_mode == 'relay':
+        return f'Remoto: Relay  {_relay_code}'
+    return 'Remoto: non disponibile'
+
 def run_tray_service():
     menu = (
         pystray.MenuItem('Apri', restore_window, default=True),
-        pystray.MenuItem('Reset connessione', lambda icon, item: reset_trusted_ip()),
+        pystray.MenuItem(pystray.MenuItem.SEPARATOR, None),
+        pystray.MenuItem(lambda item: _get_remote_tray_label(), None, enabled=False),
+        pystray.MenuItem('Reset connessione locale', lambda icon, item: reset_trusted_ip()),
+        pystray.MenuItem(pystray.MenuItem.SEPARATOR, None),
         pystray.MenuItem('Esci', terminate_application),
     )
     pystray.Icon("LiquidMouse", create_tray_icon(), "Liquid Mouse", menu).run()
 
 def setup_gui():
-    global ip_label_var, status_var, status_label, _main_canvas
+    global ip_label_var, status_var, status_label, _main_canvas, _remote_status_var
 
     root.title("Liquid Mouse")
-    w, h = 560, 300
+    w, h = 560, 370
     sx = (root.winfo_screenwidth()  - w) // 2
     sy = (root.winfo_screenheight() - h) // 2
     root.geometry(f'{w}x{h}+{sx}+{sy}')
@@ -786,9 +1145,13 @@ def setup_gui():
     PAD = 8
     rounded_rect(canvas, PAD, PAD, w-PAD, h-PAD, 22, fill=COLOR_BG, outline=COLOR_BORDER, width=1)
 
-    # Linea separatore orizzontale
+    # Linea separatore dopo titolo
     sep_y = 70
     canvas.create_line(PAD+30, sep_y, w-PAD-30, sep_y, fill=COLOR_BORDER, width=1)
+
+    # Linea separatore prima sezione remota
+    sep_y_remote = 215
+    canvas.create_line(PAD+30, sep_y_remote, w-PAD-30, sep_y_remote, fill=COLOR_BORDER, width=1)
 
     # Linea separatore sopra lo status
     sep_y2 = h - 75
@@ -854,6 +1217,18 @@ def setup_gui():
 
     # Etichetta sotto QR
     tk.Label(root, text="SCANSIONA", font=("Consolas", 7), bg=COLOR_BG, fg=COLOR_MUTED).place(x=w-138, y=195)
+
+    # --- Sezione Accesso Remoto ---
+    tk.Label(root, text="ACCESSO REMOTO", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED).place(x=36, y=225)
+    _remote_status_var = tk.StringVar(value="Inizializzazione...")
+    tk.Label(root, textvariable=_remote_status_var,
+             font=("Consolas", 9), bg=COLOR_BG, fg=COLOR_ACCENT,
+             wraplength=480, justify="left").place(x=36, y=245)
+
+    tk.Label(root, text="PIN", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED).place(x=36, y=272)
+    pin_val = load_config().get('pin_plain', '—')
+    tk.Label(root, text=pin_val, font=("Consolas", 14, "bold"),
+             bg=COLOR_BG, fg=COLOR_TEXT).place(x=36, y=288)
 
     # --- Sezione stato ---
     lbl_status_header = tk.Label(root, text="", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED)
@@ -924,6 +1299,7 @@ def log_message(message, color=None):
     root.after(0, _update)
 
 if __name__ == "__main__":
+    load_config()
     setup_gui()
     try:
         root.mainloop()
