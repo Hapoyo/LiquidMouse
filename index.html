@@ -899,23 +899,28 @@
         let moveX = 0, moveY = 0, isMoving = false;
         let twoFingerScrollAcc = 0;
 
-        function sendLoop() {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                if (isMoving && (moveX !== 0 || moveY !== 0)) {
-                    ws.send(JSON.stringify({ type: 'move', x: Math.round(moveX * sensitivity), y: Math.round(moveY * sensitivity) }));
-                    moveX = 0; moveY = 0; isMoving = false;
-                }
-                if (Math.abs(twoFingerScrollAcc) >= 1) {
-                    const amount = Math.round(twoFingerScrollAcc / 1.5);
-                    if (amount !== 0) {
-                        ws.send(JSON.stringify({ type: 'scroll', amount: amount }));
-                        twoFingerScrollAcc -= amount * 1.5;
-                    }
+        // Invio coalescizzato una volta per frame, ma schedulato SOLO quando c'è
+        // input pendente. Da fermo non gira alcun loop a 60fps → meno CPU/batteria
+        // sul telefono e nessun risveglio inutile. Comportamento identico in movimento.
+        let sendScheduled = false;
+        function flushSend() {
+            sendScheduled = false;
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            if (isMoving && (moveX !== 0 || moveY !== 0)) {
+                ws.send(JSON.stringify({ type: 'move', x: Math.round(moveX * sensitivity), y: Math.round(moveY * sensitivity) }));
+                moveX = 0; moveY = 0; isMoving = false;
+            }
+            if (Math.abs(twoFingerScrollAcc) >= 1) {
+                const amount = Math.round(twoFingerScrollAcc / 1.5);
+                if (amount !== 0) {
+                    ws.send(JSON.stringify({ type: 'scroll', amount: amount }));
+                    twoFingerScrollAcc -= amount * 1.5;
                 }
             }
-            requestAnimationFrame(sendLoop);
         }
-        requestAnimationFrame(sendLoop);
+        function scheduleSend() {
+            if (!sendScheduled) { sendScheduled = true; requestAnimationFrame(flushSend); }
+        }
 
         const pad = document.getElementById('touchpad');
         let lastX = 0, lastY = 0, touchActive = false;
@@ -967,6 +972,7 @@
                 const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
                 twoFingerScrollAcc += (midY - twoFingerLastY) * 0.375;
                 twoFingerLastY = midY;
+                scheduleSend();
                 return;
             }
 
@@ -980,6 +986,7 @@
 
             moveX += (cx - lastX); moveY += (cy - lastY);
             isMoving = true; lastX = cx; lastY = cy;
+            scheduleSend();
         }, { passive: false });
 
         pad.addEventListener('touchend', () => {
