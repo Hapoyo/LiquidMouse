@@ -41,6 +41,27 @@ def build():
         print("   ⬇️  Installazione dei moduli necessari in corso...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
 
+    # Verifica dipendenze runtime
+    runtime_deps = [
+        ("websockets",   "websockets"),
+        ("pystray",      "pystray"),
+        ("PIL",          "Pillow"),
+        ("qrcode",       "qrcode"),
+        ("cryptography", "cryptography"),
+        ("miniupnpc",    "miniupnpc"),
+    ]
+    missing_deps = []
+    for mod, pkg in runtime_deps:
+        try:
+            __import__(mod)
+        except ImportError:
+            missing_deps.append(pkg)
+    if missing_deps:
+        print(f"   ⬇️  Installazione dipendenze mancanti: {', '.join(missing_deps)}")
+        subprocess.check_call([sys.executable, "-m", "pip", "install"] + missing_deps)
+    else:
+        print("   ✅ Dipendenze runtime verificate.")
+
     # 2. Configurazione e Validazione
     if not check_files():
         return

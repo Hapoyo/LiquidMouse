@@ -6,7 +6,7 @@ No app to install — the client runs entirely in the browser.
 ## Requirements
 
 - Windows 10 / 11
-- PC and smartphone on the same Wi-Fi network
+- Python 3.7+ (source only)
 
 ## Installation
 
@@ -15,7 +15,7 @@ No app to install — the client runs entirely in the browser.
 **From source** — Python 3.7+:
 
 ```bash
-pip install websockets pystray Pillow qrcode cryptography
+pip install websockets pystray Pillow qrcode cryptography miniupnpc
 python server.pyw
 ```
 
@@ -31,27 +31,75 @@ python server.pyw
 - Full virtual keyboard with Unicode support
 - Quick menu: Copy, Paste, ESC, Ctrl/Shift lock, Drag lock, Select All, Win, Play/Pause
 - Adjustable cursor sensitivity, saved locally
-- Security: IP whitelist, local network only, no cloud
+- Terminal emulator (cmd.exe) via PTY
+- **Remote access** — control your PC from any network, not just local Wi-Fi
+
+## Remote Access
+
+LiquidMouse supports two connection modes simultaneously:
+
+| Mode | How it works | Requirements |
+| :--- | :--- | :--- |
+| **Local** | Direct Wi-Fi connection | Same network |
+| **Remote (UPnP)** | Automatic port forwarding on your router | UPnP enabled (default on most home routers) |
+| **Remote (Relay)** | Traffic routed via relay server | Internet access; relay server deployed |
+
+### First remote connection
+
+1. Start LiquidMouse — the main window shows the **ACCESSO REMOTO** section with the URL and PIN
+2. Scan the remote QR code or open the URL on your smartphone
+3. When prompted, enter the **PIN** shown in the window
+4. The first time, your browser will show a certificate warning (self-signed TLS) — tap **Advanced → Proceed**
+
+The PIN is generated once and stored locally. To regenerate it, delete `%APPDATA%\LiquidMouse\config.json` and restart.
+
+### Security
+
+- **PIN auth** — 8-character alphanumeric PIN required for all remote connections
+- **Brute-force protection** — IP blocked for 30 minutes after 5 failed attempts
+- **TLS encryption** — all remote traffic encrypted with a self-signed certificate
+- **Local connections** — unchanged: IP whitelist, no PIN required on the same network
+
+### Relay server (self-hosted)
+
+If UPnP is unavailable, LiquidMouse falls back to a relay server.
+The relay code (`relay_server.py`) is included in this repository.
+
+Deploy example with [Caddy](https://caddyserver.com/) for automatic HTTPS:
+
+```
+# Caddyfile
+relay.yourdomain.com {
+    reverse_proxy localhost:8080
+}
+```
+
+```bash
+pip install websockets
+python relay_server.py --host 0.0.0.0 --port 8080
+```
+
+Then set `RELAY_URL = "wss://relay.yourdomain.com"` in `server.pyw` before building.
 
 ## First-time setup on iPhone / iPad (Safari)
 
-LiquidMouse uses a self-signed SSL certificate to encrypt the connection. Safari requires you to trust it once before connecting.
+LiquidMouse uses a self-signed TLS certificate. Safari requires you to trust it once.
 
-1. Right-click the tray icon → **Install certificate on phone**
-2. Scan the QR code with Safari (not the Camera app)
-3. Tap **Allow** to download the profile → go to **Settings**
-4. **Settings → Profile Downloaded → Install**
-5. **Settings → General → About → Certificate Trust Settings → enable LiquidMouse**
+1. Open the HTTPS URL shown in the LiquidMouse window in **Safari**
+2. Tap **Advanced → Proceed to site** to accept the certificate warning
+3. The page loads — enter your PIN to connect
 
-After this, Safari will connect without warnings on that device. Repeat if you change Wi-Fi networks (the certificate is tied to the PC's local IP).
+After this, Safari will connect without warnings on that device.
 
 ## Troubleshooting
 
-**Smartphone won't connect** — make sure both devices are on the same Wi-Fi network and that Windows Firewall allows ports `8000`, `8001` and `8765`.
+**Smartphone won't connect (local)** — make sure both devices are on the same Wi-Fi network and that Windows Firewall allows ports `8000` and `8765`.
+
+**Smartphone won't connect (remote)** — allow ports `8443` and `8766` in Windows Firewall. If UPnP is disabled on your router, forward these ports manually to your PC's local IP.
 
 **Ports in use** — find the process with `netstat -ano | findstr :8765`, then kill it with `taskkill /PID <id> /F`.
 
-**Safari shows a security warning** — follow the certificate installation steps above. Once installed and trusted, the warning won't appear again.
+**PIN not accepted** — check that you are entering the PIN shown in the **ACCESSO REMOTO** section of the LiquidMouse window. The PIN is stored in `%APPDATA%\LiquidMouse\config.json`.
 
 **Connection drops repeatedly** — some mobile browsers throttle background WebSocket connections. Keep the browser tab in the foreground or disable battery saver mode.
 
