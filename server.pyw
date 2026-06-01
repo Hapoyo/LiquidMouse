@@ -52,6 +52,7 @@ VERSION = "2.1.0"
 _config: dict = {}
 _ssl_context: ssl.SSLContext | None = None
 _ssl_temp_files: list = []
+_ssl_atexit_registered: bool = False
 
 def get_config_path() -> pathlib.Path:
     appdata = os.environ.get('APPDATA', str(pathlib.Path.home()))
@@ -126,7 +127,8 @@ def ensure_ssl_cert(local_ip: str) -> ssl.SSLContext | None:
         from cryptography.hazmat.primitives.asymmetric import rsa
         import datetime
 
-        if _config.get('ssl_cert') and _config.get('ssl_ip') == local_ip:
+        if (_config.get('ssl_cert') and _config.get('ssl_key')
+                and _config.get('ssl_ip') == local_ip):
             cert_pem = _config['ssl_cert'].encode()
             key_pem  = _config['ssl_key'].encode()
         else:
@@ -162,7 +164,10 @@ def ensure_ssl_cert(local_ip: str) -> ssl.SSLContext | None:
         kf = tempfile.NamedTemporaryFile(delete=False, suffix='.key', mode='wb')
         kf.write(key_pem); kf.close()
         _ssl_temp_files = [cf.name, kf.name]
-        atexit.register(lambda: [os.unlink(p) for p in _ssl_temp_files if os.path.exists(p)])
+        global _ssl_atexit_registered
+        if not _ssl_atexit_registered:
+            atexit.register(lambda: [os.unlink(p) for p in _ssl_temp_files if os.path.exists(p)])
+            _ssl_atexit_registered = True
 
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(cf.name, kf.name)
@@ -718,7 +723,7 @@ class _RelaySocket:
     async def send(self, msg: str) -> None:
         if not self.closed:
             try:
-                await self._relay.send(json.dumps({"type": "server_msg", "data": msg}))
+                await self._relay.send(msg)
             except Exception:
                 pass
 
@@ -1105,10 +1110,10 @@ def _get_remote_tray_label():
 def run_tray_service():
     menu = (
         pystray.MenuItem('Apri', restore_window, default=True),
-        pystray.MenuItem(pystray.MenuItem.SEPARATOR, None),
+        pystray.Menu.SEPARATOR,
         pystray.MenuItem(lambda item: _get_remote_tray_label(), None, enabled=False),
         pystray.MenuItem('Reset connessione locale', lambda icon, item: reset_trusted_ip()),
-        pystray.MenuItem(pystray.MenuItem.SEPARATOR, None),
+        pystray.Menu.SEPARATOR,
         pystray.MenuItem('Esci', terminate_application),
     )
     pystray.Icon("LiquidMouse", create_tray_icon(), "Liquid Mouse", menu).run()
@@ -1226,7 +1231,7 @@ def setup_gui():
              wraplength=480, justify="left").place(x=36, y=245)
 
     tk.Label(root, text="PIN", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED).place(x=36, y=272)
-    pin_val = load_config().get('pin_plain', '—')
+    pin_val = _config.get('pin_plain', '—')
     tk.Label(root, text=pin_val, font=("Consolas", 14, "bold"),
              bg=COLOR_BG, fg=COLOR_TEXT).place(x=36, y=288)
 

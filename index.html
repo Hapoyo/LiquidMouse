@@ -731,7 +731,14 @@
                 // For remote connections (wss: or relay), send PIN auth first
                 const isRemote = buildWsUrl(ip).startsWith('wss://');
                 const pin = pinInput.value.trim() || loadPIN();
-                if (isRemote && pin) {
+                if (isRemote) {
+                    if (!pin) {
+                        statusDiv.innerText = "PIN RICHIESTO"; statusDiv.style.color = "#ff6666";
+                        ws.close();
+                        configPanel.classList.remove('hidden');
+                        pinInput.focus();
+                        return;
+                    }
                     ws.send(JSON.stringify({ type: 'auth', pin }));
                     statusDiv.innerText = "AUTENTICAZIONE..."; statusDiv.style.color = "#ffcc00";
                     return; // wait for auth_ok before marking connected

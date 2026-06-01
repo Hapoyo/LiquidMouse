@@ -119,7 +119,7 @@ async def _ws_handler(websocket: websockets.WebSocketServerProtocol) -> None:
 class _RelayHTTPHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?")[0].rstrip("/")
-        if path == "" or path == "/" or (len(path) > 1 and "/" not in path[1:]):
+        if path == "" or (len(path) > 1 and "/" not in path[1:]):
             body = _load_index_html()
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
