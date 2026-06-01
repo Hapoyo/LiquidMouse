@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - 'release/v*'
   workflow_dispatch:
 
 jobs:
@@ -24,7 +22,7 @@ jobs:
           python-version: '3.12'
 
       - name: Installa dipendenze
-        run: pip install websockets pyautogui pystray Pillow qrcode pyinstaller cryptography pywinpty miniupnpc
+        run: pip install websockets pystray Pillow qrcode pyinstaller cryptography pywinpty miniupnpc
 
       - name: Estrai versione
         id: version
@@ -47,9 +45,8 @@ jobs:
           path: dist/LiquidMouse_v${{ steps.version.outputs.version }}.exe
 
       - name: Crea Release
-        if: startsWith(github.ref, 'refs/tags/') || startsWith(github.ref, 'refs/heads/release/')
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.version }}
           files: dist/LiquidMouse_v${{ steps.version.outputs.version }}.exe
           generate_release_notes: true

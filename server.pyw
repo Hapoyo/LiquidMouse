@@ -46,7 +46,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 
 # --- CONFIGURAZIONE PERSISTENTE ---
 _config: dict = {}
@@ -1131,7 +1131,7 @@ def setup_gui():
     global ip_label_var, status_var, status_label, _main_canvas, _remote_status_var
 
     root.title("Liquid Mouse")
-    w, h = 560, 370
+    w, h = 560, 420
     sx = (root.winfo_screenwidth()  - w) // 2
     sy = (root.winfo_screenheight() - h) // 2
     root.geometry(f'{w}x{h}+{sx}+{sy}')

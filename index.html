@@ -426,14 +426,7 @@
         .qbtn-tab { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.1); }
         .qbtn-kbd { background: rgba(218,119,86,0.2); color: #DA7756; border: 1px solid rgba(218,119,86,0.3); margin-left: auto; }
         .qbtn-kill { background: rgba(229,91,91,0.15); color: #E55B5B; border: 1px solid rgba(229,91,91,0.25); }
-        .qbtn-arrow { background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.7); border: 1px solid rgba(255,255,255,0.1); font-size: 18px; padding: 10px; }
-        #arrow-panel {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 4px; padding: 4px 8px;
-            background: #161616;
-            border-top: 1px solid rgba(255,255,255,0.06);
-        }
+        .qbtn-agent { background: rgba(218,119,86,0.2); color: #DA7756; border: 1px solid rgba(218,119,86,0.3); font-weight: 700; }
         #session-dot-bar {
             width: 10px; height: 10px;
             border-radius: 50%; background: #5A5868;
@@ -593,17 +586,6 @@
 
         <div id="terminal-active">
             <div id="xterm-container"></div>
-            <div id="arrow-panel">
-                <div></div>
-                <button class="qbtn qbtn-arrow" onclick="termQuick('\x1b[A')">↑</button>
-                <div></div>
-                <button class="qbtn qbtn-arrow" onclick="termQuick('\x1b[D')">←</button>
-                <div></div>
-                <button class="qbtn qbtn-arrow" onclick="termQuick('\x1b[C')">→</button>
-                <div></div>
-                <button class="qbtn qbtn-arrow" onclick="termQuick('\x1b[B')">↓</button>
-                <div></div>
-            </div>
             <div id="bottom-bar">
                 <div id="session-dot-bar"></div>
                 <button class="qbtn qbtn-tab" onclick="termQuick('\t')">⇥</button>
@@ -611,6 +593,7 @@
                 <button class="qbtn qbtn-c"   onclick="termQuick('\x03')">^C</button>
                 <button class="qbtn qbtn-y"   onclick="termQuick('y\r')">y</button>
                 <button class="qbtn qbtn-n"   onclick="termQuick('n\r')">n</button>
+                <button class="qbtn qbtn-agent" onclick="termQuick('\x1b[D\x1b[D')" title="Agent mode (←←)">AGT</button>
                 <button class="qbtn qbtn-kill" onclick="termKillSession()">✕</button>
                 <button class="qbtn qbtn-kbd" id="btn-show-kbd">⌨ TASTIERA</button>
             </div>
