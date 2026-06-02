@@ -1,5 +1,5 @@
 """
-🔨 Liquid Mouse Deployment Suite
+🔨 Liquid Control Deployment Suite
 Utility per la generazione dell'eseguibile standalone (EXE) per sistemi Windows.
 """
 import os
@@ -11,6 +11,13 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 # Percorso assoluto della directory del progetto, indipendente dalla cwd di lancio
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def _can_import(mod: str) -> bool:
+    try:
+        __import__(mod)
+        return True
+    except ImportError:
+        return False
 
 def check_files():
     """Verifica l'integrità dei componenti essenziali del progetto."""
@@ -24,7 +31,7 @@ def check_files():
 
 def build():
     print("="*50)
-    print("   🖱️  LIQUID MOUSE - DEPLOYMENT UTILITY")
+    print("   🖱️  LIQUID CONTROL - DEPLOYMENT UTILITY")
     print("="*50)
 
     # Assicura che la cwd sia sempre la directory del progetto,
@@ -41,32 +48,38 @@ def build():
         print("   ⬇️  Installazione dei moduli necessari in corso...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
 
-    # Verifica dipendenze runtime
-    runtime_deps = [
+    # Verifica dipendenze runtime (required = abort se mancano, optional = warn)
+    required_deps = [
         ("websockets",   "websockets"),
         ("pystray",      "pystray"),
         ("PIL",          "Pillow"),
         ("qrcode",       "qrcode"),
         ("cryptography", "cryptography"),
-        ("miniupnpc",    "miniupnpc"),
     ]
-    missing_deps = []
-    for mod, pkg in runtime_deps:
-        try:
-            __import__(mod)
-        except ImportError:
-            missing_deps.append(pkg)
+    optional_deps = [
+        ("miniupnpc", "miniupnpc"),  # UPnP: richiede C compiler; disabilitato se assente
+    ]
+    missing_deps = [pkg for mod, pkg in required_deps if not _can_import(mod)]
     if missing_deps:
         print(f"   ⬇️  Installazione dipendenze mancanti: {', '.join(missing_deps)}")
         subprocess.check_call([sys.executable, "-m", "pip", "install"] + missing_deps)
     else:
         print("   ✅ Dipendenze runtime verificate.")
+    for mod, pkg in optional_deps:
+        if not _can_import(mod):
+            print(f"   ⬇️  Installazione dipendenza opzionale: {pkg}")
+            try:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", pkg],
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"   ✅ {pkg} installato.")
+            except subprocess.CalledProcessError:
+                print(f"   ⚠️  {pkg} non installabile (richiede C compiler). UPnP disabilitato nell'EXE.")
 
     # 2. Configurazione e Validazione
     if not check_files():
         return
 
-    spec_file = os.path.join(SCRIPT_DIR, "LiquidMouse.spec")
+    spec_file = os.path.join(SCRIPT_DIR, "LiquidControl.spec")
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--clean",
@@ -76,7 +89,7 @@ def build():
 
     # Rimozione preventiva: se il file è bloccato (app in esecuzione), fallisce qui
     # con messaggio chiaro invece di attendere l'errore criptico di PyInstaller
-    exe_out = os.path.join("dist", "LiquidMouse.exe")
+    exe_out = os.path.join("dist", "LiquidControl.exe")
     try:
         os.remove(exe_out)
         print("   🗑️  Versione precedente rimossa.")
@@ -90,7 +103,7 @@ def build():
     print("\n🚀 Avvio del processo di build (la procedura potrebbe richiedere alcuni minuti)...")
     try:
         subprocess.check_call(cmd, cwd=SCRIPT_DIR)
-        exe_path = os.path.abspath(os.path.join("dist", "LiquidMouse.exe"))
+        exe_path = os.path.abspath(os.path.join("dist", "LiquidControl.exe"))
         # Validazione post-build: EXE deve esistere e avere dimensione minima ragionevole
         if not os.path.exists(exe_path):
             print("\n❌ PyInstaller terminato con successo ma l'EXE non è stato generato.")

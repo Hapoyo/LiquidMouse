@@ -1,5 +1,5 @@
 """
-LIQUID MOUSE - Server Application
+LIQUID CONTROL - Server Application
 Author: Hapone
 """
 
@@ -20,6 +20,7 @@ import uuid
 import shutil
 import secrets
 import hashlib
+import hmac
 import pathlib
 import ssl
 import ipaddress
@@ -46,7 +47,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 
 # --- CONFIGURAZIONE PERSISTENTE ---
 _config: dict = {}
@@ -56,7 +57,7 @@ _ssl_atexit_registered: bool = False
 
 def get_config_path() -> pathlib.Path:
     appdata = os.environ.get('APPDATA', str(pathlib.Path.home()))
-    return pathlib.Path(appdata) / 'LiquidMouse' / 'config.json'
+    return pathlib.Path(appdata) / 'LiquidControl' / 'config.json'
 
 def load_config() -> dict:
     global _config
@@ -97,7 +98,8 @@ AUTH_BLOCK_SECS  = 1800  # 30 minuti
 
 def _is_private_ip(ip: str) -> bool:
     try:
-        return ipaddress.ip_address(ip).is_private
+        addr = ipaddress.ip_address(ip)
+        return addr.is_private or addr.is_link_local
     except ValueError:
         return False
 
@@ -147,7 +149,7 @@ def ensure_ssl_cert(local_ip: str) -> ssl.SSLContext | None:
             key_pem  = _config['ssl_key'].encode()
         else:
             key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"LiquidMouse")])
+            name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"LiquidControl")])
             try:
                 san = x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(local_ip))])
             except ValueError:
@@ -186,7 +188,14 @@ def ensure_ssl_cert(local_ip: str) -> ssl.SSLContext | None:
         _ssl_temp_files = [cf.name, kf.name]
         global _ssl_atexit_registered
         if not _ssl_atexit_registered:
-            atexit.register(lambda: [os.unlink(p) for p in _ssl_temp_files if os.path.exists(p)])
+            def _cleanup_ssl_temps():
+                for p in _ssl_temp_files:
+                    try:
+                        if os.path.exists(p):
+                            os.unlink(p)
+                    except OSError:
+                        pass
+            atexit.register(_cleanup_ssl_temps)
             _ssl_atexit_registered = True
 
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -215,16 +224,36 @@ HTTPS_PORT = 8443   # HTTPS remoto (con TLS)
 WSS_PORT   = 8766   # WSS remoto (con TLS)
 _PONG      = '{"type":"pong"}'
 
-# --- COLORI (Claude Code palette) ---
-COLOR_BG          = "#0D0D0D"
-COLOR_SURFACE     = "#161616"
-COLOR_TEXT         = "#E8E4E0"
-COLOR_ACCENT       = "#DA7756"
-COLOR_MUTED        = "#5A5868"
-COLOR_BORDER       = "#232323"
-COLOR_ERROR        = "#E55B5B"
-COLOR_OK           = "#5BA878"
-COLOR_TRANSPARENT  = "#FF00FF"
+# --- COLORI — Glassmorphism palette ---
+COLOR_BG          = "#0D0D0D"        # sfondo opaco (fallback / area non-glass)
+COLOR_SURFACE     = "#181818"        # surface secondaria
+COLOR_GLASS       = "#1C1C1E"        # base glass card (pre-acrylic)
+COLOR_TEXT        = "#F0EDE8"        # testo primario
+COLOR_ACCENT      = "#DA7756"        # accento arancio (invariato)
+COLOR_MUTED       = "#6B6880"        # testo secondario/muted
+COLOR_BORDER      = "#2A2A2A"        # bordo sottile
+COLOR_BORDER_GLOW = "#3A3540"        # bordo glass luminoso
+COLOR_ERROR       = "#E55B5B"
+COLOR_OK          = "#5BA878"
+COLOR_TRANSPARENT = "#FF00FF"        # colore chiave trasparenza tkinter
+
+def _apply_dwm_acrylic(hwnd: int) -> bool:
+    """Applica DWM Acrylic/Mica backdrop su Windows 11 (build 22000+).
+    Ritorna True se riuscito, False su fallback (Win10 o errore)."""
+    try:
+        import ctypes.wintypes
+        DWMWA_SYSTEMBACKDROP_TYPE = 38
+        DWMSBT_MAINWINDOW = 2  # Mica (finestra principale, Win11 22H2+ build 22621)
+        value = ctypes.c_int(DWMSBT_MAINWINDOW)
+        res = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_SYSTEMBACKDROP_TYPE,
+            ctypes.byref(value),
+            ctypes.sizeof(value)
+        )
+        return res == 0
+    except Exception:
+        return False
 
 # --- PERCORSO FILE ---
 if getattr(sys, 'frozen', False):
@@ -455,25 +484,28 @@ class _ConPTY:
         _k32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(attr_sz))
         attr_buf = (ctypes.c_byte * attr_sz.value)()
         attr_ptr = ctypes.cast(attr_buf, ctypes.c_void_p)
-        _k32.InitializeProcThreadAttributeList(attr_ptr, 1, 0, ctypes.byref(attr_sz))
-        _k32.UpdateProcThreadAttribute(attr_ptr, 0,
-            _PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hpc, ctypes.sizeof(hpc), None, None)
+        if not _k32.InitializeProcThreadAttributeList(attr_ptr, 1, 0, ctypes.byref(attr_sz)):
+            raise OSError(f"InitializeProcThreadAttributeList err {_k32.GetLastError()}")
+        try:
+            _k32.UpdateProcThreadAttribute(attr_ptr, 0,
+                _PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hpc, ctypes.sizeof(hpc), None, None)
 
-        si = _STARTUPINFOEX()
-        ctypes.memset(ctypes.byref(si), 0, ctypes.sizeof(si))
-        si.StartupInfo.cb = ctypes.sizeof(_STARTUPINFOEX)
-        si.lpAttributeList = attr_ptr
+            si = _STARTUPINFOEX()
+            ctypes.memset(ctypes.byref(si), 0, ctypes.sizeof(si))
+            si.StartupInfo.cb = ctypes.sizeof(_STARTUPINFOEX)
+            si.lpAttributeList = attr_ptr
 
-        pi = _PROCESS_INFORMATION()
-        cmd_str = _subprocess.list2cmdline(argv) if isinstance(argv, list) else argv
-        ok = _k32.CreateProcessW(None, cmd_str, None, None, False,
-            _EXTENDED_STARTUPINFO_PRESENT | _CREATE_NO_WINDOW,
-            None, cwd, ctypes.byref(si), ctypes.byref(pi))
-        _k32.DeleteProcThreadAttributeList(attr_ptr)
-        if not ok:
-            err = _k32.GetLastError()
-            self._cleanup()
-            raise OSError(f"CreateProcessW err={err} cmd={cmd_str!r}")
+            pi = _PROCESS_INFORMATION()
+            cmd_str = _subprocess.list2cmdline(argv) if isinstance(argv, list) else argv
+            ok = _k32.CreateProcessW(None, cmd_str, None, None, False,
+                _EXTENDED_STARTUPINFO_PRESENT | _CREATE_NO_WINDOW,
+                None, cwd, ctypes.byref(si), ctypes.byref(pi))
+            if not ok:
+                err = _k32.GetLastError()
+                self._cleanup()
+                raise OSError(f"CreateProcessW err={err} cmd={cmd_str!r}")
+        finally:
+            _k32.DeleteProcThreadAttributeList(attr_ptr)
         self._hproc = pi.hProcess
         _k32.CloseHandle(pi.hThread)
 
@@ -651,8 +683,10 @@ class SessionManager:
     def resize(self, sid: str, cols: int, rows: int) -> None:
         s = self._sessions.get(sid)
         if s and s.alive:
-            try: s.pty.set_size(rows, cols)
-            except Exception: pass
+            try:
+                s.pty.set_size(rows, cols)
+            except Exception as e:
+                log_message(f"Terminal resize [{sid}] {cols}x{rows}: {e}", color=COLOR_MUTED)
 
     def kill(self, sid: str) -> None:
         s = self._sessions.get(sid)
@@ -745,10 +779,12 @@ def _open_pc_terminal(sid: str) -> None:
 
 # --- SICUREZZA: WHITELIST IP ---
 TRUSTED_IP = None
+_trusted_ip_lock = threading.Lock()
 
 def reset_trusted_ip():
     global TRUSTED_IP
-    TRUSTED_IP = None
+    with _trusted_ip_lock:
+        TRUSTED_IP = None
     log_message("Whitelist resettata. In attesa...", color=COLOR_ACCENT)
 
 # --- UTILITIES DI RETE ---
@@ -791,7 +827,8 @@ async def handler(websocket):
             await websocket.close()
             return
         pin_hash = hashlib.sha256(auth_data.get('pin', '').encode()).hexdigest()
-        if pin_hash != _config.get('pin_hash', ''):
+        stored_hash = _config.get('pin_hash', '')
+        if not hmac.compare_digest(pin_hash, stored_hash):
             _record_auth_fail(client_ip)
             fails = _auth_failures.get(client_ip, (0, 0))[0]
             await websocket.send(json.dumps({
@@ -804,23 +841,19 @@ async def handler(websocket):
         _clear_auth_fail(client_ip)
         await websocket.send(json.dumps({"type": "auth_ok"}))
         log_message(f"Connessione remota autorizzata: {client_ip}", color=COLOR_ACCENT)
-        # Segnale sonoro per notificare l'accesso remoto
-        try:
-            ctypes.windll.user32.MessageBeep(0xFFFFFFFF)
-        except Exception:
-            pass
     elif _is_loopback(client_ip):
         # Stessa macchina (finestra terminale sul PC): sempre fidata, no whitelist.
         log_message(f"Sessione locale: {client_ip}", color=COLOR_ACCENT)
     else:
         # Connessione locale LAN: whitelist IP (primo client autorizzato).
-        if TRUSTED_IP is None:
-            TRUSTED_IP = client_ip
-            log_message(f"Autorizzato: {client_ip}", color=COLOR_ACCENT)
-        elif client_ip != TRUSTED_IP:
-            log_message(f"Rifiutato: {client_ip}", color=COLOR_ERROR)
-            await websocket.close()
-            return
+        with _trusted_ip_lock:
+            if TRUSTED_IP is None:
+                TRUSTED_IP = client_ip
+                log_message(f"Autorizzato: {client_ip}", color=COLOR_ACCENT)
+            elif client_ip != TRUSTED_IP:
+                log_message(f"Rifiutato: {client_ip}", color=COLOR_ERROR)
+                await websocket.close()
+                return
         log_message(f"Sessione attiva: {client_ip}", color=COLOR_ACCENT)
 
     last_backspace_time = 0
@@ -840,7 +873,7 @@ async def handler(websocket):
                     mouse_move(x, y)
 
                 elif msg_type == 'scroll':
-                    amt = int(data.get('amount', 0))
+                    amt = max(-100, min(100, int(float(data.get('amount', 0)))))
                     if amt != 0: mouse_scroll(amt)
 
                 elif msg_type == 'click':
@@ -855,7 +888,7 @@ async def handler(websocket):
                     if key:
                         if key == 'backspace':
                             now = time.time()
-                            if now - last_backspace_time < 0.08: continue
+                            if now - last_backspace_time <= 0.08: continue
                             last_backspace_time = now
                         key_press(key)
 
@@ -932,11 +965,9 @@ async def handler(websocket):
 
                 elif msg_type == 'term_resize':
                     sid = data.get('id', '')
-                    _session_manager.resize(
-                        sid,
-                        int(data.get('cols', 120)),
-                        int(data.get('rows', 40))
-                    )
+                    cols = max(20, min(240, int(float(data.get('cols', 120)))))
+                    rows = max(5, min(60, int(float(data.get('rows', 40)))))
+                    _session_manager.resize(sid, cols, rows)
 
                 elif msg_type == 'term_kill':
                     sid = data.get('id', '')
@@ -1001,8 +1032,13 @@ def _cleanup_upnp():
     global _upnp_obj
     if _upnp_obj:
         for port in _upnp_ports:
-            try: _upnp_obj.deleteportmapping(port, 'TCP')
-            except Exception: pass
+            try:
+                _upnp_obj.deleteportmapping(port, 'TCP')
+            except Exception as e:
+                try:
+                    log_message(f"UPnP cleanup porta {port}: {e}", color=COLOR_MUTED)
+                except Exception:
+                    pass
 
 def _setup_upnp_sync() -> str | None:
     """Blocking UPnP discovery — run via executor to avoid blocking event loop."""
@@ -1019,7 +1055,7 @@ def _setup_upnp_sync() -> str | None:
             return None
         for port in [HTTPS_PORT, WSS_PORT]:
             try:
-                u.addportmapping(port, 'TCP', LOCAL_IP, port, 'LiquidMouse', '')
+                u.addportmapping(port, 'TCP', LOCAL_IP, port, 'LiquidControl', '')
                 _upnp_ports.append(port)
             except Exception:
                 pass
@@ -1060,10 +1096,10 @@ def _set_remote_qr(url: str) -> None:
         photo = ImageTk.PhotoImage(img)
         root._remote_qr_photo = photo  # tiene il riferimento (evita GC)
         if _remote_qr_label is None:
-            _remote_qr_label = tk.Label(root, image=photo, bg=COLOR_BG, bd=0)
+            _remote_qr_label = tk.Label(root, image=photo, bg=COLOR_TRANSPARENT, bd=0)
             _remote_qr_label.place(x=438, y=232)
             tk.Label(root, text="SCAN REMOTO", font=("Consolas", 7),
-                     bg=COLOR_BG, fg=COLOR_MUTED).place(x=446, y=232 + 92)
+                     bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=446, y=232 + 92)
         else:
             _remote_qr_label.config(image=photo)
     except Exception as e:
@@ -1102,6 +1138,9 @@ async def start_websocket_server():
         log_message(f"ERRORE CRITICO: Porta {PORT} occupata!", color=COLOR_ERROR)
     except Exception as e:
         log_message(f"WebSocket Server crash: {e}", color=COLOR_ERROR)
+    finally:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, _cleanup_upnp)
 
 def run_services():
     threading.Thread(target=start_http_server, daemon=True).start()
@@ -1158,15 +1197,15 @@ def _open_sessions_panel(*_):
             pass
     win = tk.Toplevel(root)
     win.title("Sessioni terminal")
-    win.configure(bg=COLOR_BG)
+    win.configure(bg=COLOR_GLASS)
     win.geometry("470x320")
     try: win.iconbitmap(ICON_PATH)
     except Exception: pass
     tk.Label(win, text="SESSIONI TERMINAL ATTIVE", font=("Consolas", 9, "bold"),
-             bg=COLOR_BG, fg=COLOR_ACCENT).pack(anchor="w", padx=14, pady=(12, 2))
+             bg=COLOR_GLASS, fg=COLOR_ACCENT).pack(anchor="w", padx=14, pady=(12, 2))
     tk.Label(win, text="doppio click su una sessione = aprila sul PC",
-             font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED).pack(anchor="w", padx=14, pady=(0, 6))
-    txt = tk.Text(win, bg=COLOR_SURFACE, fg=COLOR_TEXT, font=("Consolas", 9),
+             font=("Consolas", 8), bg=COLOR_GLASS, fg=COLOR_MUTED).pack(anchor="w", padx=14, pady=(0, 6))
+    txt = tk.Text(win, bg=COLOR_GLASS, fg=COLOR_TEXT, font=("Consolas", 9),
                   bd=0, highlightthickness=0, padx=10, pady=8, wrap="none", cursor="hand2")
     txt.pack(fill="both", expand=True, padx=12, pady=(0, 12))
     txt.config(state="disabled")
@@ -1229,13 +1268,13 @@ def run_tray_service():
         pystray.Menu.SEPARATOR,
         pystray.MenuItem('Esci', terminate_application),
     )
-    pystray.Icon("LiquidMouse", create_tray_icon(), "Liquid Mouse", menu).run()
+    pystray.Icon("LiquidControl", create_tray_icon(), "Liquid Control", menu).run()
 
 def setup_gui():
     global ip_label_var, status_var, status_label, _main_canvas, _remote_status_var
 
-    root.title("Liquid Mouse")
-    w, h = 560, 420
+    root.title("Liquid Control")
+    w, h = 560, 460
     sx = (root.winfo_screenwidth()  - w) // 2
     sy = (root.winfo_screenheight() - h) // 2
     root.geometry(f'{w}x{h}+{sx}+{sy}')
@@ -1252,7 +1291,7 @@ def setup_gui():
     canvas.pack(fill="both", expand=True)
     _main_canvas = canvas
 
-    # --- Forma finestra: rettangolo arrotondato con bordo sottile ---
+    # --- Forma finestra: rettangolo arrotondato ---
     def rounded_rect(c, x1, y1, x2, y2, r, **kw):
         pts = (x1+r, y1, x1+r, y1, x2-r, y1, x2-r, y1, x2, y1, x2, y1+r,
                x2, y1+r, x2, y2-r, x2, y2-r, x2, y2, x2-r, y2, x2-r, y2,
@@ -1261,19 +1300,24 @@ def setup_gui():
         return c.create_polygon(pts, smooth=True, **kw)
 
     PAD = 8
-    rounded_rect(canvas, PAD, PAD, w-PAD, h-PAD, 22, fill=COLOR_BG, outline=COLOR_BORDER, width=1)
+    # Sfondo glass: bordo glow sottile invece del bordo piatto
+    rounded_rect(canvas, PAD, PAD, w-PAD, h-PAD, 22,
+                 fill=COLOR_GLASS, outline=COLOR_BORDER_GLOW, width=1)
+    # Striscia riflesso superiore (simulazione highlight glass)
+    rounded_rect(canvas, PAD, PAD, w-PAD, PAD+3, 3,
+                 fill="#FFFFFF", outline="", stipple="gray12")
 
     # Linea separatore dopo titolo
     sep_y = 70
-    canvas.create_line(PAD+30, sep_y, w-PAD-30, sep_y, fill=COLOR_BORDER, width=1)
+    canvas.create_line(PAD+30, sep_y,        w-PAD-30, sep_y,        fill=COLOR_BORDER_GLOW, width=1)
 
     # Linea separatore prima sezione remota
     sep_y_remote = 215
-    canvas.create_line(PAD+30, sep_y_remote, w-PAD-30, sep_y_remote, fill=COLOR_BORDER, width=1)
+    canvas.create_line(PAD+30, sep_y_remote, w-PAD-30, sep_y_remote, fill=COLOR_BORDER_GLOW, width=1)
 
     # Linea separatore sopra lo status
     sep_y2 = h - 75
-    canvas.create_line(PAD+30, sep_y2, w-PAD-30, sep_y2, fill=COLOR_BORDER, width=1)
+    canvas.create_line(PAD+30, sep_y2,       w-PAD-30, sep_y2,       fill=COLOR_BORDER_GLOW, width=1)
 
     # --- Dragging finestra ---
     def get_pos(e):
@@ -1285,13 +1329,13 @@ def setup_gui():
     canvas.bind("<B1-Motion>", move_window)
 
     # --- Titolo con accento colorato ---
-    title_prefix = tk.Label(root, text="", font=("Consolas", 15, "bold"), bg=COLOR_BG, fg=COLOR_ACCENT)
+    title_prefix = tk.Label(root, text="", font=("Consolas", 15, "bold"), bg=COLOR_TRANSPARENT, fg=COLOR_ACCENT)
     title_prefix.place(x=36, y=32)
-    title_main = tk.Label(root, text="", font=("Consolas", 15, "bold"), bg=COLOR_BG, fg=COLOR_TEXT)
+    title_main = tk.Label(root, text="", font=("Consolas", 15, "bold"), bg=COLOR_TRANSPARENT, fg=COLOR_TEXT)
     title_main.place(x=66, y=32)
 
     # Badge versione (angolo in alto a destra, prima del close button)
-    tk.Label(root, text=f"v{VERSION}", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED).place(x=w-100, y=38)
+    tk.Label(root, text=f"v{VERSION}", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=w-100, y=38)
 
     # --- Bottone chiudi: stile minimale con hover ---
     cx, cy = w - 36, 36
@@ -1307,11 +1351,11 @@ def setup_gui():
     canvas.tag_bind(close_bg, "<Leave>", _close_leave)
 
     # --- Sezione IP ---
-    lbl_ip_header = tk.Label(root, text="", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED)
+    lbl_ip_header = tk.Label(root, text="", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED)
     lbl_ip_header.place(x=36, y=88)
 
     ip_label_var = tk.StringVar(value="")
-    tk.Label(root, textvariable=ip_label_var, font=("Consolas", 18), bg=COLOR_BG, fg=COLOR_TEXT).place(x=36, y=112)
+    tk.Label(root, textvariable=ip_label_var, font=("Consolas", 18), bg=COLOR_TRANSPARENT, fg=COLOR_TEXT).place(x=36, y=112)
 
     # --- QR Code con sfondo arrotondato ---
     qr_url = f"http://{LOCAL_IP}:{HTTP_PORT}/?v={int(time.time())}"
@@ -1323,40 +1367,40 @@ def setup_gui():
         # Sfondo arrotondato per il QR
         qr_w, qr_h = qr_raw.size
         pad_qr = 8
-        bg_img = Image.new("RGBA", (qr_w + pad_qr*2, qr_h + pad_qr*2), COLOR_SURFACE)
+        bg_img = Image.new("RGBA", (qr_w + pad_qr*2, qr_h + pad_qr*2), COLOR_GLASS)
         mask = Image.new("L", bg_img.size, 0)
         ImageDraw.Draw(mask).rounded_rectangle((0, 0, bg_img.size[0], bg_img.size[1]), radius=10, fill=255)
         bg_img.putalpha(mask)
         bg_img.paste(qr_raw, (pad_qr, pad_qr), qr_raw.split()[3])
         root.qr_photo = ImageTk.PhotoImage(bg_img)
-        tk.Label(root, image=root.qr_photo, bg=COLOR_BG, bd=0).place(x=w-150, y=85)
+        tk.Label(root, image=root.qr_photo, bg=COLOR_TRANSPARENT, bd=0).place(x=w-150, y=85)
     except Exception as e:
         log_message(f"QR Error: {e}", color=COLOR_ERROR)
 
     # Etichetta sotto QR
-    tk.Label(root, text="SCANSIONA", font=("Consolas", 7), bg=COLOR_BG, fg=COLOR_MUTED).place(x=w-138, y=195)
+    tk.Label(root, text="SCANSIONA", font=("Consolas", 7), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=w-138, y=195)
 
     # --- Sezione Accesso Remoto ---
-    tk.Label(root, text="ACCESSO REMOTO", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED).place(x=36, y=225)
+    tk.Label(root, text="ACCESSO REMOTO", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=36, y=225)
     _remote_status_var = tk.StringVar(value="Inizializzazione...")
     tk.Label(root, textvariable=_remote_status_var,
-             font=("Consolas", 9), bg=COLOR_BG, fg=COLOR_ACCENT,
+             font=("Consolas", 9), bg=COLOR_TRANSPARENT, fg=COLOR_ACCENT,
              wraplength=380, justify="left").place(x=36, y=245)
 
-    tk.Label(root, text="PIN", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED).place(x=36, y=272)
+    tk.Label(root, text="PIN", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=36, y=318)
     pin_val = _config.get('pin_plain', '—')
     tk.Label(root, text=pin_val, font=("Consolas", 14, "bold"),
-             bg=COLOR_BG, fg=COLOR_TEXT).place(x=36, y=288)
+             bg=COLOR_TRANSPARENT, fg=COLOR_TEXT).place(x=36, y=334)
 
     # --- Sezione stato ---
-    lbl_status_header = tk.Label(root, text="", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED)
+    lbl_status_header = tk.Label(root, text="", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED)
     lbl_status_header.place(x=36, y=h-65)
 
     # Indicatore pallino stato
     root._status_dot = canvas.create_oval(36, h-42, 44, h-34, fill=COLOR_MUTED, outline="")
 
     status_var = tk.StringVar(value="")
-    status_label = tk.Label(root, textvariable=status_var, font=("Consolas", 9), bg=COLOR_BG, fg=COLOR_MUTED)
+    status_label = tk.Label(root, textvariable=status_var, font=("Consolas", 9), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED)
     status_label.place(x=52, y=h-46)
 
     # Bottone "Sessioni terminal" (apre il pannello GUI con le sessioni attive)
@@ -1389,7 +1433,7 @@ def setup_gui():
 
     anim_data = [
         (title_prefix,      ">_",                      40),
-        (title_main,        " Liquid Mouse",            25),
+        (title_main,        " Liquid Control",           25),
         (lbl_ip_header,     "HOST",                     15),
         (ip_label_var,      f"{LOCAL_IP}:{HTTP_PORT}",  18),
         (lbl_status_header, "STATO",                    15),
@@ -1409,6 +1453,17 @@ def setup_gui():
             root.after(16, lambda: fade_in(step + 1))
 
     root.after(80, fade_in)
+    # Applica DWM Mica su Win11 (non-blocking, fallback silenzioso)
+    def _dwm_later():
+        try:
+            hwnd = int(root.wm_frame(), 16)
+        except Exception:
+            try:
+                hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+            except Exception:
+                return
+        _apply_dwm_acrylic(hwnd)
+    root.after(200, _dwm_later)
     threading.Thread(target=run_services, daemon=True).start()
     root.after(500, lambda: threading.Thread(target=run_tray_service, daemon=True).start())
 
