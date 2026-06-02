@@ -46,7 +46,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.1.2"
+VERSION = "2.2.0"
 
 # --- CONFIGURAZIONE PERSISTENTE ---
 _config: dict = {}
@@ -98,6 +98,13 @@ AUTH_BLOCK_SECS  = 1800  # 30 minuti
 def _is_private_ip(ip: str) -> bool:
     try:
         return ipaddress.ip_address(ip).is_private
+    except ValueError:
+        return False
+
+def _is_loopback(ip: str) -> bool:
+    """True per 127.0.0.1 / ::1 — la stessa macchina, sempre fidata."""
+    try:
+        return ipaddress.ip_address(ip).is_loopback
     except ValueError:
         return False
 
@@ -206,7 +213,6 @@ PORT       = 8765   # WS locale
 HTTP_PORT  = 8000   # HTTP locale
 HTTPS_PORT = 8443   # HTTPS remoto (con TLS)
 WSS_PORT   = 8766   # WSS remoto (con TLS)
-RELAY_URL  = "wss://relay.liquidmouse.app"
 _PONG      = '{"type":"pong"}'
 
 # --- COLORI (Claude Code palette) ---
@@ -586,7 +592,7 @@ class PTYSession:
     cmd: str
     pty: object
     output_buffer: bytearray = field(default_factory=bytearray)
-    ws: object = None
+    subscribers: set = field(default_factory=set)   # ws attivi (telefono + finestra PC)
     created_at: float = 0.0
     alive: bool = True
 
@@ -616,9 +622,8 @@ class SessionManager:
             session = self._sessions.get(sid)
             if not session:
                 raise RuntimeError("sessione non trovata")
-            if session.ws is not None:
-                raise RuntimeError("sessione già in uso da altro client")
-            session.ws = ws
+            session.subscribers.add(ws)   # multi-viewer: telefono + finestra PC insieme
+        # Replay del ring buffer SOLO al nuovo viewer (gli altri non sono toccati).
         buf = bytes(session.output_buffer)
         for i in range(0, max(len(buf), 1), 4096):
             chunk = buf[i:i + 4096]
@@ -628,9 +633,14 @@ class SessionManager:
                     "data": base64.b64encode(chunk).decode()
                 }))
 
-    def detach(self, sid: str) -> None:
+    def detach(self, sid: str, ws) -> None:
         s = self._sessions.get(sid)
-        if s: s.ws = None
+        if s: s.subscribers.discard(ws)
+
+    def detach_ws(self, ws) -> None:
+        """Sgancia questo ws da ogni sessione (su disconnessione del client)."""
+        for s in self._sessions.values():
+            s.subscribers.discard(ws)
 
     def send(self, sid: str, data: str) -> None:
         s = self._sessions.get(sid)
@@ -653,8 +663,25 @@ class SessionManager:
             self._sessions.pop(sid, None)
 
     def list_sessions(self) -> list:
-        return [{"id": s.id, "cmd": s.cmd, "alive": s.alive, "created_at": s.created_at}
-                for s in self._sessions.values()]
+        # snapshot: il pannello GUI gira sul thread Tk mentre il loop asyncio
+        # può mutare _sessions — list() riduce il rischio di "dict changed size".
+        return [{"id": s.id, "cmd": s.cmd, "alive": s.alive,
+                 "created_at": s.created_at, "viewers": len(s.subscribers)}
+                for s in list(self._sessions.values())]
+
+    async def _broadcast(self, session: "PTYSession", msg: dict) -> None:
+        """Invia un messaggio a tutti i viewer; rimuove quelli morti."""
+        if not session.subscribers:
+            return
+        payload = json.dumps(msg)
+        dead = []
+        for sub in list(session.subscribers):
+            try:
+                await sub.send(payload)
+            except Exception:
+                dead.append(sub)
+        for d in dead:
+            session.subscribers.discard(d)
 
     async def _read_loop(self, session: "PTYSession") -> None:
         loop = asyncio.get_running_loop()
@@ -672,14 +699,10 @@ class SessionManager:
                     await asyncio.sleep(0.01)
                     continue
                 _append_ring(session.output_buffer, raw)
-                if session.ws:
-                    try:
-                        await session.ws.send(json.dumps({
-                            "type": "term_output", "id": session.id,
-                            "data": base64.b64encode(raw).decode()
-                        }))
-                    except Exception:
-                        session.ws = None
+                await self._broadcast(session, {
+                    "type": "term_output", "id": session.id,
+                    "data": base64.b64encode(raw).decode()
+                })
             except EOFError:
                 exit_code = session.pty.exitstatus if session.alive else 0
                 break
@@ -689,16 +712,36 @@ class SessionManager:
                 break
         session.alive = False
         log_message(f"Terminal: {session.cmd} terminato (exit {exit_code})", color=COLOR_ACCENT)
-        if session.ws:
-            try:
-                await session.ws.send(json.dumps({
-                    "type": "term_closed", "id": session.id, "exit_code": exit_code
-                }))
-            except Exception:
-                pass
+        await self._broadcast(session, {
+            "type": "term_closed", "id": session.id, "exit_code": exit_code
+        })
 
 
 _session_manager = SessionManager()
+
+def _open_pc_terminal(sid: str) -> None:
+    """Apre il terminale web sul PC (finestra reale) agganciato alla sessione `sid`.
+    Prova Edge/Chrome in modalità --app (finestra pulita), fallback al browser."""
+    url = f"http://127.0.0.1:{HTTP_PORT}/?term={sid}"
+    candidates = [
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        shutil.which("msedge"), shutil.which("chrome"),
+    ]
+    for exe in candidates:
+        if exe and os.path.exists(exe):
+            try:
+                _subprocess.Popen([exe, f"--app={url}", "--window-size=920,620"])
+                return
+            except Exception:
+                pass
+    try:
+        import webbrowser
+        webbrowser.open(url)
+    except Exception as e:
+        log_message(f"Apertura finestra PC fallita: {e}", color=COLOR_MUTED)
 
 # --- SICUREZZA: WHITELIST IP ---
 TRUSTED_IP = None
@@ -720,48 +763,10 @@ def get_local_ip():
 LOCAL_IP = get_local_ip()
 
 # --- STATO CONNESSIONE REMOTA ---
-_remote_mode    = "none"   # "upnp" | "relay" | "none"
+_remote_mode    = "none"   # "upnp" | "none"
 _external_ip    = None
-_relay_code     = None
 _upnp_obj       = None
 _upnp_ports     = []
-
-# --- RELAY SOCKET ADAPTER ---
-class _RelaySocket:
-    """Adatta il canale relay all'interfaccia websockets per handler()."""
-    def __init__(self, relay_ws, client_ip: str = "relay"):
-        self._relay  = relay_ws
-        self._queue  = asyncio.Queue()
-        self.remote_address = (client_ip, 0)
-        self.local_address  = ("relay", WSS_PORT)
-        self.closed = False
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        try:
-            msg = await self._queue.get()
-            if msg is None:
-                raise StopAsyncIteration
-            return msg
-        except asyncio.CancelledError:
-            raise StopAsyncIteration
-
-    async def send(self, msg: str) -> None:
-        if not self.closed:
-            try:
-                await self._relay.send(msg)
-            except Exception:
-                pass
-
-    async def close(self) -> None:
-        self.closed = True
-        self._queue.put_nowait(None)
-
-    def push(self, msg: str) -> None:
-        if not self.closed:
-            self._queue.put_nowait(msg)
 
 # --- BACKEND (WebSocket & HTTP) ---
 async def handler(websocket):
@@ -804,8 +809,11 @@ async def handler(websocket):
             ctypes.windll.user32.MessageBeep(0xFFFFFFFF)
         except Exception:
             pass
+    elif _is_loopback(client_ip):
+        # Stessa macchina (finestra terminale sul PC): sempre fidata, no whitelist.
+        log_message(f"Sessione locale: {client_ip}", color=COLOR_ACCENT)
     else:
-        # Connessione locale: whitelist IP (comportamento originale)
+        # Connessione locale LAN: whitelist IP (primo client autorizzato).
         if TRUSTED_IP is None:
             TRUSTED_IP = client_ip
             log_message(f"Autorizzato: {client_ip}", color=COLOR_ACCENT)
@@ -889,6 +897,9 @@ async def handler(websocket):
                         await websocket.send(json.dumps({
                             "type": "term_created", "id": session.id
                         }))
+                        # Avviata da telefono/LAN/remoto → apri la finestra reale sul PC.
+                        if not _is_loopback(client_ip):
+                            _open_pc_terminal(session.id)
                     except RuntimeError as e:
                         await websocket.send(json.dumps({
                             "type": "term_error", "id": "", "msg": str(e)
@@ -905,7 +916,7 @@ async def handler(websocket):
 
                 elif msg_type == 'term_detach':
                     sid = data.get('id', '')
-                    _session_manager.detach(sid)
+                    _session_manager.detach(sid, websocket)
 
                 elif msg_type == 'term_input':
                     sid = data.get('id', '')
@@ -947,6 +958,9 @@ async def handler(websocket):
         for key in list(held_keys):
             key_up(key)
         held_keys.clear()
+        # Sgancia eventuali sessioni terminal legate a questo ws: così una
+        # riconnessione può riagganciarle (altrimenti attach() le crede in uso).
+        _session_manager.detach_ws(websocket)
 
 class _QuietHTTPHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -1022,74 +1036,53 @@ async def setup_upnp() -> str | None:
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _setup_upnp_sync)
 
-# --- RELAY ---
-async def run_relay_client() -> None:
-    global _remote_mode, _relay_code
-    try:
-        async with websockets.connect(
-            f"{RELAY_URL}/register",
-            ping_interval=30, ping_timeout=10, open_timeout=10
-        ) as relay_ws:
-            await relay_ws.send(json.dumps({"type": "register", "version": VERSION}))
-            resp = json.loads(await asyncio.wait_for(relay_ws.recv(), timeout=10))
-            if resp.get('type') != 'session':
-                return
-            _relay_code  = resp['code']
-            _remote_mode = 'relay'
-            log_message(f"Relay attivo: {_relay_code}", color=COLOR_ACCENT)
-            _update_remote_ui()
-
-            relay_socket: _RelaySocket | None = None
-
-            async for raw in relay_ws:
-                try:
-                    msg = json.loads(raw)
-                except Exception:
-                    continue
-                mtype = msg.get('type')
-                if mtype == 'client_connected':
-                    relay_socket = _RelaySocket(relay_ws, msg.get('ip', 'relay'))
-                    asyncio.get_running_loop().create_task(handler(relay_socket))
-                elif mtype == 'client_message' and relay_socket:
-                    relay_socket.push(msg.get('data', ''))
-                elif mtype == 'client_disconnected' and relay_socket:
-                    await relay_socket.close()
-                    relay_socket = None
-    except Exception as e:
-        log_message(f"Relay: disconnesso ({type(e).__name__})", color=COLOR_MUTED)
-    finally:
-        if _remote_mode == 'relay':
-            _remote_mode = 'none'
-            _relay_code  = None
-
+# --- AGGIORNAMENTO UI REMOTO ---
 def _update_remote_ui():
-    """Aggiorna label remoto nella GUI (chiamare dal thread asyncio o via root.after)."""
-    if _remote_status_var:
-        if _remote_mode == 'upnp':
-            root.after(0, lambda: _remote_status_var.set(
-                f"UPnP  {_external_ip}:{HTTPS_PORT}   PIN: {_config.get('pin_plain','')}"
-            ))
-        elif _remote_mode == 'relay':
-            root.after(0, lambda: _remote_status_var.set(
-                f"Relay  {_relay_code}   PIN: {_config.get('pin_plain','')}"
-            ))
+    """Aggiorna label + QR remoto nella GUI (thread-safe via root.after)."""
+    if not _remote_status_var:
+        return
+    if _remote_mode == 'upnp':
+        root.after(0, lambda: _remote_status_var.set(f"UPnP  {_external_ip}:{HTTPS_PORT}"))
+        pin = _config.get('pin_plain', '')
+        remote_url = f"https://{_external_ip}:{HTTPS_PORT}/?pin={pin}"
+        root.after(0, lambda: _set_remote_qr(remote_url))
+    else:
+        root.after(0, lambda: _remote_status_var.set("Remoto non disponibile (UPnP non riuscito)"))
+
+def _set_remote_qr(url: str) -> None:
+    """Crea/aggiorna il QR per l'accesso remoto (eseguire sul thread Tk)."""
+    global _remote_qr_label
+    try:
+        qr = qrcode.QRCode(version=1, box_size=2, border=2)
+        qr.add_data(url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color=COLOR_TEXT, back_color=COLOR_SURFACE).convert("RGBA")
+        photo = ImageTk.PhotoImage(img)
+        root._remote_qr_photo = photo  # tiene il riferimento (evita GC)
+        if _remote_qr_label is None:
+            _remote_qr_label = tk.Label(root, image=photo, bg=COLOR_BG, bd=0)
+            _remote_qr_label.place(x=438, y=232)
+            tk.Label(root, text="SCAN REMOTO", font=("Consolas", 7),
+                     bg=COLOR_BG, fg=COLOR_MUTED).place(x=446, y=232 + 92)
         else:
-            root.after(0, lambda: _remote_status_var.set("Remoto non disponibile"))
+            _remote_qr_label.config(image=photo)
+    except Exception as e:
+        log_message(f"QR remoto error: {e}", color=COLOR_ERROR)
 
 async def start_websocket_server():
     global _remote_mode
     log_message("Protocolli di comunicazione inizializzati.", color=COLOR_MUTED)
     ssl_ctx = ensure_ssl_cert(LOCAL_IP)
 
-    # 1. Prova UPnP
+    # UPnP: unica strategia remota (port-forward automatico sul router).
     ext_ip = await setup_upnp()
     if ext_ip:
         _remote_mode = 'upnp'
         log_message(f"UPnP attivo: {ext_ip}", color=COLOR_OK)
-        _update_remote_ui()
     else:
-        # 2. Fallback relay (task separato, non blocca il server WS)
-        asyncio.get_running_loop().create_task(run_relay_client())
+        _remote_mode = 'none'
+        log_message("UPnP non riuscito: remoto non disponibile", color=COLOR_MUTED)
+    _update_remote_ui()
 
     servers = [
         websockets.serve(handler, "0.0.0.0", PORT, ping_interval=20, ping_timeout=10),
@@ -1124,6 +1117,8 @@ status_var          = None
 status_label        = None
 _main_canvas        = None
 _remote_status_var  = None
+_remote_qr_label    = None
+_sessions_win       = None
 
 def create_tray_icon():
     if os.path.exists(ICON_PATH):
@@ -1149,15 +1144,87 @@ def terminate_application(icon=None, item=None):
 def _get_remote_tray_label():
     if _remote_mode == 'upnp':
         return f'Remoto: UPnP  {_external_ip}:{HTTPS_PORT}'
-    elif _remote_mode == 'relay':
-        return f'Remoto: Relay  {_relay_code}'
     return 'Remoto: non disponibile'
+
+def _open_sessions_panel(*_):
+    """Pannello GUI sul PC con le sessioni terminal attive (auto-refresh 2s).
+    Doppio click su una riga = (ri)apri quella sessione in una finestra sul PC."""
+    global _sessions_win
+    if _sessions_win is not None:
+        try:
+            if _sessions_win.winfo_exists():
+                _sessions_win.deiconify(); _sessions_win.lift(); return
+        except Exception:
+            pass
+    win = tk.Toplevel(root)
+    win.title("Sessioni terminal")
+    win.configure(bg=COLOR_BG)
+    win.geometry("470x320")
+    try: win.iconbitmap(ICON_PATH)
+    except Exception: pass
+    tk.Label(win, text="SESSIONI TERMINAL ATTIVE", font=("Consolas", 9, "bold"),
+             bg=COLOR_BG, fg=COLOR_ACCENT).pack(anchor="w", padx=14, pady=(12, 2))
+    tk.Label(win, text="doppio click su una sessione = aprila sul PC",
+             font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED).pack(anchor="w", padx=14, pady=(0, 6))
+    txt = tk.Text(win, bg=COLOR_SURFACE, fg=COLOR_TEXT, font=("Consolas", 9),
+                  bd=0, highlightthickness=0, padx=10, pady=8, wrap="none", cursor="hand2")
+    txt.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+    txt.config(state="disabled")
+    _sessions_win = win
+    _state = {"sessions": []}
+
+    def _refresh():
+        if _sessions_win is None:
+            return
+        try:
+            if not _sessions_win.winfo_exists():
+                return
+            try:
+                sessions = _session_manager.list_sessions()
+            except Exception:
+                sessions = []
+            _state["sessions"] = sessions
+            txt.config(state="normal")
+            txt.delete("1.0", "end")
+            if not sessions:
+                txt.insert("end", "(nessuna sessione attiva)\n")
+            else:
+                now = time.time()
+                for s in sessions:
+                    age = int((now - s['created_at']) / 60)
+                    state = "● attiva" if s['alive'] else "○ chiusa"
+                    txt.insert("end",
+                        f"{state}   {s['cmd']:<16} id {s['id']}   {age}m   {s['viewers']} viewer\n")
+            txt.config(state="disabled")
+        except Exception:
+            pass
+        win.after(2000, _refresh)
+
+    def _on_dblclick(e):
+        try:
+            idx = int(txt.index(f"@{e.x},{e.y}").split('.')[0]) - 1
+            sessions = _state["sessions"]
+            if 0 <= idx < len(sessions) and sessions[idx]['alive']:
+                _open_pc_terminal(sessions[idx]['id'])
+        except Exception:
+            pass
+    txt.bind("<Double-Button-1>", _on_dblclick)
+
+    def _on_close():
+        global _sessions_win
+        _sessions_win = None
+        try: win.destroy()
+        except Exception: pass
+
+    win.protocol("WM_DELETE_WINDOW", _on_close)
+    _refresh()
 
 def run_tray_service():
     menu = (
         pystray.MenuItem('Apri', restore_window, default=True),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(lambda item: _get_remote_tray_label(), None, enabled=False),
+        pystray.MenuItem('Sessioni terminal', lambda icon, item: root.after(0, _open_sessions_panel)),
         pystray.MenuItem('Reset connessione locale', lambda icon, item: reset_trusted_ip()),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem('Esci', terminate_application),
@@ -1274,7 +1341,7 @@ def setup_gui():
     _remote_status_var = tk.StringVar(value="Inizializzazione...")
     tk.Label(root, textvariable=_remote_status_var,
              font=("Consolas", 9), bg=COLOR_BG, fg=COLOR_ACCENT,
-             wraplength=480, justify="left").place(x=36, y=245)
+             wraplength=380, justify="left").place(x=36, y=245)
 
     tk.Label(root, text="PIN", font=("Consolas", 8), bg=COLOR_BG, fg=COLOR_MUTED).place(x=36, y=272)
     pin_val = _config.get('pin_plain', '—')
@@ -1291,6 +1358,17 @@ def setup_gui():
     status_var = tk.StringVar(value="")
     status_label = tk.Label(root, textvariable=status_var, font=("Consolas", 9), bg=COLOR_BG, fg=COLOR_MUTED)
     status_label.place(x=52, y=h-46)
+
+    # Bottone "Sessioni terminal" (apre il pannello GUI con le sessioni attive)
+    sess_btn = canvas.create_text(w-118, h-42, text="▤ SESSIONI", anchor="w",
+                                  font=("Consolas", 8), fill=COLOR_MUTED)
+    def _sess_enter(e):
+        canvas.itemconfig(sess_btn, fill=COLOR_ACCENT); canvas.config(cursor="hand2")
+    def _sess_leave(e):
+        canvas.itemconfig(sess_btn, fill=COLOR_MUTED); canvas.config(cursor="")
+    canvas.tag_bind(sess_btn, "<Button-1>", lambda e: _open_sessions_panel())
+    canvas.tag_bind(sess_btn, "<Enter>", _sess_enter)
+    canvas.tag_bind(sess_btn, "<Leave>", _sess_leave)
 
     # --- Animazione typewriter ---
     def type_sequence(widgets_data, idx=0):

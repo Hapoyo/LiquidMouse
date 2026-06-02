@@ -455,7 +455,6 @@
     <div id="tab-bar">
         <button class="tab-btn active" id="tab-touchpad" onclick="switchTab('touchpad')">🖱️</button>
         <button class="tab-btn" id="tab-terminal" onclick="switchTab('terminal')">💻<span class="tab-dot" id="tab-terminal-dot" style="display:none"></span></button>
-        <button class="tab-btn disabled" id="tab-stream" title="Coming soon">🖥️</button>
     </div>
 
     <div id="content-touchpad" class="tab-content active">
@@ -612,12 +611,15 @@
         const certHint = document.getElementById('cert-hint');
         const certLink = document.getElementById('cert-link');
         let ws = null;
+        let pingInterval = null;   // a scope modulo: pulito da closeWS() (no leak)
 
         function loadPIN() { return localStorage.getItem('liquidMousePIN') || ''; }
         function savePIN(p) { if (p) localStorage.setItem('liquidMousePIN', p); }
 
         // --- TERMINAL STATE ---
         let termSessionId = null;
+        let attached = false;          // true quando la sessione è agganciata a questo ws
+        let pendingTermId = null;      // deep-link ?term=<id> (finestra terminale sul PC)
         let xterm = null;
         let xtermOpened = false;
         let xtermPendingData = [];
@@ -625,15 +627,9 @@
         let resizeRaf = null;
 
         function switchTab(name) {
-            if (name === 'stream') return;
-            // Detach sessione se si esce dal tab terminal
-            if (document.getElementById('content-terminal').classList.contains('active') &&
-                name !== 'terminal' &&
-                termSessionId &&
-                ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({type: 'term_detach', id: termSessionId}));
-                document.getElementById('session-dot-bar').classList.remove('alive');
-            }
+            // La sessione terminal resta attaccata al cambio tab: xterm conserva
+            // lo stato e il server continua a inviare output. Niente detach qui
+            // (era la causa della duplicazione: re-attach → replay del ring).
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
             const content = document.getElementById('content-' + name);
@@ -653,25 +649,12 @@
         let disconnectHandled = false;
 
         function closeWS() {
+            clearInterval(pingInterval);
             if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
         }
 
-        // Detect relay session code from URL (?session=CODE or path /CODE)
-        function getRelayCode() {
-            const params = new URLSearchParams(window.location.search);
-            if (params.get('session')) return params.get('session');
-            const seg = window.location.pathname.replace(/^\//, '').split('/')[0];
-            if (seg && seg.length >= 8 && /^[A-Za-z0-9_-]+$/.test(seg)) return seg;
-            return null;
-        }
-
+        // wss remoto (pagina servita via HTTPS:8443) oppure ws locale (HTTP:8000).
         function buildWsUrl(ip) {
-            const relayCode = getRelayCode();
-            if (relayCode) {
-                // Relay mode: connect to relay WS endpoint
-                const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-                return `${proto}://${window.location.host}/ws/${relayCode}`;
-            }
             if (window.location.protocol === 'https:') {
                 return `wss://${ip.trim()}:8766`;
             }
@@ -699,7 +682,8 @@
             disconnectHandled = false;
             closeWS();
 
-            ws = new WebSocket(buildWsUrl(ip));
+            const wsUrl = buildWsUrl(ip);
+            ws = new WebSocket(wsUrl);
 
             clearTimeout(connectionTimeout);
             connectionTimeout = setTimeout(() => {
@@ -712,7 +696,6 @@
                 }
             }, 3000);
 
-            let pingInterval = null;
             let pingTimestamp = 0;
 
             ws.onopen = () => {
@@ -720,9 +703,8 @@
                 disconnectHandled = false;
                 reconnectAttempts = 0;
 
-                // For remote connections (wss: or relay), send PIN auth first
-                const wsUrl = buildWsUrl(ip);
-                const isRemote = wsUrl.startsWith('wss://') || !!getRelayCode();
+                // Connessione remota (pagina via HTTPS → wss): PIN obbligatorio.
+                const isRemote = wsUrl.startsWith('wss://');
                 const pin = pinInput.value.trim() || loadPIN();
                 if (isRemote) {
                     if (!pin) {
@@ -750,6 +732,18 @@
                         ws.send(JSON.stringify({ type: 'ping' }));
                     }
                 }, 5000);
+                // Dopo una riconnessione, se il tab terminal è attivo e c'è una
+                // sessione, riaggancia (il server ha sganciato il ws morto).
+                if (termSessionId && document.getElementById('content-terminal').classList.contains('active')) {
+                    attached = false;
+                    attachSession(termSessionId);
+                }
+                // Deep-link finestra PC (?term=<id>): apri il terminale e aggancia.
+                if (pendingTermId) {
+                    termSessionId = pendingTermId;
+                    pendingTermId = null;
+                    switchTab('terminal');
+                }
             }
 
             ws.onmessage = (e) => {
@@ -792,6 +786,7 @@
                         document.getElementById('session-picker').style.display = '';
                         showTermError(`Sessione terminata (exit ${msg.exit_code})`);
                         termSessionId = null;
+                        attached = false;
                         ws.send(JSON.stringify({type: 'term_list'}));
                     } else if (msg.type === 'term_error') {
                         showTermError(msg.msg);
@@ -801,7 +796,7 @@
             ws.onerror = () => {
                 clearTimeout(connectionTimeout);
                 // Suggerisce di accettare il certificato se connessione remota fallisce
-                if (buildWsUrl(ip).startsWith('wss://') && reconnectAttempts === 0) {
+                if (wsUrl.startsWith('wss://') && reconnectAttempts === 0) {
                     const httpsUrl = `https://${ip.trim()}:8443`;
                     certLink.textContent = httpsUrl;
                     certLink.onclick = () => window.open(httpsUrl, '_blank');
@@ -811,6 +806,7 @@
             ws.onclose = () => {
                 clearTimeout(connectionTimeout);
                 clearInterval(pingInterval);
+                attached = false;
                 if (!disconnectHandled) {
                     disconnectHandled = true;
                     handleDisconnect(ip);
@@ -862,14 +858,18 @@
                     pinInput.value = loadPIN();
                 }
 
+                // Deep-link finestra PC: ?term=<id> aggancia quella sessione dopo auth.
+                pendingTermId = urlParams.get('term');
+
                 const savedIP = loadIP();
                 const currentHostname = window.location.hostname;
 
                 let shouldConnectIP = null;
-                if (getRelayCode()) {
-                    // Relay mode: use hostname of relay
-                    shouldConnectIP = currentHostname;
-                } else if (currentHostname && currentHostname !== 'localhost' && currentHostname !== '127.0.0.1' && currentHostname !== '') {
+                if (currentHostname === 'localhost' || currentHostname === '127.0.0.1') {
+                    // Finestra terminale sul PC: pagina servita in locale → loopback.
+                    shouldConnectIP = '127.0.0.1';
+                } else if (currentHostname && currentHostname !== '') {
+                    // Pagina servita dal server (LAN http o remoto https): usa l'host.
                     shouldConnectIP = currentHostname;
                 } else if (savedIP) {
                     shouldConnectIP = savedIP;
@@ -1232,13 +1232,25 @@
             requestAnimationFrame(() => requestAnimationFrame(fitXterm));
         }
 
+        // Dimensioni reali di cella lette da xterm (più accurate della misura
+        // manuale → wrapping corretto); fallback a measureCharSize() se l'API
+        // interna non è ancora disponibile (primo render).
+        function getCellSize() {
+            try {
+                const d = xterm._core._renderService.dimensions;
+                const cw = d.css.cell.width, ch = d.css.cell.height;
+                if (cw > 0 && ch > 0) return { w: cw, h: ch };
+            } catch (_) {}
+            return measureCharSize();
+        }
+
         function fitXterm() {
             if (!xterm || !xtermOpened) return;
             const container = document.getElementById('xterm-container');
             const w = container.clientWidth - 8;
             const h = container.clientHeight - 8;
             if (w <= 0 || h <= 0) return;
-            const { w: cw, h: ch } = measureCharSize();
+            const { w: cw, h: ch } = getCellSize();
             const cols = Math.max(20, Math.floor(w / cw));
             const rows = Math.max(5, Math.floor(h / ch));
             if (cols !== lastSentSize.cols || rows !== lastSentSize.rows) {
@@ -1264,7 +1276,12 @@
                 showTermError('WebSocket non connesso — connetti prima dalla schermata principale.');
                 return;
             }
-            if (termSessionId) {
+            if (termSessionId && attached) {
+                // Già agganciata: la sessione è rimasta viva al cambio tab e
+                // xterm ha già lo stato aggiornato. Riallinea solo le dimensioni.
+                openXtermIfNeeded();
+                scheduleFit();
+            } else if (termSessionId) {
                 attachSession(termSessionId);
             } else {
                 ws.send(JSON.stringify({type: 'term_list'}));
@@ -1377,8 +1394,14 @@
             document.getElementById('terminal-active').classList.add('visible');
             document.getElementById('session-dot-bar').classList.add('alive');
             document.getElementById('tab-terminal-dot').style.display = 'block';
-            ws.send(JSON.stringify({type: 'term_attach', id: sid}));
+            // Il server, su term_attach, re-invia l'intero ring buffer. Azzeriamo
+            // xterm PRIMA del replay così lo schermo si ricostruisce senza
+            // duplicare l'output (causa storica del "terminal che non si aggiorna").
+            xtermPendingData = [];
             openXtermIfNeeded();
+            if (xterm) xterm.reset();
+            attached = true;
+            ws.send(JSON.stringify({type: 'term_attach', id: sid}));
             // Fit dopo che layout si è assestato
             setTimeout(fitXterm, 50);
             setTimeout(fitXterm, 250);
