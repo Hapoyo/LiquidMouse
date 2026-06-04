@@ -47,7 +47,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.2.2"
+VERSION = "2.2.3"
 
 # --- CONFIGURAZIONE PERSISTENTE ---
 _config: dict = {}

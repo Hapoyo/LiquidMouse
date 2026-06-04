@@ -28,7 +28,7 @@ jobs:
         id: version
         shell: bash
         run: |
-          VERSION=$(python -c "import re; m=re.search(r'VERSION\s*=\s*\"([^\"]+)\"', open('server.pyw').read()); print(m.group(1) if m else 'dev')")
+          VERSION=$(python -c "import re; m=re.search(r'VERSION\s*=\s*\"([^\"]+)\"', open('server.pyw',encoding='utf-8').read()); print(m.group(1) if m else 'dev')")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build EXE
