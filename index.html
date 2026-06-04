@@ -929,6 +929,7 @@
                             xtermPendingData.push(bytes);
                         }
                     } else if (msg.type === 'term_closed') {
+                        if (msg.id && msg.id !== termSessionId) break;
                         document.getElementById('session-dot-bar').classList.remove('alive');
                         document.getElementById('tab-terminal-dot').style.display = 'none';
                         document.getElementById('terminal-active').classList.remove('visible');
@@ -939,6 +940,13 @@
                         ws.send(JSON.stringify({type: 'term_list'}));
                     } else if (msg.type === 'term_error') {
                         showTermError(msg.msg);
+                        if (msg.id && msg.id === termSessionId) {
+                            document.getElementById('terminal-active').classList.remove('visible');
+                            document.getElementById('session-picker').style.display = '';
+                            termSessionId = null;
+                            attached = false;
+                            ws.send(JSON.stringify({type: 'term_list'}));
+                        }
                     }
                 } catch (_) {}
             };

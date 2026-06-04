@@ -47,7 +47,7 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.2.1"
+VERSION = "2.2.2"
 
 # --- CONFIGURAZIONE PERSISTENTE ---
 _config: dict = {}
@@ -88,17 +88,25 @@ def _save_config() -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(_config, f, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        try:
+            log_message(f"Errore salvataggio config: {e}", color=COLOR_ERROR)
+        except Exception:
+            pass
 
 # --- SICUREZZA AUTH REMOTA ---
 _auth_failures: dict[str, tuple[int, float]] = {}
+_auth_in_progress: set[str] = set()
 AUTH_MAX_FAILS   = 5
 AUTH_BLOCK_SECS  = 1800  # 30 minuti
+
+_CGNAT_NET = ipaddress.ip_network('100.64.0.0/10')
 
 def _is_private_ip(ip: str) -> bool:
     try:
         addr = ipaddress.ip_address(ip)
+        if addr in _CGNAT_NET:
+            return False
         return addr.is_private or addr.is_link_local
     except ValueError:
         return False
@@ -546,13 +554,13 @@ class _ConPTY:
         self._cleanup()
 
     def _cleanup(self):
-        for h in [self._hproc, self._stdin_w, self._stdout_r]:
-            if h:
-                try: _k32.CloseHandle(h)
-                except Exception: pass
         if self._hpc:
             try: _k32.ClosePseudoConsole(self._hpc)
             except Exception: pass
+        for h in [self._stdin_w, self._stdout_r, self._hproc]:
+            if h:
+                try: _k32.CloseHandle(h)
+                except Exception: pass
         self._hproc = self._hpc = self._stdin_w = self._stdout_r = None
 
 
@@ -603,7 +611,12 @@ def _make_pty(argv: list, cwd: str, cols: int = 120, rows: int = 40):
     return _ConPTY(argv, cwd, cols, rows)
 
 
+TERM_ALLOWED_CMDS = {"cmd.exe", "powershell.exe", "pwsh.exe", "claude", "bash", "wsl"}
+
 def _resolve_argv(cmd: str) -> list:
+    base = cmd.strip().split()[0].lower()
+    if base not in TERM_ALLOWED_CMDS:
+        raise ValueError(f"Comando non consentito: {cmd!r}")
     if os.path.isabs(cmd) and os.path.exists(cmd):
         return [cmd]
     exe = shutil.which(cmd)
@@ -654,16 +667,15 @@ class SessionManager:
             session = self._sessions.get(sid)
             if not session:
                 raise RuntimeError("sessione non trovata")
-            session.subscribers.add(ws)   # multi-viewer: telefono + finestra PC insieme
-        # Replay del ring buffer SOLO al nuovo viewer (gli altri non sono toccati).
-        buf = bytes(session.output_buffer)
-        for i in range(0, max(len(buf), 1), 4096):
-            chunk = buf[i:i + 4096]
-            if chunk:
-                await ws.send(json.dumps({
-                    "type": "term_output", "id": sid,
-                    "data": base64.b64encode(chunk).decode()
-                }))
+            buf = bytes(session.output_buffer)
+            for i in range(0, len(buf), 4096):
+                chunk = buf[i:i + 4096]
+                if chunk:
+                    await ws.send(json.dumps({
+                        "type": "term_output", "id": sid,
+                        "data": base64.b64encode(chunk).decode()
+                    }))
+            session.subscribers.add(ws)
 
     def detach(self, sid: str, ws) -> None:
         s = self._sessions.get(sid)
@@ -674,22 +686,28 @@ class SessionManager:
         for s in self._sessions.values():
             s.subscribers.discard(ws)
 
-    def send(self, sid: str, data: str) -> None:
+    def send(self, sid: str, data: str, ws=None) -> None:
         s = self._sessions.get(sid)
         if not s or not s.alive:
             raise RuntimeError("sessione non disponibile")
+        if ws is not None and ws not in s.subscribers:
+            raise RuntimeError("non collegato alla sessione")
         s.pty.write(data)
 
-    def resize(self, sid: str, cols: int, rows: int) -> None:
+    def resize(self, sid: str, cols: int, rows: int, ws=None) -> None:
         s = self._sessions.get(sid)
+        if ws is not None and s and ws not in s.subscribers:
+            return
         if s and s.alive:
             try:
                 s.pty.set_size(rows, cols)
             except Exception as e:
                 log_message(f"Terminal resize [{sid}] {cols}x{rows}: {e}", color=COLOR_MUTED)
 
-    def kill(self, sid: str) -> None:
+    def kill(self, sid: str, ws=None) -> None:
         s = self._sessions.get(sid)
+        if ws is not None and s and ws not in s.subscribers:
+            return
         if s:
             s.alive = False
             try: s.pty.close()
@@ -812,24 +830,28 @@ async def handler(websocket):
 
     if is_remote:
         # Connessione remota: autenticazione PIN obbligatoria
-        if _check_auth_blocked(client_ip):
+        if _check_auth_blocked(client_ip) or client_ip in _auth_in_progress:
             await websocket.send(json.dumps({"type": "auth_blocked"}))
             await websocket.close()
             log_message(f"Bloccato (brute force): {client_ip}", color=COLOR_ERROR)
             return
+        _auth_in_progress.add(client_ip)
         try:
             auth_raw  = await asyncio.wait_for(websocket.recv(), timeout=10.0)
             auth_data = json.loads(auth_raw)
         except (asyncio.TimeoutError, json.JSONDecodeError, Exception):
+            _auth_in_progress.discard(client_ip)
             await websocket.close()
             return
         if auth_data.get('type') != 'auth':
+            _auth_in_progress.discard(client_ip)
             await websocket.close()
             return
         pin_hash = hashlib.sha256(auth_data.get('pin', '').encode()).hexdigest()
         stored_hash = _config.get('pin_hash', '')
         if not hmac.compare_digest(pin_hash, stored_hash):
             _record_auth_fail(client_ip)
+            _auth_in_progress.discard(client_ip)
             fails = _auth_failures.get(client_ip, (0, 0))[0]
             await websocket.send(json.dumps({
                 "type": "auth_fail",
@@ -839,6 +861,7 @@ async def handler(websocket):
             log_message(f"Auth fallita ({fails}/{AUTH_MAX_FAILS}) da {client_ip}", color=COLOR_ERROR)
             return
         _clear_auth_fail(client_ip)
+        _auth_in_progress.discard(client_ip)
         await websocket.send(json.dumps({"type": "auth_ok"}))
         log_message(f"Connessione remota autorizzata: {client_ip}", color=COLOR_ACCENT)
     elif _is_loopback(client_ip):
@@ -933,7 +956,7 @@ async def handler(websocket):
                         # Avviata da telefono/LAN/remoto → apri la finestra reale sul PC.
                         if not _is_loopback(client_ip):
                             _open_pc_terminal(session.id)
-                    except RuntimeError as e:
+                    except (RuntimeError, ValueError) as e:
                         await websocket.send(json.dumps({
                             "type": "term_error", "id": "", "msg": str(e)
                         }))
@@ -957,7 +980,7 @@ async def handler(websocket):
                     if len(input_data) > TERM_INPUT_MAX:
                         input_data = input_data[:TERM_INPUT_MAX]
                     try:
-                        _session_manager.send(sid, input_data)
+                        _session_manager.send(sid, input_data, ws=websocket)
                     except RuntimeError as e:
                         await websocket.send(json.dumps({
                             "type": "term_error", "id": sid, "msg": str(e)
@@ -967,11 +990,11 @@ async def handler(websocket):
                     sid = data.get('id', '')
                     cols = max(20, min(240, int(float(data.get('cols', 120)))))
                     rows = max(5, min(60, int(float(data.get('rows', 40)))))
-                    _session_manager.resize(sid, cols, rows)
+                    _session_manager.resize(sid, cols, rows, ws=websocket)
 
                 elif msg_type == 'term_kill':
                     sid = data.get('id', '')
-                    _session_manager.kill(sid)
+                    _session_manager.kill(sid, ws=websocket)
                     await websocket.send(json.dumps({
                         "type": "term_sessions",
                         "sessions": _session_manager.list_sessions()
@@ -1108,7 +1131,7 @@ def _set_remote_qr(url: str) -> None:
 async def start_websocket_server():
     global _remote_mode
     log_message("Protocolli di comunicazione inizializzati.", color=COLOR_MUTED)
-    ssl_ctx = ensure_ssl_cert(LOCAL_IP)
+    ssl_ctx = _ssl_context
 
     # UPnP: unica strategia remota (port-forward automatico sul router).
     ext_ip = await setup_upnp()
