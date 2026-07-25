@@ -1,10 +1,17 @@
 """
 🔨 Liquid Control Deployment Suite
 Utility per la generazione dell'eseguibile standalone (EXE) per sistemi Windows.
+
+Output: EXE/LiquidControl.exe (ultima build).
+Con --pre: copia anche una candidate versionata in pre-release/.
+Le release finali versionate vanno in release/ (gestite da release.py).
 """
 import os
+import re
+import shutil
 import subprocess
 import sys
+from datetime import datetime
 
 # Fix encoding console Windows (cp1252 non supporta emoji)
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -84,12 +91,13 @@ def build():
         sys.executable, "-m", "PyInstaller",
         "--clean",
         "--log-level", "WARN",
+        "--distpath", "EXE",
         spec_file,
     ]
 
     # Rimozione preventiva: se il file è bloccato (app in esecuzione), fallisce qui
     # con messaggio chiaro invece di attendere l'errore criptico di PyInstaller
-    exe_out = os.path.join("dist", "LiquidControl.exe")
+    exe_out = os.path.join("EXE", "LiquidControl.exe")
     try:
         os.remove(exe_out)
         print("   🗑️  Versione precedente rimossa.")
@@ -103,7 +111,7 @@ def build():
     print("\n🚀 Avvio del processo di build (la procedura potrebbe richiedere alcuni minuti)...")
     try:
         subprocess.check_call(cmd, cwd=SCRIPT_DIR)
-        exe_path = os.path.abspath(os.path.join("dist", "LiquidControl.exe"))
+        exe_path = os.path.abspath(os.path.join("EXE", "LiquidControl.exe"))
         # Validazione post-build: EXE deve esistere e avere dimensione minima ragionevole
         if not os.path.exists(exe_path):
             print("\n❌ PyInstaller terminato con successo ma l'EXE non è stato generato.")
@@ -115,10 +123,27 @@ def build():
             print(f"\n✅ OPERAZIONE COMPLETATA: Binario generato ({size_mb:.1f}MB).")
         print(f"\n📂 Percorso di output:\n   {exe_path}")
 
+        # --pre: archivia una candidate versionata in pre-release/
+        if "--pre" in sys.argv:
+            m = re.search(r'VERSION\s*=\s*"([^"]+)"',
+                          open(os.path.join(SCRIPT_DIR, "server.pyw"), encoding="utf-8").read())
+            ver = m.group(1) if m else "dev"
+            stamp = datetime.now().strftime("%Y%m%d-%H%M")
+            pre_dir = os.path.join(SCRIPT_DIR, "pre-release")
+            os.makedirs(pre_dir, exist_ok=True)
+            pre_path = os.path.join(pre_dir, f"LiquidControl_v{ver}_pre_{stamp}.exe")
+            shutil.copy2(exe_path, pre_path)
+            print(f"📦 Candidate pre-release:\n   {pre_path}")
+
     except subprocess.CalledProcessError:
         print("\n❌ Errore fatale durante la fase di compilazione.")
 
 if __name__ == "__main__":
     build()
+    # isatty() può essere True anche con stdin chiuso (shell non interattive):
+    # l'EOFError va comunque assorbito per non far fallire la build con exit 1
     if sys.stdin.isatty():
-        input("\nPremere un tasto per terminare...")
+        try:
+            input("\nPremere un tasto per terminare...")
+        except EOFError:
+            pass

@@ -32,21 +32,21 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build EXE
-        run: python -m PyInstaller --clean --log-level WARN LiquidControl.spec
+        run: python -m PyInstaller --clean --log-level WARN --distpath EXE LiquidControl.spec
 
       - name: Rinomina EXE con versione
         shell: bash
-        run: mv dist/LiquidControl.exe "dist/LiquidControl_v${{ steps.version.outputs.version }}.exe"
+        run: mv EXE/LiquidControl.exe "EXE/LiquidControl_v${{ steps.version.outputs.version }}.exe"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: LiquidControl-v${{ steps.version.outputs.version }}
-          path: dist/LiquidControl_v${{ steps.version.outputs.version }}.exe
+          path: EXE/LiquidControl_v${{ steps.version.outputs.version }}.exe
 
       - name: Crea Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/LiquidControl_v${{ steps.version.outputs.version }}.exe
+          files: EXE/LiquidControl_v${{ steps.version.outputs.version }}.exe
           generate_release_notes: true

@@ -1,121 +1,100 @@
-# LiquidMouse
+# LiquidControl
 
-Turn your smartphone into a wireless touchpad and keyboard for Windows.
+**v2.3.0 «Popins»**
+
+Turn your smartphone into a wireless touchpad, keyboard and terminal for Windows.
 No app to install — the client runs entirely in the browser.
+
+## Highlights of «Popins»
+
+- **Critical client fix** — a JavaScript syntax error shipped in v2.2.x froze the web
+  client on "Waiting..." on every browser. Fixed and covered by a regression test.
+- **Remote access via Tailscale (recommended)** — install [Tailscale](https://tailscale.com)
+  on PC and phone with the same account: the server detects the VPN, shows a dedicated QR
+  and the phone connects **from anywhere** (home Wi-Fi, 4G, any network) with no
+  certificates and no PIN.
+- **Single remote port** — page and command channel both travel on `8443`
+  (many routers/ISPs filter unusual ports; one port, one certificate).
+- **UPnP self-healing** — mappings renewed every 10 minutes, survives router reboots.
+- **Redesigned GUI** — opaque dark window, real DWM rounded corners, readable text.
 
 ## Requirements
 
 - Windows 10 / 11
-- Python 3.7+ (source only)
+- Phone and PC on the same Wi-Fi network — **or** Tailscale on both for remote use
 
 ## Installation
 
-**Executable** — download `LiquidMouse.exe` from [Releases](https://github.com/Hapoyo/LiquidMouse/releases).
+**Executable** — download `LiquidControl.exe` from
+[Releases](https://github.com/Hapoyo/LiquidMouse/releases) and run it.
 
-**From source** — Python 3.7+:
+**From source** — Python 3.10–3.13 (3.14 not yet supported: `miniupnpc` has no wheel):
 
 ```bash
-pip install websockets pystray Pillow qrcode cryptography miniupnpc
-python server.pyw
+py -3.13 -m pip install websockets pystray Pillow qrcode cryptography pywinpty miniupnpc
+py -3.13 server.pyw
 ```
 
 ## Usage
 
-1. Start LiquidMouse on your PC
-2. Scan the QR code with your smartphone or type the IP shown in the window
-3. To quit: tray icon → Exit
+1. Start LiquidControl on the PC
+2. Scan the QR code shown in the window (or type the address in the phone browser)
+   - **HOST QR** → local network (`http://<lan-ip>:8000`)
+   - **SCAN REMOTO QR** → Tailscale VPN or UPnP, works away from home
+3. To quit: tray icon → Esci
 
 ## Features
 
-- Touchpad with tap, double-tap, long-press (right-click) and two-finger scroll
+- Touchpad with tap, double-tap, long-press (right-click), two-finger scroll, drag lock
 - Full virtual keyboard with Unicode support
-- Quick menu: Copy, Paste, ESC, Ctrl/Shift lock, Drag lock, Select All, Win, Play/Pause
-- Adjustable cursor sensitivity, saved locally
-- Terminal emulator (cmd.exe) via PTY
-- **Remote access** — control your PC from any network, not just local Wi-Fi
+- **Terminal mode** — a real Windows terminal (xterm.js) in the browser, multi-viewer,
+  sessions survive disconnections
+- Quick menu: Copy, Paste, ESC, Ctrl/Shift lock, Select All, Win, Play/Pause
+- Adjustable cursor sensitivity, saved on the phone
+- Security: IP whitelist on LAN · PIN + SHA-256 + brute-force lockout for remote
+  connections · Tailscale connections are end-to-end encrypted by the tailnet
 
-## Remote Access
-
-LiquidMouse supports two connection modes simultaneously:
-
-| Mode | How it works | Requirements |
-| :--- | :--- | :--- |
-| **Local** | Direct Wi-Fi connection | Same network |
-| **Remote (UPnP)** | Automatic port forwarding on your router | UPnP enabled (default on most home routers) |
-| **Remote (Relay)** | Traffic routed via relay server | Internet access; relay server deployed |
-
-### First remote connection
-
-1. Start LiquidMouse — the main window shows the **ACCESSO REMOTO** section with the URL and PIN
-2. Scan the remote QR code or open the URL on your smartphone
-3. When prompted, enter the **PIN** shown in the window
-4. The first time, your browser will show a certificate warning (self-signed TLS) — tap **Advanced → Proceed**
-
-The PIN is generated once and stored locally. To regenerate it, delete `%APPDATA%\LiquidMouse\config.json` and restart.
-
-### Security
-
-- **PIN auth** — 8-character alphanumeric PIN required for all remote connections
-- **Brute-force protection** — IP blocked for 30 minutes after 5 failed attempts
-- **TLS encryption** — all remote traffic encrypted with a self-signed certificate
-- **Local connections** — unchanged: IP whitelist, no PIN required on the same network
-
-### Relay server (self-hosted)
-
-If UPnP is unavailable, LiquidMouse falls back to a relay server.
-The relay code (`relay_server.py`) is included in this repository.
-
-Deploy example with [Caddy](https://caddyserver.com/) for automatic HTTPS:
+## Project layout
 
 ```
-# Caddyfile
-relay.yourdomain.com {
-    reverse_proxy localhost:8080
-}
+server.pyw          → server (WS + WSS + HTTP + HTTPS, GUI, tray) — run directly for testing
+index.html          → browser client (touchpad, keyboard, terminal)
+test_server.py      → smoke test (run while the server is up)
+build.py            → local build → EXE/LiquidControl.exe  (--pre → pre-release/ candidate)
+release.py          → versioned release (local git-less workflow, archives to release/)
+LiquidControl.spec  → PyInstaller configuration
+EXE/                → latest local build
+pre-release/        → timestamped release candidates
+release/            → versioned final builds
+build/              → PyInstaller work dir (disposable)
 ```
+
+## Development
 
 ```bash
-pip install websockets
-python relay_server.py --host 0.0.0.0 --port 8080
+py -3.13 server.pyw          # run from source (test mode)
+py -3.13 test_server.py      # smoke test against the running server
+py -3.13 build.py            # build EXE/LiquidControl.exe
+py -3.13 build.py --pre      # build + archive a pre-release candidate
+py -3.13 release.py -v X.Y.Z --yes   # tag & push → GitHub Actions builds the release
 ```
-
-Then set `RELAY_URL = "wss://relay.yourdomain.com"` in `server.pyw` before building.
-
-## First-time setup on iPhone / iPad (Safari)
-
-LiquidMouse uses a self-signed TLS certificate. Safari requires you to trust it once.
-
-1. Open the HTTPS URL shown in the LiquidMouse window in **Safari**
-2. Tap **Advanced → Proceed to site** to accept the certificate warning
-3. The page loads — enter your PIN to connect
-
-After this, Safari will connect without warnings on that device.
 
 ## Troubleshooting
 
-**Smartphone won't connect (local)** — make sure both devices are on the same Wi-Fi network and that Windows Firewall allows ports `8000` and `8765`.
+**Phone won't connect on LAN** — same Wi-Fi network? Windows Firewall must allow TCP
+`8000` and `8765`. Some routers isolate Wi-Fi clients from each other ("AP isolation"):
+disable it, or simply use Tailscale.
 
-**Smartphone won't connect (remote)** — allow ports `8443` and `8766` in Windows Firewall. If UPnP is disabled on your router, forward these ports manually to your PC's local IP.
+**Remote shows "non disponibile"** — the router has no UPnP/IGD or filters ports:
+use Tailscale (recommended) — install it on PC and phone, same account, done.
 
-**Ports in use** — find the process with `netstat -ano | findstr :8765`, then kill it with `taskkill /PID <id> /F`.
-
-**PIN not accepted** — check that you are entering the PIN shown in the **ACCESSO REMOTO** section of the LiquidMouse window. The PIN is stored in `%APPDATA%\LiquidMouse\config.json`.
-
-**Connection drops repeatedly** — some mobile browsers throttle background WebSocket connections. Keep the browser tab in the foreground or disable battery saver mode.
-
-## Supported browsers
-
-| Browser | iOS | Android |
-| :--- | :---: | :---: |
-| Safari | ✅ | — |
-| Chrome | ✅ | ✅ |
-| Firefox | ⚠️ | ✅ |
-| Edge | — | ✅ |
+**Stuck on "In attesa..."** — reload the page (old cached client). If it persists,
+run `py -3.13 test_server.py` and check the browser console.
 
 ## Author
 
-[Hapone](https://github.com/Hapoyo)
+[Hapoyo](https://github.com/Hapoyo)
 
 ## License
 
-GPL v3 — see [LICENSE](LICENSE)
+MIT — see [LICENSE](LICENSE). Fully open: use it, fork it, ship it.

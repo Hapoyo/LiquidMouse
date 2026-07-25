@@ -27,6 +27,9 @@ import ipaddress
 import tempfile
 import atexit
 import contextlib
+from http import HTTPStatus
+from websockets.http11 import Response
+from websockets.datastructures import Headers
 from dataclasses import dataclass, field
 
 try:
@@ -47,7 +50,8 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.2.3"
+VERSION = "2.3.0"
+CODENAME = "Popins"   # aggiornamento 2026-07-25: client fix, Tailscale, porta unica, GUI opaca
 
 # --- CONFIGURAZIONE PERSISTENTE ---
 _config: dict = {}
@@ -116,6 +120,35 @@ def _is_loopback(ip: str) -> bool:
     try:
         return ipaddress.ip_address(ip).is_loopback
     except ValueError:
+        return False
+
+def _get_tailscale_ip() -> str | None:
+    """IP Tailscale (100.64/10) di questa macchina, None se la VPN non è attiva.
+    Trucco senza dipendenze: un connect UDP verso il resolver MagicDNS di
+    Tailscale (100.100.100.100) sceglie l'interfaccia instradata sul tailnet;
+    se getsockname non è nel range CGNAT, Tailscale non c'è."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.settimeout(1)
+            s.connect(("100.100.100.100", 53))
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+        return ip if ipaddress.ip_address(ip) in _CGNAT_NET else None
+    except Exception:
+        return None
+
+def _is_tailscale_conn(websocket) -> bool:
+    """True se la connessione arriva via tailnet: sorgente E destinazione nel
+    range 100.64/10. Il controllo sulla destinazione (l'IP locale del socket)
+    impedisce a un vicino di CGNAT dell'ISP di spacciarsi per peer Tailscale
+    attraverso una porta UPnP-mappata (arriverebbe sull'IP LAN, non sul 100.x)."""
+    try:
+        remote = ipaddress.ip_address(websocket.remote_address[0])
+        local = ipaddress.ip_address(websocket.local_address[0])
+        return remote in _CGNAT_NET and local in _CGNAT_NET
+    except Exception:
         return False
 
 def _check_auth_blocked(ip: str) -> bool:
@@ -243,13 +276,34 @@ COLOR_BORDER      = "#2A2A2A"        # bordo sottile
 COLOR_BORDER_GLOW = "#3A3540"        # bordo glass luminoso
 COLOR_ERROR       = "#E55B5B"
 COLOR_OK          = "#5BA878"
-COLOR_TRANSPARENT = "#FF00FF"        # colore chiave trasparenza tkinter
+# Ex colore chiave "-transparentcolor": la trasparenza keyed produceva puntini
+# bianchi sui bordi (pixel anti-aliasing degli angoli finti non combaciano col
+# colore chiave). Ora la finestra è opaca e gli angoli li arrotonda DWM.
+COLOR_TRANSPARENT = COLOR_BG
 
 def _apply_dwm_acrylic(hwnd: int) -> bool:
     """Applica DWM Acrylic/Mica backdrop su Windows 11 (build 22000+).
     Ritorna True se riuscito, False su fallback (Win10 o errore)."""
     try:
         import ctypes.wintypes
+        # La finestra va marcata dark-mode PRIMA del backdrop: senza questo
+        # flag DWM compone il Mica nella variante chiara (anche a tema di
+        # sistema scuro) e le aree transparentcolor diventano bande bianche
+        # illeggibili dietro i testi.
+        DWMWA_USE_IMMERSIVE_DARK_MODE = 20   # build 19041+; 19 su build precedenti
+        dark = ctypes.c_int(1)
+        res_dark = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(dark), ctypes.sizeof(dark))
+        if res_dark != 0:
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, 19, ctypes.byref(dark), ctypes.sizeof(dark))
+        # Angoli arrotondati reali (Win11): sostituiscono il vecchio rounding
+        # finto via transparentcolor che lasciava puntini di anti-aliasing.
+        DWMWA_WINDOW_CORNER_PREFERENCE = 33
+        DWMWCP_ROUND = 2
+        corner = ctypes.c_int(DWMWCP_ROUND)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ctypes.byref(corner), ctypes.sizeof(corner))
         DWMWA_SYSTEMBACKDROP_TYPE = 38
         DWMSBT_MAINWINDOW = 2  # Mica (finestra principale, Win11 22H2+ build 22621)
         value = ctypes.c_int(DWMSBT_MAINWINDOW)
@@ -394,10 +448,10 @@ def _send_vk(key, flags=0):
 def key_down(key): _send_vk(key)
 def key_up(key):   _send_vk(key, KEYEVENTF_KEYUP)
 
+_SMART_QUOTES = str.maketrans({'\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"', '\u2026': '...'})
+
 def key_text(text):
-    replacements = {'\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"', '\u2026': '...'}
-    for old, new in replacements.items():
-        text = text.replace(old, new)
+    text = text.translate(_SMART_QUOTES)   # single C-level pass invece di 5 .replace()
     inputs = []
     for c in text:
         sc = ord(c)
@@ -821,12 +875,14 @@ _remote_mode    = "none"   # "upnp" | "none"
 _external_ip    = None
 _upnp_obj       = None
 _upnp_ports     = []
+_upnp_atexit_registered = False
 
 # --- BACKEND (WebSocket & HTTP) ---
 async def handler(websocket):
     global TRUSTED_IP
     client_ip  = websocket.remote_address[0]
-    is_remote  = not _is_private_ip(client_ip)
+    # Tailscale = canale già autenticato/cifrato dal tailnet → trattato come LAN
+    is_remote  = not (_is_private_ip(client_ip) or _is_tailscale_conn(websocket))
 
     if is_remote:
         # Connessione remota: autenticazione PIN obbligatoria
@@ -1030,25 +1086,44 @@ def start_http_server():
     except Exception as e:
         log_message(f"HTTP Server crash: {e}", color=COLOR_ERROR)
 
-def start_https_server(ssl_ctx: ssl.SSLContext):
-    httpd = None
+# --- PORTA UNICA REMOTA (HTTPS + WSS su HTTPS_PORT) ---
+# La 8443 serve sia il client statico sia il canale comandi WSS. Motivo
+# (lug 2026): molti router/ISP FWA lasciano passare 8443 ma filtrano porte
+# inusuali come 8766 → il client restava "IN ATTESA" con la pagina carica.
+# Porta unica = un solo port-forward e un solo certificato da accettare
+# (il browser NON mostra l'avviso certificato per un wss:// su porta
+# diversa: fallisce in silenzio).
+_STATIC_FILES = {
+    "/":           ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/xterm.js":   ("xterm.js",   "application/javascript; charset=utf-8"),
+    "/xterm.css":  ("xterm.css",  "text/css; charset=utf-8"),
+    "/icon.ico":   ("icon.ico",   "image/x-icon"),
+}
+
+def _https_process_request(connection, request):
+    """process_request del server WSS su HTTPS_PORT: le richieste senza
+    Upgrade (browser che chiede la pagina) ricevono i file statici; quelle
+    WebSocket proseguono con l'handshake (return None)."""
+    if request.headers.get("Upgrade", ""):
+        return None
+    path = request.path.split("?", 1)[0]
+    entry = _STATIC_FILES.get(path)
+    if entry is None:
+        return connection.respond(HTTPStatus.NOT_FOUND, "Not found\n")
+    fname, ctype = entry
     try:
-        httpd = HTTPServer(("0.0.0.0", HTTPS_PORT), _QuietHTTPHandler)
-        try:
-            httpd.socket = ssl_ctx.wrap_socket(httpd.socket, server_side=True)
-        except ssl.SSLError as e:
-            log_message(f"HTTPS SSL setup fallito: {e}", color=COLOR_ERROR)
-            httpd.server_close()
-            return
-        httpd.serve_forever()
+        with open(os.path.join(BASE_DIR, fname), "rb") as fh:
+            body = fh.read()
     except OSError:
-        log_message(f"Errore: Porta HTTPS {HTTPS_PORT} occupata!", color=COLOR_ERROR)
-    except Exception as e:
-        log_message(f"HTTPS Server crash: {e}", color=COLOR_ERROR)
-    finally:
-        if httpd:
-            try: httpd.server_close()
-            except Exception: pass
+        return connection.respond(HTTPStatus.NOT_FOUND, "Not found\n")
+    headers = Headers([
+        ("Content-Type", ctype),
+        ("Content-Length", str(len(body))),
+        ("Cache-Control", "no-cache"),
+        ("Connection", "close"),
+    ])
+    return Response(200, "OK", headers, body)
 
 # --- UPNP ---
 def _cleanup_upnp():
@@ -1064,27 +1139,41 @@ def _cleanup_upnp():
                     pass
 
 def _setup_upnp_sync() -> str | None:
-    """Blocking UPnP discovery — run via executor to avoid blocking event loop."""
-    global _upnp_obj, _external_ip
+    """Blocking UPnP discovery — run via executor to avoid blocking event loop.
+    Richiamabile più volte (keepalive): ricrea sempre un oggetto UPnP fresco,
+    perché i router FWA possono perdere i pinhole NAT pur continuando a
+    elencare i mapping (visto sul Home&Life SuperWiFi, lug 2026)."""
+    global _upnp_obj, _external_ip, _upnp_atexit_registered
     try:
         import miniupnpc
         u = miniupnpc.UPnP()
-        u.discoverdelay = 300
+        # 300ms perdeva l'IGD sui router FWA lenti a rispondere a SSDP:
+        # la discovery girava "a vuoto" e il remoto risultava non disponibile
+        # anche con UPnP abilitato. Gira in executor, non blocca l'avvio.
+        u.discoverdelay = 2000
         if u.discover() == 0:
             return None
         u.selectigd()
         ext_ip = u.externalipaddress()
         if not ext_ip or ext_ip == '0.0.0.0':
             return None
-        for port in [HTTPS_PORT, WSS_PORT]:
+        mapped = []
+        # Porta unica remota: serve solo HTTPS_PORT (pagina + WSS insieme)
+        for port in [HTTPS_PORT]:
             try:
                 u.addportmapping(port, 'TCP', LOCAL_IP, port, 'LiquidControl', '')
-                _upnp_ports.append(port)
+                mapped.append(port)
             except Exception:
                 pass
+        if not mapped:
+            # Nessuna porta aperta: dichiarare il remoto attivo sarebbe un falso positivo
+            return None
+        _upnp_ports[:] = mapped
         _upnp_obj = u
         _external_ip = ext_ip
-        atexit.register(_cleanup_upnp)
+        if not _upnp_atexit_registered:
+            atexit.register(_cleanup_upnp)
+            _upnp_atexit_registered = True
         return ext_ip
     except ImportError:
         return None
@@ -1097,16 +1186,26 @@ async def setup_upnp() -> str | None:
 
 # --- AGGIORNAMENTO UI REMOTO ---
 def _update_remote_ui():
-    """Aggiorna label + QR remoto nella GUI (thread-safe via root.after)."""
+    """Aggiorna label + QR remoto nella GUI (thread-safe via root.after).
+    Priorità: Tailscale (funziona ovunque, non dipende da router/ISP) > UPnP."""
     if not _remote_status_var:
         return
-    if _remote_mode == 'upnp':
+    ts_ip = _get_tailscale_ip()
+    if ts_ip:
+        label = f"VPN  {ts_ip}:{HTTP_PORT}"
+        if _remote_mode == 'upnp':
+            label += f"   ·   UPnP {_external_ip}:{HTTPS_PORT}"
+        root.after(0, lambda: _remote_status_var.set(label))
+        # Via tailnet la connessione è già cifrata/autenticata: HTTP+WS, niente
+        # certificato da accettare, niente PIN (il server la classifica locale).
+        root.after(0, lambda: _set_remote_qr(f"http://{ts_ip}:{HTTP_PORT}/"))
+    elif _remote_mode == 'upnp':
         root.after(0, lambda: _remote_status_var.set(f"UPnP  {_external_ip}:{HTTPS_PORT}"))
         pin = _config.get('pin_plain', '')
         remote_url = f"https://{_external_ip}:{HTTPS_PORT}/?pin={pin}"
         root.after(0, lambda: _set_remote_qr(remote_url))
     else:
-        root.after(0, lambda: _remote_status_var.set("Remoto non disponibile (UPnP non riuscito)"))
+        root.after(0, lambda: _remote_status_var.set("Remoto non disponibile (né VPN né UPnP)"))
 
 def _set_remote_qr(url: str) -> None:
     """Crea/aggiorna il QR per l'accesso remoto (eseguire sul thread Tk)."""
@@ -1143,10 +1242,35 @@ async def start_websocket_server():
         log_message("UPnP non riuscito: remoto non disponibile", color=COLOR_MUTED)
     _update_remote_ui()
 
+    # Keepalive: rinnova i mapping ogni 10 min. Auto-ripara il remoto dopo
+    # riavvii del router (che azzerano il NAT) e recupera i casi in cui
+    # l'UPnP viene abilitato sul router a server già avviato.
+    async def _upnp_keepalive():
+        global _remote_mode, _external_ip
+        while True:
+            await asyncio.sleep(600)
+            new_ip = await setup_upnp()
+            new_mode = 'upnp' if new_ip else 'none'
+            if new_mode != _remote_mode or (new_ip and new_ip != _external_ip):
+                _remote_mode = new_mode
+                if new_ip:
+                    log_message(f"UPnP rinnovato: {new_ip}", color=COLOR_OK)
+                else:
+                    log_message("UPnP perso: remoto non disponibile", color=COLOR_MUTED)
+                _update_remote_ui()
+    asyncio.get_running_loop().create_task(_upnp_keepalive())
+
     servers = [
         websockets.serve(handler, "0.0.0.0", PORT, ping_interval=20, ping_timeout=10),
     ]
     if ssl_ctx:
+        # Porta unica remota: pagina + WSS su HTTPS_PORT (vedi _https_process_request)
+        servers.append(
+            websockets.serve(handler, "0.0.0.0", HTTPS_PORT, ssl=ssl_ctx,
+                             ping_interval=20, ping_timeout=10,
+                             process_request=_https_process_request)
+        )
+        # Legacy: WSS dedicato per client pre-porta-unica ancora in giro
         servers.append(
             websockets.serve(handler, "0.0.0.0", WSS_PORT, ssl=ssl_ctx,
                              ping_interval=20, ping_timeout=10)
@@ -1167,9 +1291,9 @@ async def start_websocket_server():
 
 def run_services():
     threading.Thread(target=start_http_server, daemon=True).start()
-    ssl_ctx = ensure_ssl_cert(LOCAL_IP)
-    if ssl_ctx:
-        threading.Thread(target=start_https_server, args=(ssl_ctx,), daemon=True).start()
+    # HTTPS_PORT è gestita dal server websockets (porta unica remota):
+    # niente thread HTTPS separato, il bind doppio fallirebbe.
+    ensure_ssl_cert(LOCAL_IP)
     asyncio.run(start_websocket_server())
 
 # --- GUI & SYSTEM TRAY ---
@@ -1204,6 +1328,9 @@ def terminate_application(icon=None, item=None):
     root.after(100, root.destroy)
 
 def _get_remote_tray_label():
+    ts_ip = _get_tailscale_ip()
+    if ts_ip:
+        return f'Remoto: VPN  {ts_ip}:{HTTP_PORT}'
     if _remote_mode == 'upnp':
         return f'Remoto: UPnP  {_external_ip}:{HTTPS_PORT}'
     return 'Remoto: non disponibile'
@@ -1304,7 +1431,9 @@ def setup_gui():
 
     root.overrideredirect(True)
     root.attributes('-alpha', 0.0)
-    root.wm_attributes("-transparentcolor", COLOR_TRANSPARENT)
+    # Niente "-transparentcolor": finestra opaca, angoli arrotondati da DWM
+    # (vedi _apply_dwm_acrylic). La trasparenza keyed lasciava puntini bianchi
+    # sui bordi e "bucava" gli angoli.
     root.configure(bg=COLOR_TRANSPARENT)
 
     try: root.iconbitmap(ICON_PATH)
@@ -1476,7 +1605,9 @@ def setup_gui():
             root.after(16, lambda: fade_in(step + 1))
 
     root.after(80, fade_in)
-    # Applica DWM Mica su Win11 (non-blocking, fallback silenzioso)
+    # Applica dark-mode + angoli arrotondati DWM su Win11 (non-blocking).
+    # La finestra è opaca: se DWM fallisce (Win10) resta rettangolare ma
+    # perfettamente leggibile.
     def _dwm_later():
         try:
             hwnd = int(root.wm_frame(), 16)

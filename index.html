@@ -802,10 +802,14 @@
             if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
         }
 
-        // wss remoto (pagina servita via HTTPS:8443) oppure ws locale (HTTP:8000).
+        // wss remoto (pagina servita via HTTPS) oppure ws locale (HTTP:8000).
+        // Il wss usa la STESSA porta della pagina (porta unica remota): così il
+        // certificato già accettato per la pagina vale anche per il socket e
+        // basta un solo port-forward. Porte diverse = fallimento silenzioso.
         function buildWsUrl(ip) {
             if (window.location.protocol === 'https:') {
-                return `wss://${ip.trim()}:8766`;
+                const port = window.location.port || '443';
+                return `wss://${ip.trim()}:${port}`;
             }
             return `ws://${ip.trim()}:8765`;
         }
@@ -929,7 +933,10 @@
                             xtermPendingData.push(bytes);
                         }
                     } else if (msg.type === 'term_closed') {
-                        if (msg.id && msg.id !== termSessionId) break;
+                        // NB: qui siamo in una catena if/else dentro una funzione, non in un
+                        // loop: un `break` è SyntaxError e uccide l'intero script della pagina
+                        // (bug v2.2.x: client morto su "In attesa..." su tutti i browser)
+                        if (msg.id && msg.id !== termSessionId) return;
                         document.getElementById('session-dot-bar').classList.remove('alive');
                         document.getElementById('tab-terminal-dot').style.display = 'none';
                         document.getElementById('terminal-active').classList.remove('visible');

@@ -1,41 +1,48 @@
-# Python
+# ── Python ────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
 *.egg-info/
 .pytest_cache/
 
-# Ambienti Virtuali
+# ── Ambienti virtuali ─────────────────────────────
 venv/
 env/
 .env
 
-# Log e IDE
+# ── Log e IDE ─────────────────────────────────────
 *.log
 .vscode/
 .idea/
+.playwright-mcp/
 
-# Build e Distribuzione
+# ── Build e binari ────────────────────────────────
+# build/       → artifacts temporanei PyInstaller
+# EXE/         → ultima build locale (26MB, non va nel repo)
+# pre-release/ → candidate locali di test
+# release/     → archivio locale release versionate (su GitHub ci pensa Actions)
 build/
-dist/
+EXE/
+pre-release/
+release/
+!EXE/.gitkeep
+!pre-release/.gitkeep
+!release/.gitkeep
 
-# Script locali (non per pubblicazione)
-release.py
-
-# Credenziali e dati crittografici — NON pubblicare mai
-config.json
+# ── Certificati e segreti ─────────────────────────
 *.pem
-*.crt
-*.key
-*.p12
-*.pfx
-*.der
 
-# Configurazione locale Claude
+# ── Script e file locali (non per pubblicazione) ──
+release.py
+_archive/
+docs/
+
+# ── Configurazione locale Claude ──────────────────
 .claude/
+.superpowers/
 CLAUDE.md
 
-# File di Sistema
+# ── File di sistema ───────────────────────────────
 .DS_Store
 Thumbs.db
 *.swp
