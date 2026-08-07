@@ -70,6 +70,18 @@ class UpnpMapper:
                     u.addportmapping(port, 'TCP', local_ip, port, 'LiquidControl', '')
                     mapped.append(port)
                 except Exception as e:
+                    # "ConflictInMappingEntry" (errore UPnP 718): la porta e'
+                    # gia' mappata, tipicamente residuo di un avvio precedente
+                    # che non e' passato da cleanup() (crash, kill, o un IP
+                    # locale cambiato nel frattempo). Si prova a liberarla e
+                    # rimappare una volta sola, prima di arrendersi.
+                    try:
+                        u.deleteportmapping(port, 'TCP')
+                        u.addportmapping(port, 'TCP', local_ip, port, 'LiquidControl', '')
+                        mapped.append(port)
+                        continue
+                    except Exception:
+                        pass
                     fallite.append(f"{port}: {e}")
             if not mapped:
                 # Nessuna porta aperta: dichiarare il remoto attivo sarebbe un

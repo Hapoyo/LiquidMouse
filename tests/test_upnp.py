@@ -42,6 +42,22 @@ class _FakeUPnP:
         self.deleted_ports.append(port)
 
 
+class _FakeUPnPConflictThenOk(_FakeUPnP):
+    """Rifiuta il primo addportmapping su una porta (ConflictInMappingEntry),
+    ma riesce dopo la deleteportmapping del self-heal."""
+
+    def __init__(self, *a, conflict_error=None, **k):
+        super().__init__(*a, **k)
+        self._conflict_error = conflict_error or Exception("ConflictInMappingEntry")
+        self._tentativi: dict[int, int] = {}
+
+    def addportmapping(self, port, proto, local_ip, ext_port, desc, remote_host):
+        self._tentativi[port] = self._tentativi.get(port, 0) + 1
+        if self._tentativi[port] == 1:
+            raise self._conflict_error
+        self.mapped_ports.append(port)
+
+
 def _install_fake_miniupnpc(monkeypatch, fake_upnp: _FakeUPnP):
     modulo = types.ModuleType("miniupnpc")
     modulo.UPnP = lambda: fake_upnp
@@ -103,6 +119,19 @@ class TestMotiviDiFallimento:
         assert mapper.setup_sync("192.168.1.10") is None
         assert "8443" in mapper.last_error
         assert "porta gia' in uso" in mapper.last_error
+
+    def test_conflitto_di_mappatura_si_autorisolve(self, monkeypatch):
+        # Caso reale osservato: "ConflictInMappingEntry" quando una mappatura
+        # residua di un avvio precedente (crash, kill, o IP locale cambiato)
+        # occupa gia' la porta. Il self-heal libera e rimappa in un colpo solo,
+        # senza che l'utente debba intervenire sul router.
+        fake = _FakeUPnPConflictThenOk()
+        _install_fake_miniupnpc(monkeypatch, fake)
+        mapper = UpnpMapper(ports=[8443])
+        assert mapper.setup_sync("192.168.1.10") == "203.0.113.5"
+        assert mapper.last_error is None
+        assert fake.deleted_ports == [8443]
+        assert fake.mapped_ports == [8443]
 
     def test_successo_azzera_l_errore_precedente(self, monkeypatch):
         _install_fake_miniupnpc(monkeypatch, _FakeUPnP(discover_result=0))
