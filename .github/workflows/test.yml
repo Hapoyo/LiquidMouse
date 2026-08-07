@@ -1,0 +1,51 @@
+name: Test
+
+# I test girano su ogni push e PR, non solo sui tag come la build: servono a
+# fare da rete di sicurezza durante il refactor, quindi devono essere veloci e
+# non dipendere da Windows.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installa pytest
+        run: pip install pytest
+
+      - name: Test unitari
+        run: python -m pytest
+
+      # I moduli del core non devono trascinare tkinter, pystray o le API
+      # Windows: se l'import qui fallisce, il modulo è tornato accoppiato alla
+      # GUI e non è più testabile in isolamento.
+      - name: Verifica che il core sia importabile senza GUI
+        run: |
+          python - <<'PY'
+          import importlib
+          moduli = [
+              "liquidmouse",
+              "liquidmouse.config",
+              "liquidmouse.events",
+              "liquidmouse.paths",
+              "liquidmouse.ports",
+              "liquidmouse.theme",
+              "liquidmouse.version",
+              "liquidmouse.input.keymap",
+              "liquidmouse.input.win32",
+              "liquidmouse.net.addresses",
+              "liquidmouse.security.auth",
+          ]
+          for nome in moduli:
+              importlib.import_module(nome)
+              print("ok", nome)
+          PY
