@@ -6,7 +6,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>LiquidControl</title>
     <link rel="stylesheet" href="xterm.css">
-    <script src="xterm.js"></script>
+    <!-- defer: 283 KB che bloccavano il primo render anche per chi apre solo il
+         touchpad e non tocca mai il terminale. Sicuro perche' `Terminal` viene
+         usato solo dentro initXterm(), invocata dall'apertura del tab o dal
+         gestore di `load`, entrambi successivi agli script deferiti. -->
+    <script src="xterm.js" defer></script>
     <style>
         :root {
             /* Design System: Glassmorphism */
@@ -926,7 +930,12 @@
                         termSessionId = msg.id;
                         attachSession(msg.id);
                     } else if (msg.type === 'term_output') {
-                        const bytes = Uint8Array.from(atob(msg.data), c => c.charCodeAt(0));
+                        // Ciclo esplicito invece di Uint8Array.from(bin, cb):
+                        // la callback per byte era il collo di bottiglia della
+                        // CPU del client con output abbondante (build, dir /s).
+                        const bin = atob(msg.data);
+                        const bytes = new Uint8Array(bin.length);
+                        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
                         if (xterm && xtermOpened) {
                             xterm.write(bytes);
                         } else {
@@ -1314,7 +1323,12 @@
                 ws.send(JSON.stringify({ type: 'text', char: added })); updateTextDisplay(added);
             } else if (val.length < previousValue.length) {
                 const del = previousValue.length - val.length;
-                for (let i = 0; i < del; i++) { ws.send(JSON.stringify({ type: 'key', key: 'backspace' })); updateTextDisplay('⌫'); }
+                // Un solo messaggio con il conteggio, non uno per carattere.
+                // Prima il server scartava tutti i backspace successivi al
+                // primo per via del debounce anti-autorepeat da 80ms: cancellare
+                // cinque caratteri ne cancellava uno solo.
+                ws.send(JSON.stringify({ type: 'key', key: 'backspace', count: del }));
+                updateTextDisplay('⌫'.repeat(Math.min(del, 8)));
             }
             previousValue = val;
         });

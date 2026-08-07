@@ -31,6 +31,10 @@ TERM_ROWS_MIN, TERM_ROWS_MAX = 5, 60
 # Il client ripete il backspace a raffica quando il tasto resta premuto: senza
 # freno, una pressione lunga cancella l'intera riga in pochi millisecondi.
 BACKSPACE_MIN_INTERVAL = 0.08
+# Ripetizioni massime per un singolo messaggio 'key'. Il client manda il
+# conteggio dei caratteri cancellati in una volta sola; il tetto evita che un
+# client compromesso chieda un milione di pressioni.
+KEY_REPEAT_MAX = 100
 # Il ping del client arriva ogni 5 s, ma un client difettoso potrebbe inondare.
 PING_MIN_INTERVAL = 0.1
 
@@ -145,12 +149,18 @@ async def _key(ctx: ClientConnection, data: dict) -> None:
     key = data.get('key', '')
     if not key:
         return
-    if key == 'backspace':
+    count = clamp_int(data.get('count', 1), 1, KEY_REPEAT_MAX, 1)
+    if key == 'backspace' and count == 1:
+        # Il debounce protegge dall'autorepeat della tastiera del telefono, che
+        # altrimenti svuota la riga in pochi millisecondi. Non si applica al
+        # caso con conteggio: quello è un batch deliberato, calcolato dal client
+        # sulla differenza effettiva del campo di testo.
         now = time.time()
         if now - ctx._last_backspace <= BACKSPACE_MIN_INTERVAL:
             return
         ctx._last_backspace = now
-    key_press(key)
+    for _ in range(count):
+        key_press(key)
 
 
 @handles('key_toggle')

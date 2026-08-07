@@ -208,6 +208,44 @@ class TestBackspaceDebounce:
         assert visti == []
 
 
+class TestRipetizioneTasti:
+    def test_il_conteggio_produce_piu_pressioni(self, ctx, monkeypatch):
+        # Il client manda i caratteri cancellati in un solo messaggio: prima ne
+        # inviava uno per carattere e il debounce scartava tutti tranne il primo,
+        # quindi cancellarne cinque ne cancellava uno solo.
+        visti = []
+        monkeypatch.setattr(protocol, "key_press", lambda k: visti.append(k))
+        send(ctx, type="key", key="backspace", count=5)
+        assert visti == ["backspace"] * 5
+
+    def test_il_conteggio_ignora_il_debounce(self, ctx, monkeypatch):
+        visti = []
+        monkeypatch.setattr(protocol, "key_press", lambda k: visti.append(k))
+        send(ctx, type="key", key="backspace", count=3)
+        send(ctx, type="key", key="backspace", count=2)
+        assert len(visti) == 5
+
+    def test_il_conteggio_e_limitato(self, ctx, monkeypatch):
+        visti = []
+        monkeypatch.setattr(protocol, "key_press", lambda k: visti.append(k))
+        send(ctx, type="key", key="backspace", count=10 ** 9)
+        assert len(visti) == protocol.KEY_REPEAT_MAX
+
+    def test_conteggio_assente_equivale_a_uno(self, ctx, monkeypatch):
+        visti = []
+        monkeypatch.setattr(protocol, "key_press", lambda k: visti.append(k))
+        send(ctx, type="key", key="enter")
+        assert visti == ["enter"]
+
+    def test_conteggio_invalido_equivale_a_uno(self, ctx, monkeypatch):
+        visti = []
+        monkeypatch.setattr(protocol, "key_press", lambda k: visti.append(k))
+        send(ctx, type="key", key="enter", count="abc")
+        send(ctx, type="key", key="enter", count=0)
+        send(ctx, type="key", key="enter", count=-5)
+        assert visti == ["enter"] * 3
+
+
 class TestTastiTenutiPremuti:
     def test_down_e_up_aggiornano_lo_stato(self, ctx):
         send(ctx, type="key_toggle", key="ctrl", state="down")
