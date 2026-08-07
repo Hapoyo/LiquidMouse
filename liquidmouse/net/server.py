@@ -244,7 +244,7 @@ class NetworkServices:
                 if nuovo_ip:
                     log_message(f"UPnP rinnovato: {nuovo_ip}", color=COLOR_OK)
                 else:
-                    log_message("UPnP perso: remoto non disponibile", color=COLOR_MUTED)
+                    log_message(f"UPnP perso: {self.upnp.last_error}", color=COLOR_MUTED)
                 self._set_remote_mode(nuovo_mode)
 
     async def start_websocket_server(self) -> None:
@@ -255,7 +255,7 @@ class NetworkServices:
         if ext_ip:
             log_message(f"UPnP attivo: {ext_ip}", color=COLOR_OK)
         else:
-            log_message("UPnP non riuscito: remoto non disponibile", color=COLOR_MUTED)
+            log_message(f"UPnP non riuscito: {self.upnp.last_error}", color=COLOR_MUTED)
         self._set_remote_mode('upnp' if ext_ip else 'none')
 
         asyncio.get_running_loop().create_task(self._upnp_keepalive())

@@ -117,8 +117,10 @@ def update_remote_ui():
         return
     endpoint = _remote_endpoint()
     if endpoint is None:
-        root.after(0, lambda: _remote_status_var.set(
-            "Remoto non disponibile (UPnP non riuscito)"))
+        servizi = _deps.services()
+        motivo = servizi.upnp.last_error if servizi else None
+        etichetta = f"Remoto non disponibile: {motivo}" if motivo else "Remoto non disponibile"
+        root.after(0, lambda et=etichetta: _remote_status_var.set(et))
         return
     etichetta, url = endpoint
     root.after(0, lambda: _remote_status_var.set(etichetta))

@@ -32,44 +32,60 @@ class UpnpMapper:
         self._mapped: list[int] = []
         self._atexit_registered = False
         self.external_ip: str | None = None
+        # Motivo dell'ultimo fallimento, per il log. Prima ogni causa (libreria
+        # assente, nessun router trovato, IP esterno non valido, mapping
+        # rifiutato, eccezione qualsiasi) finiva nello stesso "non riuscito",
+        # rendendo impossibile capire cosa correggere senza leggere il codice.
+        self.last_error: str | None = None
 
     def setup_sync(self, local_ip: str) -> str | None:
         """Discovery e mappatura. Bloccante: chiamare da `setup()`.
 
-        Ritorna l'IP esterno, o None se il remoto via UPnP non è disponibile.
+        Ritorna l'IP esterno, o None se il remoto via UPnP non è disponibile
+        (il motivo è in `self.last_error`).
         """
         try:
             import miniupnpc
         except ImportError:
+            self.last_error = "libreria miniupnpc non disponibile in questa build"
             return None
         try:
             u = miniupnpc.UPnP()
             u.discoverdelay = DISCOVER_DELAY_MS
             if u.discover() == 0:
+                self.last_error = (
+                    "nessun router UPnP/IGD trovato in rete (discovery fallita)")
                 return None
             u.selectigd()
             ext_ip = u.externalipaddress()
             if not ext_ip or ext_ip == '0.0.0.0':
+                self.last_error = (
+                    "il router non riporta un IP pubblico valido "
+                    "(probabile doppio NAT: un altro router/modem a monte)")
                 return None
             mapped = []
+            fallite = []
             for port in self._ports_wanted:
                 try:
                     u.addportmapping(port, 'TCP', local_ip, port, 'LiquidControl', '')
                     mapped.append(port)
-                except Exception:
-                    pass
+                except Exception as e:
+                    fallite.append(f"{port}: {e}")
             if not mapped:
                 # Nessuna porta aperta: dichiarare il remoto attivo sarebbe un
                 # falso positivo, e il QR manderebbe il telefono nel vuoto.
+                self.last_error = f"il router ha rifiutato la mappatura ({'; '.join(fallite)})"
                 return None
             self._mapped = mapped
             self._upnp = u
             self.external_ip = ext_ip
+            self.last_error = None
             if not self._atexit_registered:
                 atexit.register(self.cleanup)
                 self._atexit_registered = True
             return ext_ip
-        except Exception:
+        except Exception as e:
+            self.last_error = f"errore inatteso: {e}"
             return None
 
     async def setup(self, local_ip: str) -> str | None:
