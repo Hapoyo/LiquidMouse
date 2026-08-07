@@ -15,9 +15,6 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 import os
 import sys
 import time
-import base64
-import uuid
-import shutil
 import ssl
 import tempfile
 import atexit
@@ -25,7 +22,6 @@ import contextlib
 from http import HTTPStatus
 from websockets.http11 import Response
 from websockets.datastructures import Headers
-from dataclasses import dataclass, field
 
 from liquidmouse import events
 from liquidmouse.config import Config
@@ -41,19 +37,14 @@ from liquidmouse.net.addresses import (
 from liquidmouse.paths import BASE_DIR, ICON_PATH
 from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, WSS_PORT
 from liquidmouse.security.auth import AUTH_MAX_FAILS, AuthGuard, pin_matches
+from liquidmouse.terminal.launcher import open_pc_terminal
+from liquidmouse.terminal.sessions import SessionManager
 from liquidmouse.theme import (
     COLOR_ACCENT, COLOR_BG, COLOR_BORDER_GLOW, COLOR_ERROR,
     COLOR_GLASS, COLOR_MUTED, COLOR_OK, COLOR_SURFACE, COLOR_TEXT,
     COLOR_TRANSPARENT,
 )
 from liquidmouse.version import VERSION
-
-try:
-    import winpty as _winpty_mod
-    WINPTY_AVAILABLE = True
-except Exception:
-    _winpty_mod = None
-    WINPTY_AVAILABLE = False
 
 # --- GESTIONE DEI MODULI E DELLE DIPENDENZE ---
 try:
@@ -70,6 +61,7 @@ except ImportError:
 _config = Config()
 _auth_guard = AuthGuard()
 _trusted_peer = TrustedPeer()
+_session_manager = SessionManager()
 
 _ssl_context: ssl.SSLContext | None = None
 _ssl_temp_files: list = []
@@ -215,382 +207,6 @@ def _apply_dwm_acrylic(hwnd: int) -> bool:
         return res == 0
     except Exception:
         return False
-
-# --- TERMINAL MODE: ConPTY nativo via ctypes ---
-import ctypes.wintypes as _wt
-import subprocess as _subprocess
-
-_k32 = ctypes.windll.kernel32
-
-class _COORD(ctypes.Structure):
-    _fields_ = [("X", _wt.SHORT), ("Y", _wt.SHORT)]
-
-class _STARTUPINFO(ctypes.Structure):
-    _fields_ = [
-        ("cb",              _wt.DWORD),
-        ("lpReserved",      _wt.LPWSTR),
-        ("lpDesktop",       _wt.LPWSTR),
-        ("lpTitle",         _wt.LPWSTR),
-        ("dwX",             _wt.DWORD),
-        ("dwY",             _wt.DWORD),
-        ("dwXSize",         _wt.DWORD),
-        ("dwYSize",         _wt.DWORD),
-        ("dwXCountChars",   _wt.DWORD),
-        ("dwYCountChars",   _wt.DWORD),
-        ("dwFillAttribute", _wt.DWORD),
-        ("dwFlags",         _wt.DWORD),
-        ("wShowWindow",     _wt.WORD),
-        ("cbReserved2",     _wt.WORD),
-        ("lpReserved2",     ctypes.c_char_p),
-        ("hStdInput",       _wt.HANDLE),
-        ("hStdOutput",      _wt.HANDLE),
-        ("hStdError",       _wt.HANDLE),
-    ]
-
-class _STARTUPINFOEX(ctypes.Structure):
-    _fields_ = [("StartupInfo", _STARTUPINFO), ("lpAttributeList", ctypes.c_void_p)]
-
-class _PROCESS_INFORMATION(ctypes.Structure):
-    _fields_ = [
-        ("hProcess",    _wt.HANDLE),
-        ("hThread",     _wt.HANDLE),
-        ("dwProcessId", _wt.DWORD),
-        ("dwThreadId",  _wt.DWORD),
-    ]
-
-_EXTENDED_STARTUPINFO_PRESENT        = 0x00080000
-_CREATE_NO_WINDOW                    = 0x08000000
-_PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016
-_STILL_ACTIVE = 259
-
-class _ConPTY:
-    """ConPTY diretto via ctypes — nessuna dipendenza esterna."""
-
-    def __init__(self, argv: list, cwd: str, cols: int = 120, rows: int = 40):
-        self._hproc = self._hpc = self._stdin_w = self._stdout_r = None
-        h_sin_r, h_sin_w, h_sout_r, h_sout_w = (_wt.HANDLE() for _ in range(4))
-
-        if not _k32.CreatePipe(ctypes.byref(h_sin_r), ctypes.byref(h_sin_w), None, 0):
-            raise OSError(f"CreatePipe(stdin) err {_k32.GetLastError()}")
-        if not _k32.CreatePipe(ctypes.byref(h_sout_r), ctypes.byref(h_sout_w), None, 0):
-            _k32.CloseHandle(h_sin_r); _k32.CloseHandle(h_sin_w)
-            raise OSError(f"CreatePipe(stdout) err {_k32.GetLastError()}")
-
-        hpc = _wt.HANDLE()
-        hr = _k32.CreatePseudoConsole(_COORD(cols, rows), h_sin_r, h_sout_w, 0, ctypes.byref(hpc))
-        _k32.CloseHandle(h_sin_r); _k32.CloseHandle(h_sout_w)
-        if hr != 0:
-            _k32.CloseHandle(h_sin_w); _k32.CloseHandle(h_sout_r)
-            raise OSError(f"CreatePseudoConsole hr={hr:#010x}")
-
-        self._hpc, self._stdin_w, self._stdout_r = hpc, h_sin_w, h_sout_r
-
-        attr_sz = ctypes.c_size_t(0)
-        _k32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(attr_sz))
-        attr_buf = (ctypes.c_byte * attr_sz.value)()
-        attr_ptr = ctypes.cast(attr_buf, ctypes.c_void_p)
-        if not _k32.InitializeProcThreadAttributeList(attr_ptr, 1, 0, ctypes.byref(attr_sz)):
-            raise OSError(f"InitializeProcThreadAttributeList err {_k32.GetLastError()}")
-        try:
-            _k32.UpdateProcThreadAttribute(attr_ptr, 0,
-                _PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hpc, ctypes.sizeof(hpc), None, None)
-
-            si = _STARTUPINFOEX()
-            ctypes.memset(ctypes.byref(si), 0, ctypes.sizeof(si))
-            si.StartupInfo.cb = ctypes.sizeof(_STARTUPINFOEX)
-            si.lpAttributeList = attr_ptr
-
-            pi = _PROCESS_INFORMATION()
-            cmd_str = _subprocess.list2cmdline(argv) if isinstance(argv, list) else argv
-            ok = _k32.CreateProcessW(None, cmd_str, None, None, False,
-                _EXTENDED_STARTUPINFO_PRESENT | _CREATE_NO_WINDOW,
-                None, cwd, ctypes.byref(si), ctypes.byref(pi))
-            if not ok:
-                err = _k32.GetLastError()
-                self._cleanup()
-                raise OSError(f"CreateProcessW err={err} cmd={cmd_str!r}")
-        finally:
-            _k32.DeleteProcThreadAttributeList(attr_ptr)
-        self._hproc = pi.hProcess
-        _k32.CloseHandle(pi.hThread)
-
-    def read(self, size: int = 4096) -> bytes:
-        buf = (ctypes.c_char * size)()
-        n = _wt.DWORD(0)
-        ok = _k32.ReadFile(self._stdout_r, buf, size, ctypes.byref(n), None)
-        if not ok or n.value == 0:
-            raise EOFError("ConPTY EOF")
-        return bytes(buf[:n.value])
-
-    def write(self, data) -> None:
-        if isinstance(data, str):
-            data = data.encode("utf-8", errors="replace")
-        n = _wt.DWORD(0)
-        _k32.WriteFile(self._stdin_w, data, len(data), ctypes.byref(n), None)
-
-    def isalive(self) -> bool:
-        if not self._hproc: return False
-        ec = _wt.DWORD(); _k32.GetExitCodeProcess(self._hproc, ctypes.byref(ec))
-        return ec.value == _STILL_ACTIVE
-
-    @property
-    def exitstatus(self) -> int:
-        if not self._hproc: return 0
-        ec = _wt.DWORD(); _k32.GetExitCodeProcess(self._hproc, ctypes.byref(ec))
-        return 0 if ec.value == _STILL_ACTIVE else ec.value
-
-    def set_size(self, rows: int, cols: int) -> None:
-        if self._hpc:
-            try: _k32.ResizePseudoConsole(self._hpc, _COORD(cols, rows))
-            except Exception: pass
-
-    def close(self) -> None:
-        if self._hproc:
-            try: _k32.TerminateProcess(self._hproc, 0)
-            except Exception: pass
-        self._cleanup()
-
-    def _cleanup(self):
-        if self._hpc:
-            try: _k32.ClosePseudoConsole(self._hpc)
-            except Exception: pass
-        for h in [self._stdin_w, self._stdout_r, self._hproc]:
-            if h:
-                try: _k32.CloseHandle(h)
-                except Exception: pass
-        self._hproc = self._hpc = self._stdin_w = self._stdout_r = None
-
-
-class _PyWinPTY:
-    """Wrapper pywinpty con stessa interfaccia bytes di _ConPTY."""
-
-    def __init__(self, argv: list, cwd: str, cols: int = 120, rows: int = 40):
-        self._p = _winpty_mod.PtyProcess.spawn(argv, dimensions=(rows, cols), cwd=cwd)
-
-    def read(self, size: int = 4096) -> bytes:
-        s = self._p.read(size)
-        if s is None or s == "":
-            if not self._p.isalive():
-                raise EOFError("PtyProcess EOF")
-            return b""
-        return s.encode("utf-8", errors="replace") if isinstance(s, str) else s
-
-    def write(self, data) -> None:
-        if isinstance(data, bytes):
-            data = data.decode("utf-8", errors="replace")
-        self._p.write(data)
-
-    def isalive(self) -> bool:
-        try: return self._p.isalive()
-        except Exception: return False
-
-    @property
-    def exitstatus(self) -> int:
-        try: return self._p.exitstatus or 0
-        except Exception: return 0
-
-    def set_size(self, rows: int, cols: int) -> None:
-        try: self._p.setwinsize(rows, cols)
-        except Exception: pass
-
-    def close(self) -> None:
-        try: self._p.close(force=True)
-        except Exception: pass
-
-
-def _make_pty(argv: list, cwd: str, cols: int = 120, rows: int = 40):
-    """Sceglie backend PTY: pywinpty quando disponibile, ConPTY ctypes fallback."""
-    if WINPTY_AVAILABLE:
-        try:
-            return _PyWinPTY(argv, cwd, cols, rows)
-        except Exception as e:
-            log_message(f"pywinpty fallita ({e}), fallback ConPTY", color=COLOR_MUTED)
-    return _ConPTY(argv, cwd, cols, rows)
-
-
-TERM_ALLOWED_CMDS = {"cmd.exe", "powershell.exe", "pwsh.exe", "claude", "bash", "wsl"}
-
-def _resolve_argv(cmd: str) -> list:
-    base = cmd.strip().split()[0].lower()
-    if base not in TERM_ALLOWED_CMDS:
-        raise ValueError(f"Comando non consentito: {cmd!r}")
-    if os.path.isabs(cmd) and os.path.exists(cmd):
-        return [cmd]
-    exe = shutil.which(cmd)
-    if exe and exe.lower().endswith(('.cmd', '.bat')):
-        return ["cmd.exe", "/c", exe]
-    return [exe] if exe else [cmd]
-
-
-def _append_ring(buf: bytearray, data: bytes, maxsize: int = 65536):
-    buf += data
-    if len(buf) > maxsize:
-        del buf[:len(buf) - maxsize]
-
-
-@dataclass
-class PTYSession:
-    id: str
-    cmd: str
-    pty: object
-    output_buffer: bytearray = field(default_factory=bytearray)
-    subscribers: set = field(default_factory=set)   # ws attivi (telefono + finestra PC)
-    created_at: float = 0.0
-    alive: bool = True
-
-
-class SessionManager:
-    def __init__(self):
-        self._sessions: dict = {}
-        self._attach_lock = asyncio.Lock()
-
-    def create(self, cmd: str = "cmd.exe") -> "PTYSession":
-        sid = uuid.uuid4().hex[:8]
-        argv = _resolve_argv(cmd)
-        home = os.path.expanduser("~")
-        backend = "pywinpty" if WINPTY_AVAILABLE else "ConPTY-ctypes"
-        log_message(f"Terminal: spawn {argv} via {backend}", color=COLOR_ACCENT)
-        try:
-            pty = _make_pty(argv, cwd=home)
-        except (OSError, Exception) as e:
-            raise RuntimeError(f"Errore PTY: {e}")
-        session = PTYSession(id=sid, cmd=cmd, pty=pty, created_at=time.time(), alive=True)
-        self._sessions[sid] = session
-        asyncio.get_running_loop().create_task(self._read_loop(session))
-        return session
-
-    async def attach(self, sid: str, ws) -> None:
-        async with self._attach_lock:
-            session = self._sessions.get(sid)
-            if not session:
-                raise RuntimeError("sessione non trovata")
-            buf = bytes(session.output_buffer)
-            for i in range(0, len(buf), 4096):
-                chunk = buf[i:i + 4096]
-                if chunk:
-                    await ws.send(json.dumps({
-                        "type": "term_output", "id": sid,
-                        "data": base64.b64encode(chunk).decode()
-                    }))
-            session.subscribers.add(ws)
-
-    def detach(self, sid: str, ws) -> None:
-        s = self._sessions.get(sid)
-        if s: s.subscribers.discard(ws)
-
-    def detach_ws(self, ws) -> None:
-        """Sgancia questo ws da ogni sessione (su disconnessione del client)."""
-        for s in self._sessions.values():
-            s.subscribers.discard(ws)
-
-    def send(self, sid: str, data: str, ws=None) -> None:
-        s = self._sessions.get(sid)
-        if not s or not s.alive:
-            raise RuntimeError("sessione non disponibile")
-        if ws is not None and ws not in s.subscribers:
-            raise RuntimeError("non collegato alla sessione")
-        s.pty.write(data)
-
-    def resize(self, sid: str, cols: int, rows: int, ws=None) -> None:
-        s = self._sessions.get(sid)
-        if ws is not None and s and ws not in s.subscribers:
-            return
-        if s and s.alive:
-            try:
-                s.pty.set_size(rows, cols)
-            except Exception as e:
-                log_message(f"Terminal resize [{sid}] {cols}x{rows}: {e}", color=COLOR_MUTED)
-
-    def kill(self, sid: str, ws=None) -> None:
-        s = self._sessions.get(sid)
-        if ws is not None and s and ws not in s.subscribers:
-            return
-        if s:
-            s.alive = False
-            try: s.pty.close()
-            except Exception: pass
-            self._sessions.pop(sid, None)
-
-    def list_sessions(self) -> list:
-        # snapshot: il pannello GUI gira sul thread Tk mentre il loop asyncio
-        # può mutare _sessions — list() riduce il rischio di "dict changed size".
-        return [{"id": s.id, "cmd": s.cmd, "alive": s.alive,
-                 "created_at": s.created_at, "viewers": len(s.subscribers)}
-                for s in list(self._sessions.values())]
-
-    async def _broadcast(self, session: "PTYSession", msg: dict) -> None:
-        """Invia un messaggio a tutti i viewer; rimuove quelli morti."""
-        if not session.subscribers:
-            return
-        payload = json.dumps(msg)
-        dead = []
-        for sub in list(session.subscribers):
-            try:
-                await sub.send(payload)
-            except Exception:
-                dead.append(sub)
-        for d in dead:
-            session.subscribers.discard(d)
-
-    async def _read_loop(self, session: "PTYSession") -> None:
-        loop = asyncio.get_running_loop()
-        exit_code = 0
-        while session.alive:
-            try:
-                raw = await loop.run_in_executor(None, session.pty.read, 4096)
-                if not session.alive:
-                    # kill() invocato durante la read in executor: esci subito
-                    break
-                if not raw:
-                    if not session.pty.isalive():
-                        exit_code = session.pty.exitstatus
-                        break
-                    await asyncio.sleep(0.01)
-                    continue
-                _append_ring(session.output_buffer, raw)
-                await self._broadcast(session, {
-                    "type": "term_output", "id": session.id,
-                    "data": base64.b64encode(raw).decode()
-                })
-            except EOFError:
-                exit_code = session.pty.exitstatus if session.alive else 0
-                break
-            except Exception as e:
-                if session.alive:
-                    log_message(f"Terminal errore [{session.id}]: {e}", color=COLOR_ERROR)
-                break
-        session.alive = False
-        log_message(f"Terminal: {session.cmd} terminato (exit {exit_code})", color=COLOR_ACCENT)
-        await self._broadcast(session, {
-            "type": "term_closed", "id": session.id, "exit_code": exit_code
-        })
-
-
-_session_manager = SessionManager()
-
-def _open_pc_terminal(sid: str) -> None:
-    """Apre il terminale web sul PC (finestra reale) agganciato alla sessione `sid`.
-    Prova Edge/Chrome in modalità --app (finestra pulita), fallback al browser."""
-    url = f"http://127.0.0.1:{HTTP_PORT}/?term={sid}"
-    candidates = [
-        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
-        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
-        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
-        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
-        shutil.which("msedge"), shutil.which("chrome"),
-    ]
-    for exe in candidates:
-        if exe and os.path.exists(exe):
-            try:
-                _subprocess.Popen([exe, f"--app={url}", "--window-size=920,620"])
-                return
-            except Exception:
-                pass
-    try:
-        import webbrowser
-        webbrowser.open(url)
-    except Exception as e:
-        log_message(f"Apertura finestra PC fallita: {e}", color=COLOR_MUTED)
 
 # --- SICUREZZA: WHITELIST IP ---
 def reset_trusted_ip():
@@ -746,7 +362,7 @@ async def handler(websocket):
                         }))
                         # Avviata da telefono/LAN/remoto → apri la finestra reale sul PC.
                         if not is_loopback(client_ip):
-                            _open_pc_terminal(session.id)
+                            open_pc_terminal(session.id)
                     except (RuntimeError, ValueError) as e:
                         await websocket.send(json.dumps({
                             "type": "term_error", "id": "", "msg": str(e)
@@ -862,7 +478,6 @@ def _https_process_request(connection, request):
 
 # --- UPNP ---
 def _cleanup_upnp():
-    global _upnp_obj
     if _upnp_obj:
         for port in _upnp_ports:
             try:
@@ -981,7 +596,7 @@ async def start_websocket_server():
     # riavvii del router (che azzerano il NAT) e recupera i casi in cui
     # l'UPnP viene abilitato sul router a server già avviato.
     async def _upnp_keepalive():
-        global _remote_mode, _external_ip
+        global _remote_mode
         while True:
             await asyncio.sleep(600)
             new_ip = await setup_upnp()
@@ -1129,7 +744,7 @@ def _open_sessions_panel(*_):
             idx = int(txt.index(f"@{e.x},{e.y}").split('.')[0]) - 1
             sessions = _state["sessions"]
             if 0 <= idx < len(sessions) and sessions[idx]['alive']:
-                _open_pc_terminal(sessions[idx]['id'])
+                open_pc_terminal(sessions[idx]['id'])
         except Exception:
             pass
     txt.bind("<Double-Button-1>", _on_dblclick)

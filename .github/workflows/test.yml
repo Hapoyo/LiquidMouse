@@ -44,6 +44,11 @@ jobs:
               "liquidmouse.input.win32",
               "liquidmouse.net.addresses",
               "liquidmouse.security.auth",
+              "liquidmouse.terminal.commands",
+              "liquidmouse.terminal.conpty",
+              "liquidmouse.terminal.launcher",
+              "liquidmouse.terminal.ringbuffer",
+              "liquidmouse.terminal.sessions",
           ]
           for nome in moduli:
               importlib.import_module(nome)
