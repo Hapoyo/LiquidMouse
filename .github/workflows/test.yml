@@ -9,6 +9,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Il job fa checkout ed esegue pytest: non scrive nulla sul repository. Senza
+# questo blocco il GITHUB_TOKEN eredita i permessi di default, piu' ampi del
+# necessario.
+permissions:
+  contents: read
+
 jobs:
   unit:
     runs-on: ubuntu-latest
