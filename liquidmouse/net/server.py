@@ -20,7 +20,7 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response
 
 from liquidmouse.events import log_message
-from liquidmouse.net.addresses import is_loopback, is_private_ip, is_tailscale_conn
+from liquidmouse.net.addresses import is_loopback, is_private_ip
 from liquidmouse.net.protocol import ClientConnection, dispatch
 from liquidmouse.net.static import etag_matches
 from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, WSS_PORT
@@ -107,9 +107,12 @@ class NetworkServices:
 
         Tre percorsi: remoto → PIN obbligatorio; loopback → sempre fidato (serve
         alla finestra terminale aperta sul PC stesso); LAN → whitelist primo
-        arrivato. Tailscale conta come LAN: il tailnet è già autenticato e cifrato.
+        arrivato.
+
+        Nota: `is_private_ip` esclude il range CGNAT 100.64/10, quindi un client
+        dietro il NAT condiviso dell'ISP conta come remoto e deve dare il PIN.
         """
-        is_remote = not (is_private_ip(client_ip) or is_tailscale_conn(websocket))
+        is_remote = not is_private_ip(client_ip)
 
         if not is_remote:
             if is_loopback(client_ip):

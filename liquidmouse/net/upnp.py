@@ -1,8 +1,8 @@
 """Apertura automatica della porta remota via UPnP.
 
 Se il router lo consente, evita di dover configurare a mano un port forward.
-Quando fallisce non è un errore: si ricade sul percorso Tailscale o sul
-forward manuale.
+È l'unica strada per l'accesso remoto: se fallisce, resta il forward manuale
+sul router.
 """
 
 import asyncio

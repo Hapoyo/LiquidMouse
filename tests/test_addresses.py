@@ -1,11 +1,6 @@
 """Classificazione degli indirizzi: è ciò che decide se serve il PIN."""
 
-from liquidmouse.net.addresses import (
-    TrustedPeer,
-    is_loopback,
-    is_private_ip,
-    is_tailscale_conn,
-)
+from liquidmouse.net.addresses import TrustedPeer, is_loopback, is_private_ip
 
 
 class TestIsPrivateIp:
@@ -22,8 +17,8 @@ class TestIsPrivateIp:
         assert not is_private_ip("93.184.216.34")
 
     def test_cgnat_is_not_private(self):
-        # Il punto chiave: un altro cliente dello stesso ISP in CGNAT non deve
-        # passare per "LAN", altrimenti salta l'autenticazione con PIN.
+        # Il punto chiave, e va tenuto: un altro cliente dello stesso ISP dietro
+        # CGNAT non deve passare per "LAN", altrimenti salta il PIN.
         assert not is_private_ip("100.64.0.1")
         assert not is_private_ip("100.100.100.100")
         assert not is_private_ip("100.127.255.254")
@@ -47,28 +42,6 @@ class TestIsLoopback:
     def test_non_loopback(self):
         assert not is_loopback("192.168.1.10")
         assert not is_loopback("spazzatura")
-
-
-class _FakeWebSocket:
-    def __init__(self, remote, local):
-        self.remote_address = (remote, 12345)
-        self.local_address = (local, 8443)
-
-
-class TestIsTailscaleConn:
-    def test_both_ends_in_cgnat(self):
-        assert is_tailscale_conn(_FakeWebSocket("100.101.1.1", "100.102.2.2"))
-
-    def test_source_cgnat_but_arrives_on_lan_ip_is_rejected(self):
-        # Scenario che il controllo sulla destinazione esiste per bloccare: un
-        # vicino di CGNAT dell'ISP che arriva sulla porta UPnP-mappata.
-        assert not is_tailscale_conn(_FakeWebSocket("100.101.1.1", "192.168.1.5"))
-
-    def test_lan_source_is_not_tailscale(self):
-        assert not is_tailscale_conn(_FakeWebSocket("192.168.1.9", "100.101.1.1"))
-
-    def test_malformed_address_is_rejected(self):
-        assert not is_tailscale_conn(_FakeWebSocket("nope", "100.101.1.1"))
 
 
 class TestTrustedPeer:

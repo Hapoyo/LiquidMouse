@@ -7,5 +7,5 @@ Questo file è letto anche fuori da Python (regex, senza importarlo):
 Non aggiungere logica qui: deve restare parsabile con una regex banale.
 """
 
-VERSION = "2.3.0"
-CODENAME = "Popins"   # aggiornamento 2026-07-25: client fix, Tailscale, porta unica, GUI opaca
+VERSION = "2.4.0"
+CODENAME = "Popins"   # 2.4.0: refactor in pacchetto, frame binari, cursore, via Tailscale

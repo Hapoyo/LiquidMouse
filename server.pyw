@@ -13,9 +13,7 @@ import threading
 from liquidmouse import events
 from liquidmouse.config import Config
 from liquidmouse.events import log_message
-from liquidmouse.net.addresses import (
-    CachedTailscaleIp, TrustedPeer, get_local_ip, is_loopback,
-)
+from liquidmouse.net.addresses import TrustedPeer, get_local_ip, is_loopback
 from liquidmouse.net.server import NetworkServices
 from liquidmouse.net.static import StaticFiles
 from liquidmouse.net.upnp import UpnpMapper
@@ -52,9 +50,6 @@ _session_manager = SessionManager()
 _static = StaticFiles(BASE_DIR)
 _tls = SelfSignedCert(_config)
 _upnp = UpnpMapper()
-# Sonda Tailscale con cache: il menu tray la interroga a ogni apertura, e senza
-# cache si pagava fino a un secondo di finestra congelata ogni volta.
-cached_tailscale_ip = CachedTailscaleIp()
 
 # Costruiti in main(), quando l'IP locale è noto e la finestra esiste.
 _services: NetworkServices | None = None
@@ -124,7 +119,6 @@ def _build_gui_deps() -> "window.GuiDeps":
         # viene disegnata, ma passarlo per riferimento legherebbe la GUI a
         # un'istanza specifica.
         services=lambda: _services,
-        tailscale_ip=cached_tailscale_ip,
         local_ip=LOCAL_IP,
         reset_trusted=reset_trusted_ip,
     )

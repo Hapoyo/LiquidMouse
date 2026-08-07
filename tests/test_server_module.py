@@ -101,7 +101,6 @@ class TestEntrypoint:
         assert deps.config is server_module._config
         assert deps.sessions is server_module._session_manager
         assert deps.services() is None      # NetworkServices non ancora creato
-        assert callable(deps.tailscale_ip)
         assert callable(deps.reset_trusted)
 
 

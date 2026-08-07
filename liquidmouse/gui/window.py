@@ -37,12 +37,10 @@ class GuiDeps:
     costruito dopo la GUI: al momento di disegnare non esiste ancora.
     """
 
-    def __init__(self, *, config, sessions, services, tailscale_ip,
-                 local_ip, reset_trusted):
+    def __init__(self, *, config, sessions, services, local_ip, reset_trusted):
         self.config = config
         self.sessions = sessions
         self.services = services
-        self.tailscale_ip = tailscale_ip
         self.local_ip = local_ip
         self.reset_trusted = reset_trusted
 
@@ -84,32 +82,24 @@ def terminate_application(icon=None, item=None):
     root.after(100, root.destroy)
 
 # --- ACCESSO REMOTO: ETICHETTA E QR ---
-# Priorità Tailscale > UPnP: il tailnet funziona ovunque e non dipende da
-# router o ISP. Via tailnet la connessione è già cifrata e autenticata, quindi
-# il QR punta a HTTP+WS — niente certificato da accettare e niente PIN, perché
-# il server classifica quell'indirizzo come locale.
+# L'unica strada remota è UPnP: il router apre la 8443 e il QR ci punta con il
+# PIN già in query string, così dal telefono basta scansionare. Il certificato è
+# self-signed, quindi al primo accesso il browser mostra l'avviso una volta.
 
 def _remote_endpoint() -> tuple[str, str] | None:
     """(etichetta, url del QR) per l'accesso remoto, None se non disponibile.
 
-    Unico punto in cui si decide fra VPN e UPnP: prima la stessa logica era
-    scritta due volte, nel pannello e nell'etichetta del tray, e le due potevano
-    divergere.
+    Unico punto in cui si costruisce l'endpoint remoto: prima la stessa logica
+    era scritta due volte, nel pannello e nell'etichetta del tray, e le due
+    potevano divergere.
     """
-    upnp_attivo = _deps.services() is not None and _deps.services().remote_mode == 'upnp'
-    external_ip = _deps.services().external_ip if _deps.services() else None
-
-    ts_ip = _deps.tailscale_ip()
-    if ts_ip:
-        etichetta = f"VPN  {ts_ip}:{HTTP_PORT}"
-        if upnp_attivo:
-            etichetta += f"   ·   UPnP {external_ip}:{HTTPS_PORT}"
-        return etichetta, f"http://{ts_ip}:{HTTP_PORT}/"
-    if upnp_attivo:
-        pin = _deps.config.get('pin_plain', '')
-        return (f"UPnP  {external_ip}:{HTTPS_PORT}",
-                f"https://{external_ip}:{HTTPS_PORT}/?pin={pin}")
-    return None
+    servizi = _deps.services()
+    if servizi is None or servizi.remote_mode != 'upnp':
+        return None
+    external_ip = servizi.external_ip
+    pin = _deps.config.get('pin_plain', '')
+    return (f"UPnP  {external_ip}:{HTTPS_PORT}",
+            f"https://{external_ip}:{HTTPS_PORT}/?pin={pin}")
 
 
 def _get_remote_tray_label():
@@ -128,7 +118,7 @@ def update_remote_ui():
     endpoint = _remote_endpoint()
     if endpoint is None:
         root.after(0, lambda: _remote_status_var.set(
-            "Remoto non disponibile (né VPN né UPnP)"))
+            "Remoto non disponibile (UPnP non riuscito)"))
         return
     etichetta, url = endpoint
     root.after(0, lambda: _remote_status_var.set(etichetta))
