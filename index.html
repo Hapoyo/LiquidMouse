@@ -775,8 +775,39 @@
         let xterm = null;
         let xtermOpened = false;
         let xtermPendingData = [];
+        let xtermPendingBytes = 0;
         let lastSentSize = { cols: 0, rows: 0 };
         let resizeRaf = null;
+
+        // Deve restare allineato a liquidmouse/net/frames.py:
+        //   [0x01][len_id: 1 byte][id: len_id byte ASCII][payload grezzo]
+        const FRAME_TERM_OUTPUT = 0x01;
+        // Tetto sull'output accumulato prima che xterm sia aperto: senza, un
+        // comando prolisso avviato dal telefono fa crescere l'array senza
+        // limite. Al riaggancio il server rimanda comunque la schermata.
+        const PENDING_MAX_BYTES = 65536;
+
+        function handleBinaryFrame(buf) {
+            const view = new Uint8Array(buf);
+            if (view.length < 2 || view[0] !== FRAME_TERM_OUTPUT) return;
+            const idLen = view[1];
+            if (idLen === 0 || view.length < 2 + idLen) return;
+            let id = '';
+            for (let i = 0; i < idLen; i++) id += String.fromCharCode(view[2 + i]);
+            if (termSessionId && id !== termSessionId) return;
+            // slice() e non subarray(): xterm puo' bufferizzare internamente e
+            // non deve condividere la memoria del frame.
+            const payload = view.slice(2 + idLen);
+            if (xterm && xtermOpened) {
+                xterm.write(payload);
+                return;
+            }
+            xtermPendingData.push(payload);
+            xtermPendingBytes += payload.length;
+            while (xtermPendingBytes > PENDING_MAX_BYTES && xtermPendingData.length > 1) {
+                xtermPendingBytes -= xtermPendingData.shift().length;
+            }
+        }
 
         function switchTab(name) {
             // La sessione terminal resta attaccata al cambio tab: xterm conserva
@@ -841,6 +872,9 @@
 
             const wsUrl = buildWsUrl(ip);
             ws = new WebSocket(wsUrl);
+            // I frame dell'output terminale arrivano binari: senza questo il
+            // browser li consegnerebbe come Blob, non leggibili in modo sincrono.
+            ws.binaryType = 'arraybuffer';
 
             clearTimeout(connectionTimeout);
             connectionTimeout = setTimeout(() => {
@@ -904,6 +938,10 @@
             }
 
             ws.onmessage = (e) => {
+                // L'output del terminale arriva come frame binario grezzo:
+                // niente base64 (~33% di banda) e niente decodifica per byte.
+                // Tutto il resto resta JSON.
+                if (typeof e.data !== 'string') { handleBinaryFrame(e.data); return; }
                 try {
                     const msg = JSON.parse(e.data);
                     if (msg.type === 'auth_ok') {
@@ -929,18 +967,6 @@
                     } else if (msg.type === 'term_created') {
                         termSessionId = msg.id;
                         attachSession(msg.id);
-                    } else if (msg.type === 'term_output') {
-                        // Ciclo esplicito invece di Uint8Array.from(bin, cb):
-                        // la callback per byte era il collo di bottiglia della
-                        // CPU del client con output abbondante (build, dir /s).
-                        const bin = atob(msg.data);
-                        const bytes = new Uint8Array(bin.length);
-                        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-                        if (xterm && xtermOpened) {
-                            xterm.write(bytes);
-                        } else {
-                            xtermPendingData.push(bytes);
-                        }
                     } else if (msg.type === 'term_closed') {
                         // NB: qui siamo in una catena if/else dentro una funzione, non in un
                         // loop: un `break` è SyntaxError e uccide l'intero script della pagina
@@ -1068,6 +1094,9 @@
 
         // --- MOVIMENTO CURSORE ---
         let moveX = 0, moveY = 0, isMoving = false;
+        // Resto sub-pixel non ancora spedito, in unita' gia' moltiplicate per
+        // la sensibilita'. Vale sempre meno di un pixel per asse.
+        let pendingX = 0, pendingY = 0;
         let twoFingerScrollAcc = 0;
 
         // Invio coalescizzato una volta per frame, ma schedulato SOLO quando c'è
@@ -1078,8 +1107,21 @@
             sendScheduled = false;
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
             if (isMoving && (moveX !== 0 || moveY !== 0)) {
-                ws.send(JSON.stringify({ type: 'move', x: Math.round(moveX * sensitivity), y: Math.round(moveY * sensitivity) }));
+                // Il resto dell'arrotondamento va conservato, non buttato via
+                // (lo scroll qui sotto lo fa gia'). Prima, con il dito lento,
+                // moveX*sensitivity valeva p.es. 0.4, arrotondava a 0 e quel 0.4
+                // spariva: il cursore non si muoveva finche' non si accelerava.
+                // L'accumulatore e' gia' in unita' di output, cosi' non serve
+                // ridividere per sensitivity (che da localStorage potrebbe
+                // arrivare 0 o NaN).
+                pendingX += moveX * sensitivity;
+                pendingY += moveY * sensitivity;
                 moveX = 0; moveY = 0; isMoving = false;
+                const sx = Math.round(pendingX), sy = Math.round(pendingY);
+                if (sx !== 0 || sy !== 0) {
+                    ws.send(JSON.stringify({ type: 'move', x: sx, y: sy }));
+                    pendingX -= sx; pendingY -= sy;
+                }
             }
             if (Math.abs(twoFingerScrollAcc) >= 1) {
                 const amount = Math.round(twoFingerScrollAcc / 1.5);
@@ -1410,7 +1452,7 @@
             xterm.open(document.getElementById('xterm-container'));
             xtermOpened = true;
             xtermPendingData.forEach(bytes => xterm.write(bytes));
-            xtermPendingData = [];
+            xtermPendingData = []; xtermPendingBytes = 0;
             // Primo fit dopo che layout è stabile.
             requestAnimationFrame(() => requestAnimationFrame(fitXterm));
         }
@@ -1602,7 +1644,7 @@
             // Il server, su term_attach, re-invia l'intero ring buffer. Azzeriamo
             // xterm PRIMA del replay così lo schermo si ricostruisce senza
             // duplicare l'output (causa storica del "terminal che non si aggiorna").
-            xtermPendingData = [];
+            xtermPendingData = []; xtermPendingBytes = 0;
             openXtermIfNeeded();
             if (xterm) xterm.reset();
             attached = true;

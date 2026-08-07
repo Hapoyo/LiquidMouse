@@ -7,7 +7,6 @@ sul PC).
 """
 
 import asyncio
-import base64
 import json
 import os
 import threading
@@ -16,6 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from liquidmouse.events import log_message
+from liquidmouse.net.frames import encode_term_output
 from liquidmouse.terminal.commands import resolve_argv
 from liquidmouse.terminal.conpty import READ_SIZE, WINPTY_AVAILABLE, make_pty
 from liquidmouse.terminal.ringbuffer import RingBuffer
@@ -76,13 +76,10 @@ class SessionManager:
                 raise RuntimeError("sessione non trovata")
             buf = session.output.snapshot()
             if buf:
-                # Un solo messaggio invece di uno ogni 4 KB: il replay di un
-                # buffer pieno costava fino a 16 invii separati, ognuno con un
-                # await, e il terminale si ridisegnava a scatti.
-                await ws.send(json.dumps({
-                    "type": "term_output", "id": sid,
-                    "data": base64.b64encode(buf).decode()
-                }))
+                # Un solo frame invece di uno ogni 4 KB: il replay di un buffer
+                # pieno costava fino a 16 invii separati, ognuno con un await, e
+                # il terminale si ridisegnava a scatti.
+                await ws.send(encode_term_output(sid, buf))
             session.subscribers.add(ws)
 
     def detach(self, sid: str, ws) -> None:
@@ -136,10 +133,20 @@ class SessionManager:
                 for s in sessioni]
 
     async def _broadcast(self, session: PTYSession, msg: dict) -> None:
-        """Invia un messaggio a tutti i viewer; rimuove quelli morti."""
+        """Invia un messaggio JSON a tutti i viewer; rimuove quelli morti."""
+        await self._send_all(session, json.dumps(msg))
+
+    async def _broadcast_output(self, session: PTYSession, raw: bytes) -> None:
+        """Invia output del PTY come frame binario.
+
+        Non passa da JSON+base64: erano ~33% di banda in più e una codifica per
+        ogni chunk, con la decodifica corrispondente sul telefono.
+        """
+        await self._send_all(session, encode_term_output(session.id, raw))
+
+    async def _send_all(self, session: PTYSession, payload) -> None:
         if not session.subscribers:
             return
-        payload = json.dumps(msg)
         dead = []
         for sub in list(session.subscribers):
             try:
@@ -165,10 +172,7 @@ class SessionManager:
                     await asyncio.sleep(IDLE_POLL_SECS)
                     continue
                 session.output.append(raw)
-                await self._broadcast(session, {
-                    "type": "term_output", "id": session.id,
-                    "data": base64.b64encode(raw).decode()
-                })
+                await self._broadcast_output(session, raw)
             except EOFError:
                 exit_code = session.pty.exitstatus if session.alive else 0
                 break

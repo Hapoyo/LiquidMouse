@@ -47,6 +47,7 @@ jobs:
               "liquidmouse.input.keymap",
               "liquidmouse.input.win32",
               "liquidmouse.net.addresses",
+              "liquidmouse.net.frames",
               "liquidmouse.net.protocol",
               "liquidmouse.net.static",
               "liquidmouse.security.auth",
