@@ -19,8 +19,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Installa pytest
-        run: pip install pytest
+      # websockets serve a test_server_module.py, che carica davvero server.pyw.
+      # Le librerie GUI (tkinter, pystray, PIL, qrcode) restano fuori di
+      # proposito: sono sostituite da stub, e la loro assenza e' cio' che
+      # dimostra che il core non dipende dalla GUI.
+      - name: Installa dipendenze di test
+        run: pip install pytest websockets
 
       - name: Test unitari
         run: python -m pytest
