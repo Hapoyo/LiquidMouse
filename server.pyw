@@ -26,14 +26,11 @@ from websockets.datastructures import Headers
 from liquidmouse import events
 from liquidmouse.config import Config
 from liquidmouse.events import log_message
-from liquidmouse.input.win32 import (
-    hotkey, key_down, key_press, key_text, key_up,
-    mouse_button, mouse_click, mouse_move, mouse_scroll,
-)
 from liquidmouse.net.addresses import (
     TrustedPeer, get_local_ip, get_tailscale_ip, is_loopback,
     is_private_ip, is_tailscale_conn,
 )
+from liquidmouse.net.protocol import ClientConnection, dispatch
 from liquidmouse.paths import BASE_DIR, ICON_PATH
 from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, WSS_PORT
 from liquidmouse.security.auth import AUTH_MAX_FAILS, AuthGuard, pin_matches
@@ -150,9 +147,6 @@ def ensure_ssl_cert(local_ip: str) -> ssl.SSLContext | None:
     except Exception as e:
         log_message(f"Certificato TLS non generato: {e}", color=COLOR_ERROR)
         return None
-
-_PONG = '{"type":"pong"}'
-
 
 def init_process() -> None:
     """Impostazioni di processo Windows. Chiamata da main(), non a import time:
@@ -282,146 +276,33 @@ async def _authorize(websocket, client_ip: str) -> bool:
 
 
 async def handler(websocket):
+    """Ciclo di vita di una connessione client."""
     client_ip = websocket.remote_address[0]
     if not await _authorize(websocket, client_ip):
         return
 
-    last_backspace_time = 0
-    last_ping_time = 0.0
-    held_keys = set()
-    TERM_INPUT_MAX = 8192
-
+    ctx = ClientConnection(
+        websocket, client_ip, _session_manager,
+        on_session_created=_on_session_created,
+    )
     try:
         async for message in websocket:
-            try:
-                data = json.loads(message)
-                msg_type = data.get('type', '')
-
-                if msg_type == 'move':
-                    x = max(-200, min(200, int(float(data.get('x', 0)))))
-                    y = max(-200, min(200, int(float(data.get('y', 0)))))
-                    mouse_move(x, y)
-
-                elif msg_type == 'scroll':
-                    amt = max(-100, min(100, int(float(data.get('amount', 0)))))
-                    if amt != 0: mouse_scroll(amt)
-
-                elif msg_type == 'click':
-                    mouse_click(data.get('btn', 'left'))
-
-                elif msg_type == 'text':
-                    char = data.get('char', '')
-                    if char: key_text(char)
-
-                elif msg_type == 'key':
-                    key = data.get('key', '')
-                    if key:
-                        if key == 'backspace':
-                            now = time.time()
-                            if now - last_backspace_time <= 0.08: continue
-                            last_backspace_time = now
-                        key_press(key)
-
-                elif msg_type == 'key_toggle':
-                    key   = data.get('key', '')
-                    state = data.get('state', '')
-                    if key and state:
-                        if state == 'down':
-                            key_down(key)
-                            held_keys.add(key)
-                        else:
-                            key_up(key)
-                            held_keys.discard(key)
-
-                elif msg_type == 'drag':
-                    mouse_button(data.get('state', 'up'))
-
-                elif msg_type == 'hotkey':
-                    hotkey(*data.get('keys', []))
-
-                elif msg_type == 'ping':
-                    now_t = time.time()
-                    # Rate limit ping: max 1 ogni 100ms
-                    if now_t - last_ping_time < 0.1:
-                        continue
-                    last_ping_time = now_t
-                    await websocket.send(_PONG)
-
-                elif msg_type == 'term_list':
-                    await websocket.send(json.dumps({
-                        "type": "term_sessions",
-                        "sessions": _session_manager.list_sessions()
-                    }))
-
-                elif msg_type == 'term_create':
-                    cmd = data.get('cmd', 'cmd.exe')
-                    try:
-                        session = _session_manager.create(cmd)
-                        await websocket.send(json.dumps({
-                            "type": "term_created", "id": session.id
-                        }))
-                        # Avviata da telefono/LAN/remoto → apri la finestra reale sul PC.
-                        if not is_loopback(client_ip):
-                            open_pc_terminal(session.id)
-                    except (RuntimeError, ValueError) as e:
-                        await websocket.send(json.dumps({
-                            "type": "term_error", "id": "", "msg": str(e)
-                        }))
-
-                elif msg_type == 'term_attach':
-                    sid = data.get('id', '')
-                    try:
-                        await _session_manager.attach(sid, websocket)
-                    except RuntimeError as e:
-                        await websocket.send(json.dumps({
-                            "type": "term_error", "id": sid, "msg": str(e)
-                        }))
-
-                elif msg_type == 'term_detach':
-                    sid = data.get('id', '')
-                    _session_manager.detach(sid, websocket)
-
-                elif msg_type == 'term_input':
-                    sid = data.get('id', '')
-                    input_data = data.get('data', '')
-                    if len(input_data) > TERM_INPUT_MAX:
-                        input_data = input_data[:TERM_INPUT_MAX]
-                    try:
-                        _session_manager.send(sid, input_data, ws=websocket)
-                    except RuntimeError as e:
-                        await websocket.send(json.dumps({
-                            "type": "term_error", "id": sid, "msg": str(e)
-                        }))
-
-                elif msg_type == 'term_resize':
-                    sid = data.get('id', '')
-                    cols = max(20, min(240, int(float(data.get('cols', 120)))))
-                    rows = max(5, min(60, int(float(data.get('rows', 40)))))
-                    _session_manager.resize(sid, cols, rows, ws=websocket)
-
-                elif msg_type == 'term_kill':
-                    sid = data.get('id', '')
-                    _session_manager.kill(sid, ws=websocket)
-                    await websocket.send(json.dumps({
-                        "type": "term_sessions",
-                        "sessions": _session_manager.list_sessions()
-                    }))
-
-            except (ValueError, KeyError, TypeError) as e:
-                log_message(f"Cmd ignorato: {e}", color=COLOR_MUTED)
-            except Exception as e:
-                log_message(f"Errore handler: {e}", color=COLOR_ERROR)
-
+            await dispatch(ctx, message)
     except websockets.exceptions.ConnectionClosed:
         log_message("In attesa di connessione...", color=COLOR_MUTED)
     finally:
-        mouse_button('up')
-        for key in list(held_keys):
-            key_up(key)
-        held_keys.clear()
-        # Sgancia eventuali sessioni terminal legate a questo ws: così una
-        # riconnessione può riagganciarle (altrimenti attach() le crede in uso).
-        _session_manager.detach_ws(websocket)
+        # Senza questo, un client che si disconnette con Ctrl premuto lascia il
+        # modificatore giu' sul PC. Sgancia anche le sessioni terminal, cosi'
+        # una riconnessione puo' riagganciarle.
+        ctx.release_all()
+
+
+def _on_session_created(sid: str, client_ip: str) -> None:
+    """Sessione avviata da telefono/LAN/remoto: apri la finestra reale sul PC.
+    Non per il loopback, che *e'* gia' quella finestra."""
+    if not is_loopback(client_ip):
+        open_pc_terminal(sid)
+
 
 class _QuietHTTPHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
