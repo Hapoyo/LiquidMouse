@@ -24,6 +24,25 @@ Apri un issue descrivendo cosa vuoi aggiungere e perché è utile.
 
 Mantieni le modifiche focalizzate — una PR per problema.
 
+## Sviluppo
+
+Struttura del codice e convenzioni: vedi [CLAUDE.md](CLAUDE.md).
+
+```bash
+pip install pytest
+python -m pytest              # test unitari — girano anche fuori da Windows
+python build.py               # genera l'EXE in EXE/
+py -3.13 test_server.py       # smoke test, con il server gia' avviato
+```
+
+I test unitari partono su ogni push e PR. Se tocchi il protocollo dei messaggi o
+il serving degli asset, aggiungi il caso corrispondente in `tests/` — sono le due
+aree dove un errore si manifesta solo da remoto o solo dentro l'EXE.
+
+Prima di aprire una PR che tocca build, asset statici o protocollo, prova
+**l'EXE prodotto** e il **percorso remoto sulla porta 8443**, non solo il
+sorgente in LAN.
+
 ## Licenza
 
 Contribuendo accetti che il tuo codice venga distribuito sotto licenza GPL v3.
