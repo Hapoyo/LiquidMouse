@@ -41,6 +41,7 @@ def check_files():
         "icon.ico",
         os.path.join("liquidmouse", "version.py"),
         os.path.join("liquidmouse", "__init__.py"),
+        os.path.join("liquidmouse", "gui", "window.py"),
     ]
     missing = [f for f in required if not os.path.exists(os.path.join(SCRIPT_DIR, f))]
     

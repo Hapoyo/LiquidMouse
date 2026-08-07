@@ -19,6 +19,13 @@ a = Analysis(
     binaries=_winpty_bins,
     datas=[('index.html', '.'), ('icon.ico', '.'), ('xterm.js', '.'), ('xterm.css', '.')] + _winpty_data,
     hiddenimports=[
+        # server.pyw importa la GUI dentro un try/except per poter mostrare un
+        # messaggio se mancano pystray/PIL/qrcode. Dichiararla qui evita di
+        # dipendere da come PyInstaller analizza gli import condizionali: senza,
+        # la build resterebbe verde e l'EXE non partirebbe.
+        'liquidmouse.gui',
+        'liquidmouse.gui.window',
+        'liquidmouse.gui.effects',
         'winpty',
         'winpty.ptyprocess',
         'websockets',
