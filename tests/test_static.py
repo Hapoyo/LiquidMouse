@@ -12,6 +12,8 @@ from liquidmouse.net.static import (
 @pytest.fixture
 def sito(tmp_path):
     (tmp_path / "index.html").write_bytes(b"<html>ciao</html>")
+    (tmp_path / "app.css").write_bytes(b"body{}")
+    (tmp_path / "app.js").write_bytes(b"// app")
     (tmp_path / "xterm.js").write_bytes(b"// xterm")
     (tmp_path / "xterm.css").write_bytes(b".x{}")
     (tmp_path / "icon.ico").write_bytes(b"\x00icon")
@@ -75,6 +77,10 @@ class TestContenutoEHeader:
 
     def test_content_type_del_javascript(self, sito):
         assert sito.get("/xterm.js").content_type.startswith("application/javascript")
+        assert sito.get("/app.js").content_type.startswith("application/javascript")
+
+    def test_content_type_del_css(self, sito):
+        assert sito.get("/app.css").content_type.startswith("text/css")
 
     def test_etag_stabile_per_lo_stesso_contenuto(self, sito):
         assert sito.get("/").etag == sito.get("/index.html").etag

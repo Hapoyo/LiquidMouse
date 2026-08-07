@@ -56,6 +56,27 @@ class TestAsset:
         _, headers, corpo = _get(base_url, "/xterm.css")
         assert int(headers["Content-Length"]) == len(corpo)
 
+    def test_app_js_e_servito(self, base_url):
+        # Dopo lo split di index.html il client non funziona senza questo:
+        # un asset non elencato in STATIC_ROUTES darebbe 404 solo a runtime.
+        stato, headers, corpo = _get(base_url, "/app.js")
+        assert stato == 200
+        assert b"function" in corpo
+        assert "javascript" in headers.get("Content-Type", "")
+
+    def test_app_css_e_servito(self, base_url):
+        stato, headers, corpo = _get(base_url, "/app.css")
+        assert stato == 200
+        assert b"{" in corpo
+        assert "text/css" in headers.get("Content-Type", "")
+
+    def test_la_pagina_non_contiene_piu_il_client(self, base_url):
+        # Il markup è ~170 righe: se tornasse a contenere CSS e JS inline,
+        # sarebbe il segno che lo split è stato annullato.
+        _, _, corpo = _get(base_url, "/")
+        assert b"<style>" not in corpo
+        assert b"<script>" not in corpo
+
     def test_head_non_manda_il_corpo(self, base_url):
         req = urllib.request.Request(base_url + "/", method="HEAD")
         with urllib.request.urlopen(req, timeout=5) as r:

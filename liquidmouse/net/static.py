@@ -22,6 +22,8 @@ import os
 STATIC_ROUTES: dict[str, tuple[str, str]] = {
     "/":           ("index.html", "text/html; charset=utf-8"),
     "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/app.css":    ("app.css",    "text/css; charset=utf-8"),
+    "/app.js":     ("app.js",     "application/javascript; charset=utf-8"),
     "/xterm.js":   ("xterm.js",   "application/javascript; charset=utf-8"),
     "/xterm.css":  ("xterm.css",  "text/css; charset=utf-8"),
     "/icon.ico":   ("icon.ico",   "image/x-icon"),

@@ -36,6 +36,8 @@ def check_files():
     required = [
         "server.pyw",
         "index.html",
+        "app.css",
+        "app.js",
         "xterm.js",
         "xterm.css",
         "icon.ico",

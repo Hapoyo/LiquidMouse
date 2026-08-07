@@ -4,7 +4,7 @@ Sono due implementazioni dello stesso contratto in linguaggi diversi, in due
 file che si modificano separatamente: è esattamente il tipo di disallineamento
 che passa inosservato fino a quando il terminale smette di mostrare l'output.
 
-Il test estrae `handleBinaryFrame` da index.html, lo esegue con node su frame
+Il test estrae `handleBinaryFrame` da app.js, lo esegue con node su frame
 prodotti da liquidmouse/net/frames.py e verifica che ricostruisca gli stessi
 byte. Se node non è installato, viene saltato.
 """
@@ -28,12 +28,12 @@ pytestmark = pytest.mark.skipif(
 
 def _estrai_decoder() -> str:
     """Prende dal client la costante del tipo di frame e handleBinaryFrame."""
-    html = (ROOT / "index.html").read_text(encoding="utf-8")
-    costante = re.search(r"const FRAME_TERM_OUTPUT = (0x[0-9a-fA-F]+);", html)
-    assert costante, "FRAME_TERM_OUTPUT non trovata in index.html"
-    inizio = html.index("function handleBinaryFrame(buf)")
-    fine = html.index("\n        }", inizio) + len("\n        }")
-    return f"const FRAME_TERM_OUTPUT = {costante.group(1)};\n" + html[inizio:fine]
+    js = (ROOT / "app.js").read_text(encoding="utf-8")
+    costante = re.search(r"const FRAME_TERM_OUTPUT = (0x[0-9a-fA-F]+);", js)
+    assert costante, "FRAME_TERM_OUTPUT non trovata in app.js"
+    inizio = js.index("function handleBinaryFrame(buf)")
+    fine = js.index("\n    }", inizio) + len("\n    }")
+    return f"const FRAME_TERM_OUTPUT = {costante.group(1)};\n" + js[inizio:fine]
 
 
 def _decodifica_con_node(frame: bytes, session_id: str | None):
