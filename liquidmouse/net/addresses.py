@@ -9,6 +9,8 @@ sicurezza. Sono anche l'unica parte del progetto testabile senza Windows.
 import ipaddress
 import socket
 import threading
+import time
+from collections.abc import Callable
 
 # Range CGNAT: è quello che Tailscale assegna ai nodi del tailnet, ma è anche
 # quello che molti ISP usano per i loro clienti. Le due cose vanno distinte con
@@ -61,6 +63,41 @@ def get_tailscale_ip() -> str | None:
         return ip if ipaddress.ip_address(ip) in CGNAT_NET else None
     except Exception:
         return None
+
+
+class CachedTailscaleIp:
+    """`get_tailscale_ip` con cache a scadenza.
+
+    La sonda apre un socket con timeout 1 s. Il menu tray la usa come callable
+    lazy, quindi veniva rivalutata a ogni apertura del menu: con Tailscale
+    spento si pagava fino a un secondo di finestra congelata ogni volta.
+    """
+
+    def __init__(self, ttl: float = 30.0, probe=get_tailscale_ip,
+                 clock: Callable[[], float] = time.monotonic) -> None:
+        self._ttl = ttl
+        self._probe = probe
+        self._clock = clock
+        self._value: str | None = None
+        self._checked_at: float | None = None
+        self._lock = threading.Lock()
+
+    def __call__(self) -> str | None:
+        with self._lock:
+            now = self._clock()
+            if self._checked_at is not None and (now - self._checked_at) < self._ttl:
+                return self._value
+        # La sonda gira fuori dal lock: e' lenta, e tenere il lock bloccherebbe
+        # il thread della GUI proprio nel caso che vogliamo evitare.
+        value = self._probe()
+        with self._lock:
+            self._value = value
+            self._checked_at = self._clock()
+        return value
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._checked_at = None
 
 
 def is_tailscale_conn(websocket) -> bool:

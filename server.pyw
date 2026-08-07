@@ -11,7 +11,7 @@ import ipaddress
 import threading
 import tkinter as tk
 from tkinter import messagebox
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 import sys
 import time
@@ -27,10 +27,11 @@ from liquidmouse import events
 from liquidmouse.config import Config
 from liquidmouse.events import log_message
 from liquidmouse.net.addresses import (
-    TrustedPeer, get_local_ip, get_tailscale_ip, is_loopback,
+    CachedTailscaleIp, TrustedPeer, get_local_ip, is_loopback,
     is_private_ip, is_tailscale_conn,
 )
 from liquidmouse.net.protocol import ClientConnection, dispatch
+from liquidmouse.net.static import StaticFiles, etag_matches
 from liquidmouse.paths import BASE_DIR, ICON_PATH
 from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, WSS_PORT
 from liquidmouse.security.auth import AUTH_MAX_FAILS, AuthGuard, pin_matches
@@ -59,6 +60,8 @@ _config = Config()
 _auth_guard = AuthGuard()
 _trusted_peer = TrustedPeer()
 _session_manager = SessionManager()
+# Sonda Tailscale con cache: il menu tray la interroga a ogni apertura.
+cached_tailscale_ip = CachedTailscaleIp()
 
 _ssl_context: ssl.SSLContext | None = None
 _ssl_temp_files: list = []
@@ -304,14 +307,55 @@ def _on_session_created(sid: str, client_ip: str) -> None:
         open_pc_terminal(sid)
 
 
-class _QuietHTTPHandler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=BASE_DIR, **kwargs)
-    def log_message(self, *args): pass
+_static = StaticFiles(BASE_DIR)
+
+
+class _StaticHTTPHandler(BaseHTTPRequestHandler):
+    """Serve gli asset dalla cache in memoria.
+
+    Sostituisce SimpleHTTPRequestHandler(directory=BASE_DIR), che serviva
+    l'intera directory: chiunque fosse sulla LAN poteva scaricare server.pyw.
+    Ora vale la stessa whitelist del percorso remoto.
+    """
+
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self):
+        self._serve(con_corpo=True)
+
+    def do_HEAD(self):
+        self._serve(con_corpo=False)
+
+    def _serve(self, con_corpo: bool):
+        asset = _static.get(self.path)
+        if asset is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+            return
+        if etag_matches(self.headers.get("If-None-Match"), asset.etag):
+            self.send_response(HTTPStatus.NOT_MODIFIED)
+            self.send_header("ETag", asset.etag)
+            self.end_headers()
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", asset.content_type)
+        self.send_header("Content-Length", str(len(asset.body)))
+        self.send_header("ETag", asset.etag)
+        # no-cache = rivalida sempre, ma con l'ETag la rivalidazione costa un
+        # 304 vuoto invece di ritrasferire 283 KB di xterm.js.
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        if con_corpo:
+            self.wfile.write(asset.body)
+
+    def log_message(self, *args):
+        pass
+
 
 def start_http_server():
     try:
-        httpd = HTTPServer(("0.0.0.0", HTTP_PORT), _QuietHTTPHandler)
+        # ThreadingHTTPServer: con quello sequenziale una richiesta lenta
+        # bloccava tutte le altre, e la pagina carica 4 asset.
+        httpd = ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), _StaticHTTPHandler)
         httpd.serve_forever()
     except OSError:
         log_message(f"Errore: Porta {HTTP_PORT} occupata!", color=COLOR_ERROR)
@@ -325,37 +369,32 @@ def start_http_server():
 # Porta unica = un solo port-forward e un solo certificato da accettare
 # (il browser NON mostra l'avviso certificato per un wss:// su porta
 # diversa: fallisce in silenzio).
-_STATIC_FILES = {
-    "/":           ("index.html", "text/html; charset=utf-8"),
-    "/index.html": ("index.html", "text/html; charset=utf-8"),
-    "/xterm.js":   ("xterm.js",   "application/javascript; charset=utf-8"),
-    "/xterm.css":  ("xterm.css",  "text/css; charset=utf-8"),
-    "/icon.ico":   ("icon.ico",   "image/x-icon"),
-}
-
 def _https_process_request(connection, request):
     """process_request del server WSS su HTTPS_PORT: le richieste senza
     Upgrade (browser che chiede la pagina) ricevono i file statici; quelle
-    WebSocket proseguono con l'handshake (return None)."""
+    WebSocket proseguono con l'handshake (return None).
+
+    Legge dalla cache in memoria: qui siamo dentro l'event loop asyncio, e una
+    lettura da disco bloccherebbe tutti i WebSocket attivi.
+    """
     if request.headers.get("Upgrade", ""):
         return None
-    path = request.path.split("?", 1)[0]
-    entry = _STATIC_FILES.get(path)
-    if entry is None:
+    asset = _static.get(request.path)
+    if asset is None:
         return connection.respond(HTTPStatus.NOT_FOUND, "Not found\n")
-    fname, ctype = entry
-    try:
-        with open(os.path.join(BASE_DIR, fname), "rb") as fh:
-            body = fh.read()
-    except OSError:
-        return connection.respond(HTTPStatus.NOT_FOUND, "Not found\n")
+    if etag_matches(request.headers.get("If-None-Match"), asset.etag):
+        return Response(304, "Not Modified", Headers([
+            ("ETag", asset.etag),
+            ("Connection", "close"),
+        ]), b"")
     headers = Headers([
-        ("Content-Type", ctype),
-        ("Content-Length", str(len(body))),
+        ("Content-Type", asset.content_type),
+        ("Content-Length", str(len(asset.body))),
+        ("ETag", asset.etag),
         ("Cache-Control", "no-cache"),
         ("Connection", "close"),
     ])
-    return Response(200, "OK", headers, body)
+    return Response(200, "OK", headers, asset.body)
 
 # --- UPNP ---
 def _cleanup_upnp():
@@ -421,7 +460,7 @@ def _update_remote_ui():
     Priorità: Tailscale (funziona ovunque, non dipende da router/ISP) > UPnP."""
     if not _remote_status_var:
         return
-    ts_ip = get_tailscale_ip()
+    ts_ip = cached_tailscale_ip()
     if ts_ip:
         label = f"VPN  {ts_ip}:{HTTP_PORT}"
         if _remote_mode == 'upnp':
@@ -559,7 +598,7 @@ def terminate_application(icon=None, item=None):
     root.after(100, root.destroy)
 
 def _get_remote_tray_label():
-    ts_ip = get_tailscale_ip()
+    ts_ip = cached_tailscale_ip()
     if ts_ip:
         return f'Remoto: VPN  {ts_ip}:{HTTP_PORT}'
     if _remote_mode == 'upnp':
@@ -888,6 +927,12 @@ def main() -> int:
     events.subscribe(_gui_log_sink)
     LOCAL_IP = get_local_ip()
     load_config()
+    # Asset in memoria una volta sola: sono immutabili e nel bundle PyInstaller
+    # vengono estratti all'avvio. Un file mancante non e' fatale ma va detto
+    # subito, altrimenti il sintomo e' un 404 che compare solo da remoto.
+    mancanti = _static.load()
+    if mancanti:
+        log_message(f"Asset mancanti: {', '.join(mancanti)}", color=COLOR_ERROR)
     setup_gui()
     start_background_services()
     try:
