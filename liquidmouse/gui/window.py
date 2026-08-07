@@ -15,7 +15,7 @@ import tkinter as tk
 
 import pystray
 import qrcode
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageChops, ImageDraw, ImageTk
 
 from liquidmouse.events import log_message
 from liquidmouse.gui.effects import apply_dwm_acrylic
@@ -57,6 +57,7 @@ status_var          = None
 status_label        = None
 _main_canvas        = None
 _remote_status_var  = None
+_remote_status_label = None
 _remote_qr_label    = None
 _sessions_win       = None
 
@@ -107,8 +108,19 @@ def _get_remote_tray_label():
     return f'Remoto: {endpoint[0]}' if endpoint else 'Remoto: non disponibile'
 
 
+# Il pannello "ACCESSO REMOTO" ha uno spazio verticale fisso fino alla sezione
+# PIN sottostante: un motivo di errore lungo (es. il testo di un'eccezione dal
+# mapping UPnP) andrebbe su piu' righe e la sovrapporrebbe. Il log tiene il
+# messaggio integrale; qui va troncato.
+REMOTE_LABEL_MAX = 55
+
+
+def _troncato(testo: str, max_len: int = REMOTE_LABEL_MAX) -> str:
+    return testo if len(testo) <= max_len else testo[:max_len - 1].rstrip() + "…"
+
+
 def update_remote_ui():
-    """Aggiorna etichetta e QR remoto nella GUI.
+    """Aggiorna etichetta, colore e QR remoto nella GUI.
 
     Chiamata dal thread dei servizi di rete, quindi ogni tocco ai widget passa
     da root.after.
@@ -119,12 +131,27 @@ def update_remote_ui():
     if endpoint is None:
         servizi = _deps.services()
         motivo = servizi.upnp.last_error if servizi else None
-        etichetta = f"Remoto non disponibile: {motivo}" if motivo else "Remoto non disponibile"
-        root.after(0, lambda et=etichetta: _remote_status_var.set(et))
+        etichetta = (f"Remoto non disponibile: {_troncato(motivo)}" if motivo
+                     else "Remoto non disponibile")
+        # COLOR_MUTED, non COLOR_ERROR: UPnP non ancora riuscito e' uno stato
+        # di attesa normale (il keepalive riprova ogni 10 minuti), non un
+        # guasto da segnalare in rosso.
+        root.after(0, lambda et=etichetta: _set_remote_label(et, COLOR_MUTED))
         return
     etichetta, url = endpoint
-    root.after(0, lambda: _remote_status_var.set(etichetta))
+    root.after(0, lambda et=etichetta: _set_remote_label(et, COLOR_OK))
     root.after(0, lambda: _set_remote_qr(url))
+
+
+def _set_remote_label(testo: str, colore: str) -> None:
+    """Aggiorna testo e colore del pannello remoto (eseguire sul thread Tk).
+
+    Prima il colore era fisso a COLOR_ACCENT: uno stato di attesa e uno
+    attivo erano visivamente identici.
+    """
+    _remote_status_var.set(testo)
+    if _remote_status_label is not None:
+        _remote_status_label.config(fg=colore)
 
 
 def _set_remote_qr(url: str) -> None:
@@ -233,7 +260,8 @@ def run_tray_service():
     pystray.Icon("LiquidControl", create_tray_icon(), "Liquid Control", menu).run()
 
 def setup_gui():
-    global ip_label_var, status_var, status_label, _main_canvas, _remote_status_var
+    global ip_label_var, status_var, status_label, _main_canvas
+    global _remote_status_var, _remote_status_label
 
     root.title("Liquid Control")
     w, h = 560, 460
@@ -264,12 +292,33 @@ def setup_gui():
         return c.create_polygon(pts, smooth=True, **kw)
 
     PAD = 8
+    CORNER_R = 22
     # Sfondo glass: bordo glow sottile invece del bordo piatto
-    rounded_rect(canvas, PAD, PAD, w-PAD, h-PAD, 22,
+    rounded_rect(canvas, PAD, PAD, w-PAD, h-PAD, CORNER_R,
                  fill=COLOR_GLASS, outline=COLOR_BORDER_GLOW, width=1)
-    # Striscia riflesso superiore (simulazione highlight glass)
-    rounded_rect(canvas, PAD, PAD, w-PAD, PAD+3, 3,
-                 fill="#FFFFFF", outline="", stipple="gray12")
+
+    # Riflesso superiore (simulazione highlight glass): un vero gradiente
+    # alpha via PIL, non lo stipple di Tk. Lo stipple approssima la
+    # trasparenza con un pattern di puntini bianchi visibili — non un
+    # riflesso, un difetto — perché create_polygon non supporta alpha reale.
+    card_w, card_h = w - PAD * 2, h - PAD * 2
+    GRADIENT_H = 70
+    GRADIENT_ALPHA_MAX = 46
+    highlight = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
+    hdraw = ImageDraw.Draw(highlight)
+    for y in range(GRADIENT_H):
+        alpha = round(GRADIENT_ALPHA_MAX * (1 - y / GRADIENT_H))
+        if alpha <= 0:
+            break
+        hdraw.line([(0, y), (card_w, y)], fill=(255, 255, 255, alpha))
+    # Maschera sugli stessi angoli arrotondati della card, cosi' il gradiente
+    # non sborda oltre il bordo curvo in alto.
+    mask = Image.new("L", (card_w, card_h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, card_w, card_h), radius=CORNER_R, fill=255)
+    highlight.putalpha(ImageChops.multiply(highlight.split()[3], mask))
+    root._highlight_photo = ImageTk.PhotoImage(highlight)
+    canvas.create_image(PAD, PAD, anchor="nw", image=root._highlight_photo)
 
     # Linea separatore dopo titolo
     sep_y = 70
@@ -347,9 +396,11 @@ def setup_gui():
     # --- Sezione Accesso Remoto ---
     tk.Label(root, text="ACCESSO REMOTO", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=36, y=225)
     _remote_status_var = tk.StringVar(value="Inizializzazione...")
-    tk.Label(root, textvariable=_remote_status_var,
-             font=("Consolas", 9), bg=COLOR_TRANSPARENT, fg=COLOR_ACCENT,
-             wraplength=380, justify="left").place(x=36, y=245)
+    _remote_status_label = tk.Label(
+        root, textvariable=_remote_status_var,
+        font=("Consolas", 9), bg=COLOR_TRANSPARENT, fg=COLOR_ACCENT,
+        wraplength=380, justify="left")
+    _remote_status_label.place(x=36, y=245)
 
     tk.Label(root, text="PIN", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=36, y=318)
     pin_val = _deps.config.get('pin_plain', '—')

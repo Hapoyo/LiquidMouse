@@ -52,7 +52,8 @@ def stub_gui(monkeypatch):
     )
     tk.messagebox = modulo("tkinter.messagebox", showerror=lambda *a, **k: None)
     modulo("pystray", Icon=_Qualunque, Menu=_Qualunque, MenuItem=_Qualunque)
-    modulo("PIL", Image=_Qualunque(), ImageDraw=_Qualunque(), ImageTk=_Qualunque())
+    modulo("PIL", Image=_Qualunque(), ImageDraw=_Qualunque(),
+           ImageTk=_Qualunque(), ImageChops=_Qualunque())
     modulo("qrcode", QRCode=_Qualunque, make=lambda *a, **k: _Qualunque())
     if not hasattr(ctypes, "windll"):
         monkeypatch.setattr(ctypes, "windll", _Qualunque(), raising=False)
@@ -126,6 +127,107 @@ class TestModuloGui:
 
     def test_update_remote_ui_prima_della_finestra_non_solleva(self, gui_window):
         gui_window.update_remote_ui()
+
+    def test_troncamento_rispetta_il_limite(self, gui_window):
+        # Il pannello ha uno spazio verticale fisso fino alla sezione PIN
+        # sottostante: un motivo di errore lungo (es. un'eccezione dal
+        # mapping UPnP) non deve sovrapporla.
+        lungo = "x" * 200
+        assert len(gui_window._troncato(lungo)) == gui_window.REMOTE_LABEL_MAX
+        assert gui_window._troncato(lungo).endswith("…")
+
+    def test_troncamento_lascia_stare_i_testi_brevi(self, gui_window):
+        breve = "UPnP non riuscito"
+        assert gui_window._troncato(breve) == breve
+
+    def test_update_remote_ui_con_motivo_lungo_non_solleva(self, gui_window, monkeypatch):
+        # Riproduce il caso reale: UPnP fallito con un messaggio di eccezione
+        # lungo nel mapping della porta. Widget sostituiti da registratori
+        # leggeri (non l'intero setup_gui(), che richiede un vero display) cosi'
+        # da esercitare update_remote_ui -> _set_remote_label per intero,
+        # incluso il .config(fg=...) sul colore.
+        class _Recorder:
+            def __init__(self):
+                self.value = None
+                self.fg = None
+
+            def set(self, v):
+                self.value = v
+
+            def config(self, **kw):
+                if "fg" in kw:
+                    self.fg = kw["fg"]
+
+        class _FakeRoot:
+            def after(self, _delay, fn):
+                fn()
+
+        status_var = _Recorder()
+        status_label = _Recorder()
+        monkeypatch.setattr(gui_window, "root", _FakeRoot())
+        monkeypatch.setattr(gui_window, "_remote_status_var", status_var)
+        monkeypatch.setattr(gui_window, "_remote_status_label", status_label)
+
+        class FinteServizi:
+            remote_mode = "none"
+
+            class upnp:
+                last_error = "il router ha rifiutato la mappatura (" + "x" * 150 + ")"
+
+        monkeypatch.setattr(gui_window, "_deps", gui_window.GuiDeps(
+            config=_Qualunque(), sessions=_Qualunque(),
+            services=lambda: FinteServizi(), local_ip="192.168.1.10",
+            reset_trusted=lambda: None,
+        ))
+
+        gui_window.update_remote_ui()
+
+        assert status_var.value is not None
+        assert status_var.value.startswith("Remoto non disponibile: ")
+        # Il pannello non deve mai superare poche righe: e' cio' che
+        # impediva la sovrapposizione con la sezione PIN sottostante.
+        assert len(status_var.value) <= len("Remoto non disponibile: ") + gui_window.REMOTE_LABEL_MAX
+        assert status_var.value.endswith("…")
+        assert status_label.fg == gui_window.COLOR_MUTED
+
+    def test_update_remote_ui_con_endpoint_disponibile(self, gui_window, monkeypatch):
+        class _Recorder:
+            def __init__(self):
+                self.value = None
+                self.fg = None
+
+            def set(self, v):
+                self.value = v
+
+            def config(self, **kw):
+                if "fg" in kw:
+                    self.fg = kw["fg"]
+
+        class _FakeRoot:
+            def after(self, _delay, fn):
+                fn()
+
+        status_var = _Recorder()
+        status_label = _Recorder()
+        monkeypatch.setattr(gui_window, "root", _FakeRoot())
+        monkeypatch.setattr(gui_window, "_remote_status_var", status_var)
+        monkeypatch.setattr(gui_window, "_remote_status_label", status_label)
+
+        class FinteServizi:
+            remote_mode = "upnp"
+            external_ip = "203.0.113.5"
+
+        monkeypatch.setattr(gui_window, "_deps", gui_window.GuiDeps(
+            config={"pin_plain": "abcd1234"}, sessions=_Qualunque(),
+            services=lambda: FinteServizi(), local_ip="192.168.1.10",
+            reset_trusted=lambda: None,
+        ))
+
+        gui_window.update_remote_ui()
+
+        assert status_var.value is not None
+        assert "203.0.113.5" in status_var.value
+        assert status_label.fg == gui_window.COLOR_OK
 
 
 class TestIsolamentoDelCore:
