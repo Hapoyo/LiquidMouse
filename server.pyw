@@ -3,38 +3,25 @@ LIQUID CONTROL - Server Application
 Author: Hapone
 """
 
-import asyncio
-import websockets
-import json
 import ctypes
-import ipaddress
 import threading
 import tkinter as tk
 from tkinter import messagebox
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 import sys
 import time
-import ssl
-import tempfile
-import atexit
-import contextlib
-from http import HTTPStatus
-from websockets.http11 import Response
-from websockets.datastructures import Headers
 
 from liquidmouse import events
 from liquidmouse.config import Config
 from liquidmouse.events import log_message
-from liquidmouse.net.addresses import (
-    CachedTailscaleIp, TrustedPeer, get_local_ip, is_loopback,
-    is_private_ip, is_tailscale_conn,
-)
-from liquidmouse.net.protocol import ClientConnection, dispatch
-from liquidmouse.net.static import StaticFiles, etag_matches
+from liquidmouse.net.addresses import CachedTailscaleIp, TrustedPeer, get_local_ip
+from liquidmouse.net.server import NetworkServices
+from liquidmouse.net.static import StaticFiles
+from liquidmouse.net.upnp import UpnpMapper
 from liquidmouse.paths import BASE_DIR, ICON_PATH
-from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, WSS_PORT
-from liquidmouse.security.auth import AUTH_MAX_FAILS, AuthGuard, pin_matches
+from liquidmouse.ports import HTTP_PORT, HTTPS_PORT
+from liquidmouse.security.auth import AuthGuard
+from liquidmouse.security.tls import SelfSignedCert
 from liquidmouse.terminal.launcher import open_pc_terminal
 from liquidmouse.terminal.sessions import SessionManager
 from liquidmouse.theme import (
@@ -56,100 +43,23 @@ except ImportError:
     sys.exit(1)
 
 # --- STATO GLOBALE ---
+# Le dipendenze sono costruite qui e passate a NetworkServices: nessun modulo
+# del pacchetto tiene stato globale proprio, cosi' restano testabili.
 _config = Config()
 _auth_guard = AuthGuard()
 _trusted_peer = TrustedPeer()
 _session_manager = SessionManager()
+_static = StaticFiles(BASE_DIR)
+_tls = SelfSignedCert(_config)
+_upnp = UpnpMapper()
 # Sonda Tailscale con cache: il menu tray la interroga a ogni apertura.
 cached_tailscale_ip = CachedTailscaleIp()
 
-_ssl_context: ssl.SSLContext | None = None
-_ssl_temp_files: list = []
-_ssl_atexit_registered: bool = False
+# Costruito in main(), quando LOCAL_IP e' noto.
+_services: NetworkServices | None = None
 
 def load_config() -> dict:
     return _config.load()
-
-# --- CERTIFICATO TLS AUTO-FIRMATO ---
-def ensure_ssl_cert(local_ip: str) -> ssl.SSLContext | None:
-    global _ssl_context, _ssl_temp_files
-    if _ssl_context and _config.get('ssl_ip') == local_ip:
-        return _ssl_context
-    try:
-        from cryptography import x509
-        from cryptography.x509.oid import NameOID
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-        import datetime
-
-        if (_config.get('ssl_cert') and _config.get('ssl_key')
-                and _config.get('ssl_ip') == local_ip):
-            cert_pem = _config['ssl_cert'].encode()
-            key_pem  = _config['ssl_key'].encode()
-        else:
-            key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-            name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"LiquidControl")])
-            try:
-                san = x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address(local_ip))])
-            except ValueError:
-                san = x509.SubjectAlternativeName([x509.DNSName(local_ip)])
-            cert = (
-                x509.CertificateBuilder()
-                .subject_name(name).issuer_name(name)
-                .public_key(key.public_key())
-                .serial_number(x509.random_serial_number())
-                .not_valid_before(datetime.datetime.utcnow())
-                .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=3650))
-                .add_extension(san, critical=False)
-                .sign(key, hashes.SHA256())
-            )
-            cert_pem = cert.public_bytes(serialization.Encoding.PEM)
-            key_pem  = key.private_bytes(
-                serialization.Encoding.PEM,
-                serialization.PrivateFormat.TraditionalOpenSSL,
-                serialization.NoEncryption()
-            )
-            _config['ssl_cert'] = cert_pem.decode()
-            _config['ssl_key']  = key_pem.decode()
-            _config['ssl_ip']   = local_ip
-            _config.save()
-
-        # Cleanup eventuali file temp residui da una precedente generazione (IP changed)
-        for old_path in _ssl_temp_files:
-            try:
-                if os.path.exists(old_path): os.unlink(old_path)
-            except Exception: pass
-
-        cf = tempfile.NamedTemporaryFile(delete=False, suffix='.crt', mode='wb')
-        cf.write(cert_pem); cf.close()
-        kf = tempfile.NamedTemporaryFile(delete=False, suffix='.key', mode='wb')
-        kf.write(key_pem); kf.close()
-        _ssl_temp_files = [cf.name, kf.name]
-        global _ssl_atexit_registered
-        if not _ssl_atexit_registered:
-            def _cleanup_ssl_temps():
-                for p in _ssl_temp_files:
-                    try:
-                        if os.path.exists(p):
-                            os.unlink(p)
-                    except OSError:
-                        pass
-            atexit.register(_cleanup_ssl_temps)
-            _ssl_atexit_registered = True
-
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(cf.name, kf.name)
-        _ssl_context = ctx
-        return ctx
-    except ImportError:
-        # cryptography assente: niente TLS, quindi niente 8443/8766. L'app
-        # resta usabile in LAN, ma il remoto non parte — va detto, altrimenti
-        # il sintomo e' solo un "IN ATTESA" senza spiegazione.
-        log_message("TLS non disponibile: manca 'cryptography'", color=COLOR_ERROR)
-        return None
-    except Exception as e:
-        log_message(f"Certificato TLS non generato: {e}", color=COLOR_ERROR)
-        return None
 
 def init_process() -> None:
     """Impostazioni di processo Windows. Chiamata da main(), non a import time:
@@ -214,358 +124,6 @@ def reset_trusted_ip():
 # eseguita a import time, che rendeva il modulo non importabile a costo zero.
 LOCAL_IP = "127.0.0.1"
 
-# --- STATO CONNESSIONE REMOTA ---
-_remote_mode    = "none"   # "upnp" | "none"
-_external_ip    = None
-_upnp_obj       = None
-_upnp_ports     = []
-_upnp_atexit_registered = False
-
-# --- BACKEND (WebSocket & HTTP) ---
-async def _authorize(websocket, client_ip: str) -> bool:
-    """Applica il modello di autorizzazione. False = connessione già chiusa.
-
-    Tre percorsi: remoto → PIN obbligatorio; loopback → sempre fidato (serve
-    alla finestra terminale aperta sul PC stesso); LAN → whitelist primo
-    arrivato. Tailscale conta come LAN: il tailnet è già autenticato e cifrato.
-    """
-    is_remote = not (is_private_ip(client_ip) or is_tailscale_conn(websocket))
-
-    if not is_remote:
-        if is_loopback(client_ip):
-            log_message(f"Sessione locale: {client_ip}", color=COLOR_ACCENT)
-            return True
-        if not _trusted_peer.claim(client_ip):
-            log_message(f"Rifiutato: {client_ip}", color=COLOR_ERROR)
-            await websocket.close()
-            return False
-        log_message(f"Sessione attiva: {client_ip}", color=COLOR_ACCENT)
-        return True
-
-    # --- percorso remoto: autenticazione con PIN ---
-    if _auth_guard.is_blocked(client_ip) or not _auth_guard.begin(client_ip):
-        await websocket.send(json.dumps({"type": "auth_blocked"}))
-        await websocket.close()
-        log_message(f"Bloccato (brute force): {client_ip}", color=COLOR_ERROR)
-        return False
-    try:
-        try:
-            auth_raw = await asyncio.wait_for(websocket.recv(), timeout=10.0)
-            auth_data = json.loads(auth_raw)
-        except Exception:
-            await websocket.close()
-            return False
-        if auth_data.get('type') != 'auth':
-            await websocket.close()
-            return False
-        if not pin_matches(auth_data.get('pin', ''), _config.get('pin_hash', '')):
-            _auth_guard.record_fail(client_ip)
-            remaining = _auth_guard.remaining(client_ip)
-            await websocket.send(json.dumps({
-                "type": "auth_fail", "remaining": remaining
-            }))
-            await websocket.close()
-            log_message(
-                f"Auth fallita ({AUTH_MAX_FAILS - remaining}/{AUTH_MAX_FAILS}) da {client_ip}",
-                color=COLOR_ERROR)
-            return False
-    finally:
-        _auth_guard.end(client_ip)
-
-    _auth_guard.clear(client_ip)
-    await websocket.send(json.dumps({"type": "auth_ok"}))
-    log_message(f"Connessione remota autorizzata: {client_ip}", color=COLOR_ACCENT)
-    return True
-
-
-async def handler(websocket):
-    """Ciclo di vita di una connessione client."""
-    client_ip = websocket.remote_address[0]
-    if not await _authorize(websocket, client_ip):
-        return
-
-    ctx = ClientConnection(
-        websocket, client_ip, _session_manager,
-        on_session_created=_on_session_created,
-    )
-    try:
-        async for message in websocket:
-            await dispatch(ctx, message)
-    except websockets.exceptions.ConnectionClosed:
-        log_message("In attesa di connessione...", color=COLOR_MUTED)
-    finally:
-        # Senza questo, un client che si disconnette con Ctrl premuto lascia il
-        # modificatore giu' sul PC. Sgancia anche le sessioni terminal, cosi'
-        # una riconnessione puo' riagganciarle.
-        ctx.release_all()
-
-
-def _on_session_created(sid: str, client_ip: str) -> None:
-    """Sessione avviata da telefono/LAN/remoto: apri la finestra reale sul PC.
-    Non per il loopback, che *e'* gia' quella finestra."""
-    if not is_loopback(client_ip):
-        open_pc_terminal(sid)
-
-
-_static = StaticFiles(BASE_DIR)
-
-
-class _StaticHTTPHandler(BaseHTTPRequestHandler):
-    """Serve gli asset dalla cache in memoria.
-
-    Sostituisce SimpleHTTPRequestHandler(directory=BASE_DIR), che serviva
-    l'intera directory: chiunque fosse sulla LAN poteva scaricare server.pyw.
-    Ora vale la stessa whitelist del percorso remoto.
-    """
-
-    protocol_version = "HTTP/1.1"
-
-    def do_GET(self):
-        self._serve(con_corpo=True)
-
-    def do_HEAD(self):
-        self._serve(con_corpo=False)
-
-    def _serve(self, con_corpo: bool):
-        asset = _static.get(self.path)
-        if asset is None:
-            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
-            return
-        if etag_matches(self.headers.get("If-None-Match"), asset.etag):
-            self.send_response(HTTPStatus.NOT_MODIFIED)
-            self.send_header("ETag", asset.etag)
-            self.end_headers()
-            return
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", asset.content_type)
-        self.send_header("Content-Length", str(len(asset.body)))
-        self.send_header("ETag", asset.etag)
-        # no-cache = rivalida sempre, ma con l'ETag la rivalidazione costa un
-        # 304 vuoto invece di ritrasferire 283 KB di xterm.js.
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-        if con_corpo:
-            self.wfile.write(asset.body)
-
-    def log_message(self, *args):
-        pass
-
-
-def start_http_server():
-    try:
-        # ThreadingHTTPServer: con quello sequenziale una richiesta lenta
-        # bloccava tutte le altre, e la pagina carica 4 asset.
-        httpd = ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), _StaticHTTPHandler)
-        httpd.serve_forever()
-    except OSError:
-        log_message(f"Errore: Porta {HTTP_PORT} occupata!", color=COLOR_ERROR)
-    except Exception as e:
-        log_message(f"HTTP Server crash: {e}", color=COLOR_ERROR)
-
-# --- PORTA UNICA REMOTA (HTTPS + WSS su HTTPS_PORT) ---
-# La 8443 serve sia il client statico sia il canale comandi WSS. Motivo
-# (lug 2026): molti router/ISP FWA lasciano passare 8443 ma filtrano porte
-# inusuali come 8766 → il client restava "IN ATTESA" con la pagina carica.
-# Porta unica = un solo port-forward e un solo certificato da accettare
-# (il browser NON mostra l'avviso certificato per un wss:// su porta
-# diversa: fallisce in silenzio).
-def _https_process_request(connection, request):
-    """process_request del server WSS su HTTPS_PORT: le richieste senza
-    Upgrade (browser che chiede la pagina) ricevono i file statici; quelle
-    WebSocket proseguono con l'handshake (return None).
-
-    Legge dalla cache in memoria: qui siamo dentro l'event loop asyncio, e una
-    lettura da disco bloccherebbe tutti i WebSocket attivi.
-    """
-    if request.headers.get("Upgrade", ""):
-        return None
-    asset = _static.get(request.path)
-    if asset is None:
-        return connection.respond(HTTPStatus.NOT_FOUND, "Not found\n")
-    if etag_matches(request.headers.get("If-None-Match"), asset.etag):
-        return Response(304, "Not Modified", Headers([
-            ("ETag", asset.etag),
-            ("Connection", "close"),
-        ]), b"")
-    headers = Headers([
-        ("Content-Type", asset.content_type),
-        ("Content-Length", str(len(asset.body))),
-        ("ETag", asset.etag),
-        ("Cache-Control", "no-cache"),
-        ("Connection", "close"),
-    ])
-    return Response(200, "OK", headers, asset.body)
-
-# --- UPNP ---
-def _cleanup_upnp():
-    if _upnp_obj:
-        for port in _upnp_ports:
-            try:
-                _upnp_obj.deleteportmapping(port, 'TCP')
-            except Exception as e:
-                try:
-                    log_message(f"UPnP cleanup porta {port}: {e}", color=COLOR_MUTED)
-                except Exception:
-                    pass
-
-def _setup_upnp_sync() -> str | None:
-    """Blocking UPnP discovery — run via executor to avoid blocking event loop.
-    Richiamabile più volte (keepalive): ricrea sempre un oggetto UPnP fresco,
-    perché i router FWA possono perdere i pinhole NAT pur continuando a
-    elencare i mapping (visto sul Home&Life SuperWiFi, lug 2026)."""
-    global _upnp_obj, _external_ip, _upnp_atexit_registered
-    try:
-        import miniupnpc
-        u = miniupnpc.UPnP()
-        # 300ms perdeva l'IGD sui router FWA lenti a rispondere a SSDP:
-        # la discovery girava "a vuoto" e il remoto risultava non disponibile
-        # anche con UPnP abilitato. Gira in executor, non blocca l'avvio.
-        u.discoverdelay = 2000
-        if u.discover() == 0:
-            return None
-        u.selectigd()
-        ext_ip = u.externalipaddress()
-        if not ext_ip or ext_ip == '0.0.0.0':
-            return None
-        mapped = []
-        # Porta unica remota: serve solo HTTPS_PORT (pagina + WSS insieme)
-        for port in [HTTPS_PORT]:
-            try:
-                u.addportmapping(port, 'TCP', LOCAL_IP, port, 'LiquidControl', '')
-                mapped.append(port)
-            except Exception:
-                pass
-        if not mapped:
-            # Nessuna porta aperta: dichiarare il remoto attivo sarebbe un falso positivo
-            return None
-        _upnp_ports[:] = mapped
-        _upnp_obj = u
-        _external_ip = ext_ip
-        if not _upnp_atexit_registered:
-            atexit.register(_cleanup_upnp)
-            _upnp_atexit_registered = True
-        return ext_ip
-    except ImportError:
-        return None
-    except Exception:
-        return None
-
-async def setup_upnp() -> str | None:
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, _setup_upnp_sync)
-
-# --- AGGIORNAMENTO UI REMOTO ---
-def _update_remote_ui():
-    """Aggiorna label + QR remoto nella GUI (thread-safe via root.after).
-    Priorità: Tailscale (funziona ovunque, non dipende da router/ISP) > UPnP."""
-    if not _remote_status_var:
-        return
-    ts_ip = cached_tailscale_ip()
-    if ts_ip:
-        label = f"VPN  {ts_ip}:{HTTP_PORT}"
-        if _remote_mode == 'upnp':
-            label += f"   ·   UPnP {_external_ip}:{HTTPS_PORT}"
-        root.after(0, lambda: _remote_status_var.set(label))
-        # Via tailnet la connessione è già cifrata/autenticata: HTTP+WS, niente
-        # certificato da accettare, niente PIN (il server la classifica locale).
-        root.after(0, lambda: _set_remote_qr(f"http://{ts_ip}:{HTTP_PORT}/"))
-    elif _remote_mode == 'upnp':
-        root.after(0, lambda: _remote_status_var.set(f"UPnP  {_external_ip}:{HTTPS_PORT}"))
-        pin = _config.get('pin_plain', '')
-        remote_url = f"https://{_external_ip}:{HTTPS_PORT}/?pin={pin}"
-        root.after(0, lambda: _set_remote_qr(remote_url))
-    else:
-        root.after(0, lambda: _remote_status_var.set("Remoto non disponibile (né VPN né UPnP)"))
-
-def _set_remote_qr(url: str) -> None:
-    """Crea/aggiorna il QR per l'accesso remoto (eseguire sul thread Tk)."""
-    global _remote_qr_label
-    try:
-        qr = qrcode.QRCode(version=1, box_size=2, border=2)
-        qr.add_data(url)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color=COLOR_TEXT, back_color=COLOR_SURFACE).convert("RGBA")
-        photo = ImageTk.PhotoImage(img)
-        root._remote_qr_photo = photo  # tiene il riferimento (evita GC)
-        if _remote_qr_label is None:
-            _remote_qr_label = tk.Label(root, image=photo, bg=COLOR_TRANSPARENT, bd=0)
-            _remote_qr_label.place(x=438, y=232)
-            tk.Label(root, text="SCAN REMOTO", font=("Consolas", 7),
-                     bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=446, y=232 + 92)
-        else:
-            _remote_qr_label.config(image=photo)
-    except Exception as e:
-        log_message(f"QR remoto error: {e}", color=COLOR_ERROR)
-
-async def start_websocket_server():
-    global _remote_mode
-    log_message("Protocolli di comunicazione inizializzati.", color=COLOR_MUTED)
-    ssl_ctx = _ssl_context
-
-    # UPnP: unica strategia remota (port-forward automatico sul router).
-    ext_ip = await setup_upnp()
-    if ext_ip:
-        _remote_mode = 'upnp'
-        log_message(f"UPnP attivo: {ext_ip}", color=COLOR_OK)
-    else:
-        _remote_mode = 'none'
-        log_message("UPnP non riuscito: remoto non disponibile", color=COLOR_MUTED)
-    _update_remote_ui()
-
-    # Keepalive: rinnova i mapping ogni 10 min. Auto-ripara il remoto dopo
-    # riavvii del router (che azzerano il NAT) e recupera i casi in cui
-    # l'UPnP viene abilitato sul router a server già avviato.
-    async def _upnp_keepalive():
-        global _remote_mode
-        while True:
-            await asyncio.sleep(600)
-            new_ip = await setup_upnp()
-            new_mode = 'upnp' if new_ip else 'none'
-            if new_mode != _remote_mode or (new_ip and new_ip != _external_ip):
-                _remote_mode = new_mode
-                if new_ip:
-                    log_message(f"UPnP rinnovato: {new_ip}", color=COLOR_OK)
-                else:
-                    log_message("UPnP perso: remoto non disponibile", color=COLOR_MUTED)
-                _update_remote_ui()
-    asyncio.get_running_loop().create_task(_upnp_keepalive())
-
-    servers = [
-        websockets.serve(handler, "0.0.0.0", PORT, ping_interval=20, ping_timeout=10),
-    ]
-    if ssl_ctx:
-        # Porta unica remota: pagina + WSS su HTTPS_PORT (vedi _https_process_request)
-        servers.append(
-            websockets.serve(handler, "0.0.0.0", HTTPS_PORT, ssl=ssl_ctx,
-                             ping_interval=20, ping_timeout=10,
-                             process_request=_https_process_request)
-        )
-        # Legacy: WSS dedicato per client pre-porta-unica ancora in giro
-        servers.append(
-            websockets.serve(handler, "0.0.0.0", WSS_PORT, ssl=ssl_ctx,
-                             ping_interval=20, ping_timeout=10)
-        )
-
-    try:
-        async with contextlib.AsyncExitStack() as stack:
-            for srv in servers:
-                await stack.enter_async_context(srv)
-            await asyncio.Future()
-    except OSError:
-        log_message(f"ERRORE CRITICO: Porta {PORT} occupata!", color=COLOR_ERROR)
-    except Exception as e:
-        log_message(f"WebSocket Server crash: {e}", color=COLOR_ERROR)
-    finally:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _cleanup_upnp)
-
-def run_services():
-    threading.Thread(target=start_http_server, daemon=True).start()
-    # HTTPS_PORT è gestita dal server websockets (porta unica remota):
-    # niente thread HTTPS separato, il bind doppio fallirebbe.
-    ensure_ssl_cert(LOCAL_IP)
-    asyncio.run(start_websocket_server())
-
 # --- GUI & SYSTEM TRAY ---
 root                = tk.Tk()
 ip_label_var        = None
@@ -597,13 +155,77 @@ def terminate_application(icon=None, item=None):
     if icon: icon.stop()
     root.after(100, root.destroy)
 
-def _get_remote_tray_label():
+# --- ACCESSO REMOTO: ETICHETTA E QR ---
+# Priorità Tailscale > UPnP: il tailnet funziona ovunque e non dipende da
+# router o ISP. Via tailnet la connessione è già cifrata e autenticata, quindi
+# il QR punta a HTTP+WS — niente certificato da accettare e niente PIN, perché
+# il server classifica quell'indirizzo come locale.
+
+def _remote_endpoint() -> tuple[str, str] | None:
+    """(etichetta, url del QR) per l'accesso remoto, None se non disponibile.
+
+    Unico punto in cui si decide fra VPN e UPnP: prima la stessa logica era
+    scritta due volte, nel pannello e nell'etichetta del tray, e le due potevano
+    divergere.
+    """
+    upnp_attivo = _services is not None and _services.remote_mode == 'upnp'
+    external_ip = _services.external_ip if _services else None
+
     ts_ip = cached_tailscale_ip()
     if ts_ip:
-        return f'Remoto: VPN  {ts_ip}:{HTTP_PORT}'
-    if _remote_mode == 'upnp':
-        return f'Remoto: UPnP  {_external_ip}:{HTTPS_PORT}'
-    return 'Remoto: non disponibile'
+        etichetta = f"VPN  {ts_ip}:{HTTP_PORT}"
+        if upnp_attivo:
+            etichetta += f"   ·   UPnP {external_ip}:{HTTPS_PORT}"
+        return etichetta, f"http://{ts_ip}:{HTTP_PORT}/"
+    if upnp_attivo:
+        pin = _config.get('pin_plain', '')
+        return (f"UPnP  {external_ip}:{HTTPS_PORT}",
+                f"https://{external_ip}:{HTTPS_PORT}/?pin={pin}")
+    return None
+
+
+def _get_remote_tray_label():
+    endpoint = _remote_endpoint()
+    return f'Remoto: {endpoint[0]}' if endpoint else 'Remoto: non disponibile'
+
+
+def _update_remote_ui():
+    """Aggiorna etichetta e QR remoto nella GUI.
+
+    Chiamata dal thread dei servizi di rete, quindi ogni tocco ai widget passa
+    da root.after.
+    """
+    if not _remote_status_var:
+        return
+    endpoint = _remote_endpoint()
+    if endpoint is None:
+        root.after(0, lambda: _remote_status_var.set(
+            "Remoto non disponibile (né VPN né UPnP)"))
+        return
+    etichetta, url = endpoint
+    root.after(0, lambda: _remote_status_var.set(etichetta))
+    root.after(0, lambda: _set_remote_qr(url))
+
+
+def _set_remote_qr(url: str) -> None:
+    """Crea/aggiorna il QR per l'accesso remoto (eseguire sul thread Tk)."""
+    global _remote_qr_label
+    try:
+        qr = qrcode.QRCode(version=1, box_size=2, border=2)
+        qr.add_data(url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color=COLOR_TEXT, back_color=COLOR_SURFACE).convert("RGBA")
+        photo = ImageTk.PhotoImage(img)
+        root._remote_qr_photo = photo  # tiene il riferimento (evita GC)
+        if _remote_qr_label is None:
+            _remote_qr_label = tk.Label(root, image=photo, bg=COLOR_TRANSPARENT, bd=0)
+            _remote_qr_label.place(x=438, y=232)
+            tk.Label(root, text="SCAN REMOTO", font=("Consolas", 7),
+                     bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=446, y=232 + 92)
+        else:
+            _remote_qr_label.config(image=photo)
+    except Exception as e:
+        log_message(f"QR remoto error: {e}", color=COLOR_ERROR)
 
 def _open_sessions_panel(*_):
     """Pannello GUI sul PC con le sessioni terminal attive (auto-refresh 2s).
@@ -917,12 +539,37 @@ def start_background_services() -> None:
     """Avvia rete e tray. Separata da setup_gui(): finché le due cose erano
     nella stessa funzione non esisteva modo di disegnare la GUI senza aprire
     socket, né di far partire i servizi senza GUI."""
-    threading.Thread(target=run_services, daemon=True).start()
+    threading.Thread(target=_services.run, daemon=True).start()
     root.after(500, lambda: threading.Thread(target=run_tray_service, daemon=True).start())
 
 
+def _build_services() -> NetworkServices:
+    """Collega i servizi di rete alla GUI: gli unici due punti di contatto sono
+    l'aggiornamento del pannello remoto e l'apertura della finestra terminale."""
+    return NetworkServices(
+        config=_config,
+        auth_guard=_auth_guard,
+        trusted_peer=_trusted_peer,
+        sessions=_session_manager,
+        static=_static,
+        tls=_tls,
+        upnp=_upnp,
+        local_ip=LOCAL_IP,
+        on_remote_change=_update_remote_ui,
+        on_session_created=_on_session_created,
+    )
+
+
+def _on_session_created(sid: str, client_ip: str) -> None:
+    """Sessione avviata da telefono/LAN/remoto: apri la finestra reale sul PC.
+    Non per il loopback, che *è* già quella finestra."""
+    from liquidmouse.net.addresses import is_loopback
+    if not is_loopback(client_ip):
+        open_pc_terminal(sid)
+
+
 def main() -> int:
-    global LOCAL_IP
+    global LOCAL_IP, _services
     init_process()
     events.subscribe(_gui_log_sink)
     LOCAL_IP = get_local_ip()
@@ -933,6 +580,7 @@ def main() -> int:
     mancanti = _static.load()
     if mancanti:
         log_message(f"Asset mancanti: {', '.join(mancanti)}", color=COLOR_ERROR)
+    _services = _build_services()
     setup_gui()
     start_background_services()
     try:
