@@ -7,7 +7,7 @@ import asyncio
 import websockets
 import json
 import ctypes
-import socket
+import ipaddress
 import threading
 import tkinter as tk
 from tkinter import messagebox
@@ -18,12 +18,7 @@ import time
 import base64
 import uuid
 import shutil
-import secrets
-import hashlib
-import hmac
-import pathlib
 import ssl
-import ipaddress
 import tempfile
 import atexit
 import contextlib
@@ -31,6 +26,27 @@ from http import HTTPStatus
 from websockets.http11 import Response
 from websockets.datastructures import Headers
 from dataclasses import dataclass, field
+
+from liquidmouse import events
+from liquidmouse.config import Config
+from liquidmouse.events import log_message
+from liquidmouse.input.win32 import (
+    hotkey, key_down, key_press, key_text, key_up,
+    mouse_button, mouse_click, mouse_move, mouse_scroll,
+)
+from liquidmouse.net.addresses import (
+    TrustedPeer, get_local_ip, get_tailscale_ip, is_loopback,
+    is_private_ip, is_tailscale_conn,
+)
+from liquidmouse.paths import BASE_DIR, ICON_PATH
+from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, WSS_PORT
+from liquidmouse.security.auth import AUTH_MAX_FAILS, AuthGuard, pin_matches
+from liquidmouse.theme import (
+    COLOR_ACCENT, COLOR_BG, COLOR_BORDER_GLOW, COLOR_ERROR,
+    COLOR_GLASS, COLOR_MUTED, COLOR_OK, COLOR_SURFACE, COLOR_TEXT,
+    COLOR_TRANSPARENT,
+)
+from liquidmouse.version import VERSION
 
 try:
     import winpty as _winpty_mod
@@ -50,127 +66,17 @@ except ImportError:
     messagebox.showerror("Errore Librerie", "Mancano le librerie. Esegui nel terminale:\npip install pystray Pillow qrcode")
     sys.exit(1)
 
-VERSION = "2.3.0"
-CODENAME = "Popins"   # aggiornamento 2026-07-25: client fix, Tailscale, porta unica, GUI opaca
+# --- STATO GLOBALE ---
+_config = Config()
+_auth_guard = AuthGuard()
+_trusted_peer = TrustedPeer()
 
-# --- CONFIGURAZIONE PERSISTENTE ---
-_config: dict = {}
 _ssl_context: ssl.SSLContext | None = None
 _ssl_temp_files: list = []
 _ssl_atexit_registered: bool = False
 
-def get_config_path() -> pathlib.Path:
-    appdata = os.environ.get('APPDATA', str(pathlib.Path.home()))
-    return pathlib.Path(appdata) / 'LiquidControl' / 'config.json'
-
 def load_config() -> dict:
-    global _config
-    path = get_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    config_loaded = False
-    if path.exists():
-        try:
-            with open(path, encoding='utf-8') as f:
-                _config = json.load(f)
-                config_loaded = True
-        except Exception:
-            _config = {}
-    else:
-        _config = {}
-    # Genera PIN solo se config completamente mancante o malformata,
-    # non se manca solo la key (evita rigenerazione su upgrade)
-    if not config_loaded or 'pin_hash' not in _config:
-        pin = secrets.token_urlsafe(8)
-        _config['pin_plain'] = pin
-        _config['pin_hash'] = hashlib.sha256(pin.encode()).hexdigest()
-        _save_config()
-    return _config
-
-def _save_config() -> None:
-    try:
-        path = get_config_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(_config, f, indent=2)
-    except Exception as e:
-        try:
-            log_message(f"Errore salvataggio config: {e}", color=COLOR_ERROR)
-        except Exception:
-            pass
-
-# --- SICUREZZA AUTH REMOTA ---
-_auth_failures: dict[str, tuple[int, float]] = {}
-_auth_in_progress: set[str] = set()
-AUTH_MAX_FAILS   = 5
-AUTH_BLOCK_SECS  = 1800  # 30 minuti
-
-_CGNAT_NET = ipaddress.ip_network('100.64.0.0/10')
-
-def _is_private_ip(ip: str) -> bool:
-    try:
-        addr = ipaddress.ip_address(ip)
-        if addr in _CGNAT_NET:
-            return False
-        return addr.is_private or addr.is_link_local
-    except ValueError:
-        return False
-
-def _is_loopback(ip: str) -> bool:
-    """True per 127.0.0.1 / ::1 — la stessa macchina, sempre fidata."""
-    try:
-        return ipaddress.ip_address(ip).is_loopback
-    except ValueError:
-        return False
-
-def _get_tailscale_ip() -> str | None:
-    """IP Tailscale (100.64/10) di questa macchina, None se la VPN non è attiva.
-    Trucco senza dipendenze: un connect UDP verso il resolver MagicDNS di
-    Tailscale (100.100.100.100) sceglie l'interfaccia instradata sul tailnet;
-    se getsockname non è nel range CGNAT, Tailscale non c'è."""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            s.settimeout(1)
-            s.connect(("100.100.100.100", 53))
-            ip = s.getsockname()[0]
-        finally:
-            s.close()
-        return ip if ipaddress.ip_address(ip) in _CGNAT_NET else None
-    except Exception:
-        return None
-
-def _is_tailscale_conn(websocket) -> bool:
-    """True se la connessione arriva via tailnet: sorgente E destinazione nel
-    range 100.64/10. Il controllo sulla destinazione (l'IP locale del socket)
-    impedisce a un vicino di CGNAT dell'ISP di spacciarsi per peer Tailscale
-    attraverso una porta UPnP-mappata (arriverebbe sull'IP LAN, non sul 100.x)."""
-    try:
-        remote = ipaddress.ip_address(websocket.remote_address[0])
-        local = ipaddress.ip_address(websocket.local_address[0])
-        return remote in _CGNAT_NET and local in _CGNAT_NET
-    except Exception:
-        return False
-
-def _check_auth_blocked(ip: str) -> bool:
-    entry = _auth_failures.get(ip)
-    if not entry:
-        return False
-    count, last_t = entry
-    now = time.time()
-    if count >= AUTH_MAX_FAILS:
-        if (now - last_t) < AUTH_BLOCK_SECS:
-            return True
-        _auth_failures.pop(ip, None)
-    elif (now - last_t) >= AUTH_BLOCK_SECS:
-        _auth_failures.pop(ip, None)
-    return False
-
-def _record_auth_fail(ip: str) -> None:
-    prev = _auth_failures.get(ip, (0, 0.0))
-    _auth_failures[ip] = (prev[0] + 1, time.time())
-
-def _clear_auth_fail(ip: str) -> None:
-    _auth_failures.pop(ip, None)
+    return _config.load()
 
 # --- CERTIFICATO TLS AUTO-FIRMATO ---
 def ensure_ssl_cert(local_ip: str) -> ssl.SSLContext | None:
@@ -214,7 +120,7 @@ def ensure_ssl_cert(local_ip: str) -> ssl.SSLContext | None:
             _config['ssl_cert'] = cert_pem.decode()
             _config['ssl_key']  = key_pem.decode()
             _config['ssl_ip']   = local_ip
-            _save_config()
+            _config.save()
 
         # Cleanup eventuali file temp residui da una precedente generazione (IP changed)
         for old_path in _ssl_temp_files:
@@ -243,43 +149,36 @@ def ensure_ssl_cert(local_ip: str) -> ssl.SSLContext | None:
         ctx.load_cert_chain(cf.name, kf.name)
         _ssl_context = ctx
         return ctx
+    except ImportError:
+        # cryptography assente: niente TLS, quindi niente 8443/8766. L'app
+        # resta usabile in LAN, ma il remoto non parte — va detto, altrimenti
+        # il sintomo e' solo un "IN ATTESA" senza spiegazione.
+        log_message("TLS non disponibile: manca 'cryptography'", color=COLOR_ERROR)
+        return None
     except Exception as e:
+        log_message(f"Certificato TLS non generato: {e}", color=COLOR_ERROR)
         return None
 
-# --- FIX ICONA TASKBAR WINDOWS ---
-try:
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f'liquidmouse.server.{VERSION}')
-except Exception:
-    pass
+_PONG = '{"type":"pong"}'
 
-# --- FIX DPI SCALING ---
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(1)
-except Exception:
-    ctypes.windll.user32.SetProcessDPIAware()
 
-# --- CONFIGURAZIONE ---
-PORT       = 8765   # WS locale
-HTTP_PORT  = 8000   # HTTP locale
-HTTPS_PORT = 8443   # HTTPS remoto (con TLS)
-WSS_PORT   = 8766   # WSS remoto (con TLS)
-_PONG      = '{"type":"pong"}'
-
-# --- COLORI — Glassmorphism palette ---
-COLOR_BG          = "#0D0D0D"        # sfondo opaco (fallback / area non-glass)
-COLOR_SURFACE     = "#181818"        # surface secondaria
-COLOR_GLASS       = "#1C1C1E"        # base glass card (pre-acrylic)
-COLOR_TEXT        = "#F0EDE8"        # testo primario
-COLOR_ACCENT      = "#DA7756"        # accento arancio (invariato)
-COLOR_MUTED       = "#6B6880"        # testo secondario/muted
-COLOR_BORDER      = "#2A2A2A"        # bordo sottile
-COLOR_BORDER_GLOW = "#3A3540"        # bordo glass luminoso
-COLOR_ERROR       = "#E55B5B"
-COLOR_OK          = "#5BA878"
-# Ex colore chiave "-transparentcolor": la trasparenza keyed produceva puntini
-# bianchi sui bordi (pixel anti-aliasing degli angoli finti non combaciano col
-# colore chiave). Ora la finestra è opaca e gli angoli li arrotonda DWM.
-COLOR_TRANSPARENT = COLOR_BG
+def init_process() -> None:
+    """Impostazioni di processo Windows. Chiamata da main(), non a import time:
+    importare un modulo non deve modificare lo stato del processo."""
+    # Icona corretta nella taskbar (senza, Windows raggruppa sotto python.exe)
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            f'liquidmouse.server.{VERSION}')
+    except Exception:
+        pass
+    # DPI scaling: senza, su schermi HiDPI la finestra esce sfocata
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
 def _apply_dwm_acrylic(hwnd: int) -> bool:
     """Applica DWM Acrylic/Mica backdrop su Windows 11 (build 22000+).
@@ -316,162 +215,6 @@ def _apply_dwm_acrylic(hwnd: int) -> bool:
         return res == 0
     except Exception:
         return False
-
-# --- PERCORSO FILE ---
-if getattr(sys, 'frozen', False):
-    BASE_DIR = sys._MEIPASS
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ICON_PATH = os.path.join(BASE_DIR, "icon.ico")
-
-# --- INPUT ENGINE (Win32/ctypes nativo, zero overhead) ---
-_user32 = ctypes.windll.user32
-
-INPUT_MOUSE    = 0
-INPUT_KEYBOARD = 1
-
-MOUSEEVENTF_MOVE      = 0x0001
-MOUSEEVENTF_LEFTDOWN  = 0x0002
-MOUSEEVENTF_LEFTUP    = 0x0004
-MOUSEEVENTF_RIGHTDOWN = 0x0008
-MOUSEEVENTF_RIGHTUP   = 0x0010
-MOUSEEVENTF_WHEEL     = 0x0800
-
-KEYEVENTF_KEYUP   = 0x0002
-KEYEVENTF_UNICODE = 0x0004
-WHEEL_DELTA       = 120
-
-class MOUSEINPUT(ctypes.Structure):
-    _fields_ = (
-        ("dx",          ctypes.c_long),
-        ("dy",          ctypes.c_long),
-        ("mouseData",   ctypes.c_ulong),
-        ("dwFlags",     ctypes.c_ulong),
-        ("time",        ctypes.c_ulong),
-        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
-    )
-
-class KEYBDINPUT(ctypes.Structure):
-    _fields_ = (
-        ("wVk",         ctypes.c_ushort),
-        ("wScan",       ctypes.c_ushort),
-        ("dwFlags",     ctypes.c_ulong),
-        ("time",        ctypes.c_ulong),
-        ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
-    )
-
-class _INPUT_UNION(ctypes.Union):
-    _fields_ = (("mi", MOUSEINPUT), ("ki", KEYBDINPUT))
-
-class INPUT(ctypes.Structure):
-    _fields_ = (("type", ctypes.c_ulong), ("value", _INPUT_UNION))
-
-_INPUT_SIZE = ctypes.sizeof(INPUT)
-
-def _send(*inputs):
-    arr = (INPUT * len(inputs))(*inputs)
-    _user32.SendInput(len(inputs), arr, _INPUT_SIZE)
-
-def _mi(flags, dx=0, dy=0, data=0):
-    i = INPUT(type=INPUT_MOUSE)
-    i.value.mi.dx = dx
-    i.value.mi.dy = dy
-    i.value.mi.mouseData = ctypes.c_ulong(ctypes.c_long(data).value).value
-    i.value.mi.dwFlags = flags
-    return i
-
-def _ki(vk=0, scan=0, flags=0):
-    i = INPUT(type=INPUT_KEYBOARD)
-    i.value.ki.wVk = vk
-    i.value.ki.wScan = scan
-    i.value.ki.dwFlags = flags
-    return i
-
-# Buffer riutilizzabili per i path a 60Hz (move/scroll): mutati in place a ogni
-# evento per evitare di allocare una INPUT + array a ogni movimento del cursore.
-_move_arr   = (INPUT * 1)(_mi(MOUSEEVENTF_MOVE))
-_scroll_arr = (INPUT * 1)(_mi(MOUSEEVENTF_WHEEL))
-
-def mouse_move(dx, dy):
-    if dx == 0 and dy == 0: return
-    mi = _move_arr[0].value.mi
-    mi.dx = dx
-    mi.dy = dy
-    _user32.SendInput(1, _move_arr, _INPUT_SIZE)
-
-def mouse_scroll(amount):
-    _scroll_arr[0].value.mi.mouseData = ctypes.c_ulong(ctypes.c_long(amount * WHEEL_DELTA).value).value
-    _user32.SendInput(1, _scroll_arr, _INPUT_SIZE)
-
-def mouse_click(button='left'):
-    if button == 'left':
-        _send(_mi(MOUSEEVENTF_LEFTDOWN), _mi(MOUSEEVENTF_LEFTUP))
-    else:
-        _send(_mi(MOUSEEVENTF_RIGHTDOWN), _mi(MOUSEEVENTF_RIGHTUP))
-
-def mouse_button(state, button='left'):
-    if button == 'left':
-        flag = MOUSEEVENTF_LEFTDOWN if state == 'down' else MOUSEEVENTF_LEFTUP
-    else:
-        flag = MOUSEEVENTF_RIGHTDOWN if state == 'down' else MOUSEEVENTF_RIGHTUP
-    _send(_mi(flag))
-
-VK_MAP = {
-    'backspace': 0x08, 'tab': 0x09, 'enter': 0x0D,
-    'shift': 0x10, 'ctrl': 0x11, 'alt': 0x12,
-    'capslock': 0x14, 'esc': 0x1B, 'escape': 0x1B,
-    'space': 0x20, 'pageup': 0x21, 'pagedown': 0x22,
-    'end': 0x23, 'home': 0x24,
-    'left': 0x25, 'up': 0x26, 'right': 0x27, 'down': 0x28,
-    'insert': 0x2D, 'delete': 0x2E,
-    'win': 0x5B, 'lwin': 0x5B, 'rwin': 0x5C,
-    'f1': 0x70, 'f2': 0x71, 'f3': 0x72,  'f4': 0x73,
-    'f5': 0x74, 'f6': 0x75, 'f7': 0x76,  'f8': 0x77,
-    'f9': 0x78, 'f10': 0x79, 'f11': 0x7A, 'f12': 0x7B,
-    'numlock': 0x90, 'scrolllock': 0x91, 'printscreen': 0x2C,
-    'volumemute': 0xAD, 'volumedown': 0xAE, 'volumeup': 0xAF,
-    'media_next': 0xB0, 'media_prev': 0xB1, 'media_stop': 0xB2, 'media_play_pause': 0xB3,
-}
-
-def key_press(key):
-    key = key.lower()
-    if key in VK_MAP:
-        vk = VK_MAP[key]
-        _send(_ki(vk=vk), _ki(vk=vk, flags=KEYEVENTF_KEYUP))
-    elif len(key) == 1:
-        key_text(key)
-
-def _send_vk(key, flags=0):
-    vk = VK_MAP.get(key.lower())
-    if vk: _send(_ki(vk=vk, flags=flags))
-
-def key_down(key): _send_vk(key)
-def key_up(key):   _send_vk(key, KEYEVENTF_KEYUP)
-
-_SMART_QUOTES = str.maketrans({'\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"', '\u2026': '...'})
-
-def key_text(text):
-    text = text.translate(_SMART_QUOTES)   # single C-level pass invece di 5 .replace()
-    inputs = []
-    for c in text:
-        sc = ord(c)
-        inputs += [_ki(scan=sc, flags=KEYEVENTF_UNICODE), _ki(scan=sc, flags=KEYEVENTF_UNICODE | KEYEVENTF_KEYUP)]
-    if inputs:
-        _send(*inputs)
-
-def hotkey(*keys):
-    vks = []
-    for k in keys:
-        k_lower = k.lower()
-        if k_lower in VK_MAP:
-            vks.append(VK_MAP[k_lower])
-        elif len(k) == 1 and k.isalpha():
-            vks.append(ord(k.upper()))   # es. 'c' → 0x43, 'v' → 0x56
-        elif len(k) == 1 and k.isdigit():
-            vks.append(ord(k))           # es. '1' → 0x31
-    downs = [_ki(vk=vk) for vk in vks]
-    ups   = [_ki(vk=vk, flags=KEYEVENTF_KEYUP) for vk in reversed(vks)]
-    _send(*downs, *ups)
 
 # --- TERMINAL MODE: ConPTY nativo via ctypes ---
 import ctypes.wintypes as _wt
@@ -850,25 +593,13 @@ def _open_pc_terminal(sid: str) -> None:
         log_message(f"Apertura finestra PC fallita: {e}", color=COLOR_MUTED)
 
 # --- SICUREZZA: WHITELIST IP ---
-TRUSTED_IP = None
-_trusted_ip_lock = threading.Lock()
-
 def reset_trusted_ip():
-    global TRUSTED_IP
-    with _trusted_ip_lock:
-        TRUSTED_IP = None
+    _trusted_peer.reset()
     log_message("Whitelist resettata. In attesa...", color=COLOR_ACCENT)
 
-# --- UTILITIES DI RETE ---
-def get_local_ip():
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("8.8.8.8", 80))
-            return s.getsockname()[0]
-    except Exception:
-        return "127.0.0.1"
-
-LOCAL_IP = get_local_ip()
+# IP LAN: risolto una volta sola in main(). Restava una connessione UDP
+# eseguita a import time, che rendeva il modulo non importabile a costo zero.
+LOCAL_IP = "127.0.0.1"
 
 # --- STATO CONNESSIONE REMOTA ---
 _remote_mode    = "none"   # "upnp" | "none"
@@ -878,62 +609,66 @@ _upnp_ports     = []
 _upnp_atexit_registered = False
 
 # --- BACKEND (WebSocket & HTTP) ---
-async def handler(websocket):
-    global TRUSTED_IP
-    client_ip  = websocket.remote_address[0]
-    # Tailscale = canale già autenticato/cifrato dal tailnet → trattato come LAN
-    is_remote  = not (_is_private_ip(client_ip) or _is_tailscale_conn(websocket))
+async def _authorize(websocket, client_ip: str) -> bool:
+    """Applica il modello di autorizzazione. False = connessione già chiusa.
 
-    if is_remote:
-        # Connessione remota: autenticazione PIN obbligatoria
-        if _check_auth_blocked(client_ip) or client_ip in _auth_in_progress:
-            await websocket.send(json.dumps({"type": "auth_blocked"}))
+    Tre percorsi: remoto → PIN obbligatorio; loopback → sempre fidato (serve
+    alla finestra terminale aperta sul PC stesso); LAN → whitelist primo
+    arrivato. Tailscale conta come LAN: il tailnet è già autenticato e cifrato.
+    """
+    is_remote = not (is_private_ip(client_ip) or is_tailscale_conn(websocket))
+
+    if not is_remote:
+        if is_loopback(client_ip):
+            log_message(f"Sessione locale: {client_ip}", color=COLOR_ACCENT)
+            return True
+        if not _trusted_peer.claim(client_ip):
+            log_message(f"Rifiutato: {client_ip}", color=COLOR_ERROR)
             await websocket.close()
-            log_message(f"Bloccato (brute force): {client_ip}", color=COLOR_ERROR)
-            return
-        _auth_in_progress.add(client_ip)
+            return False
+        log_message(f"Sessione attiva: {client_ip}", color=COLOR_ACCENT)
+        return True
+
+    # --- percorso remoto: autenticazione con PIN ---
+    if _auth_guard.is_blocked(client_ip) or not _auth_guard.begin(client_ip):
+        await websocket.send(json.dumps({"type": "auth_blocked"}))
+        await websocket.close()
+        log_message(f"Bloccato (brute force): {client_ip}", color=COLOR_ERROR)
+        return False
+    try:
         try:
-            auth_raw  = await asyncio.wait_for(websocket.recv(), timeout=10.0)
+            auth_raw = await asyncio.wait_for(websocket.recv(), timeout=10.0)
             auth_data = json.loads(auth_raw)
-        except (asyncio.TimeoutError, json.JSONDecodeError, Exception):
-            _auth_in_progress.discard(client_ip)
+        except Exception:
             await websocket.close()
-            return
+            return False
         if auth_data.get('type') != 'auth':
-            _auth_in_progress.discard(client_ip)
             await websocket.close()
-            return
-        pin_hash = hashlib.sha256(auth_data.get('pin', '').encode()).hexdigest()
-        stored_hash = _config.get('pin_hash', '')
-        if not hmac.compare_digest(pin_hash, stored_hash):
-            _record_auth_fail(client_ip)
-            _auth_in_progress.discard(client_ip)
-            fails = _auth_failures.get(client_ip, (0, 0))[0]
+            return False
+        if not pin_matches(auth_data.get('pin', ''), _config.get('pin_hash', '')):
+            _auth_guard.record_fail(client_ip)
+            remaining = _auth_guard.remaining(client_ip)
             await websocket.send(json.dumps({
-                "type": "auth_fail",
-                "remaining": max(0, AUTH_MAX_FAILS - fails)
+                "type": "auth_fail", "remaining": remaining
             }))
             await websocket.close()
-            log_message(f"Auth fallita ({fails}/{AUTH_MAX_FAILS}) da {client_ip}", color=COLOR_ERROR)
-            return
-        _clear_auth_fail(client_ip)
-        _auth_in_progress.discard(client_ip)
-        await websocket.send(json.dumps({"type": "auth_ok"}))
-        log_message(f"Connessione remota autorizzata: {client_ip}", color=COLOR_ACCENT)
-    elif _is_loopback(client_ip):
-        # Stessa macchina (finestra terminale sul PC): sempre fidata, no whitelist.
-        log_message(f"Sessione locale: {client_ip}", color=COLOR_ACCENT)
-    else:
-        # Connessione locale LAN: whitelist IP (primo client autorizzato).
-        with _trusted_ip_lock:
-            if TRUSTED_IP is None:
-                TRUSTED_IP = client_ip
-                log_message(f"Autorizzato: {client_ip}", color=COLOR_ACCENT)
-            elif client_ip != TRUSTED_IP:
-                log_message(f"Rifiutato: {client_ip}", color=COLOR_ERROR)
-                await websocket.close()
-                return
-        log_message(f"Sessione attiva: {client_ip}", color=COLOR_ACCENT)
+            log_message(
+                f"Auth fallita ({AUTH_MAX_FAILS - remaining}/{AUTH_MAX_FAILS}) da {client_ip}",
+                color=COLOR_ERROR)
+            return False
+    finally:
+        _auth_guard.end(client_ip)
+
+    _auth_guard.clear(client_ip)
+    await websocket.send(json.dumps({"type": "auth_ok"}))
+    log_message(f"Connessione remota autorizzata: {client_ip}", color=COLOR_ACCENT)
+    return True
+
+
+async def handler(websocket):
+    client_ip = websocket.remote_address[0]
+    if not await _authorize(websocket, client_ip):
+        return
 
     last_backspace_time = 0
     last_ping_time = 0.0
@@ -1010,7 +745,7 @@ async def handler(websocket):
                             "type": "term_created", "id": session.id
                         }))
                         # Avviata da telefono/LAN/remoto → apri la finestra reale sul PC.
-                        if not _is_loopback(client_ip):
+                        if not is_loopback(client_ip):
                             _open_pc_terminal(session.id)
                     except (RuntimeError, ValueError) as e:
                         await websocket.send(json.dumps({
@@ -1190,7 +925,7 @@ def _update_remote_ui():
     Priorità: Tailscale (funziona ovunque, non dipende da router/ISP) > UPnP."""
     if not _remote_status_var:
         return
-    ts_ip = _get_tailscale_ip()
+    ts_ip = get_tailscale_ip()
     if ts_ip:
         label = f"VPN  {ts_ip}:{HTTP_PORT}"
         if _remote_mode == 'upnp':
@@ -1328,7 +1063,7 @@ def terminate_application(icon=None, item=None):
     root.after(100, root.destroy)
 
 def _get_remote_tray_label():
-    ts_ip = _get_tailscale_ip()
+    ts_ip = get_tailscale_ip()
     if ts_ip:
         return f'Remoto: VPN  {ts_ip}:{HTTP_PORT}'
     if _remote_mode == 'upnp':
@@ -1618,13 +1353,18 @@ def setup_gui():
                 return
         _apply_dwm_acrylic(hwnd)
     root.after(200, _dwm_later)
-    threading.Thread(target=run_services, daemon=True).start()
-    root.after(500, lambda: threading.Thread(target=run_tray_service, daemon=True).start())
 
 _DOT_MAP = {COLOR_OK: COLOR_OK, COLOR_ACCENT: COLOR_OK, COLOR_ERROR: COLOR_ERROR}
 
-def log_message(message, color=None):
-    if color is None: color = COLOR_MUTED
+def _gui_log_sink(message, color=None):
+    """Sink Tk per liquidmouse.events: mostra il messaggio nella status bar.
+
+    Registrato in main(). Il core non conosce questa funzione, pubblica e basta;
+    prima invece scriveva sui widget direttamente e legava a Tk anche i moduli
+    di rete e di terminale.
+    """
+    if color is None:
+        color = COLOR_MUTED
     def _update():
         if status_var:
             status_var.set(message)
@@ -1637,10 +1377,29 @@ def log_message(message, color=None):
                 pass
     root.after(0, _update)
 
-if __name__ == "__main__":
+
+def start_background_services() -> None:
+    """Avvia rete e tray. Separata da setup_gui(): finché le due cose erano
+    nella stessa funzione non esisteva modo di disegnare la GUI senza aprire
+    socket, né di far partire i servizi senza GUI."""
+    threading.Thread(target=run_services, daemon=True).start()
+    root.after(500, lambda: threading.Thread(target=run_tray_service, daemon=True).start())
+
+
+def main() -> int:
+    global LOCAL_IP
+    init_process()
+    events.subscribe(_gui_log_sink)
+    LOCAL_IP = get_local_ip()
     load_config()
     setup_gui()
+    start_background_services()
     try:
         root.mainloop()
     except KeyboardInterrupt:
-        sys.exit(0)
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

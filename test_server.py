@@ -10,6 +10,7 @@ il client (regressione v2.2.x: `break` illegale → "In attesa..." perenne).
 """
 import asyncio
 import json
+import os
 import re
 import socket
 import ssl
@@ -93,11 +94,11 @@ def test_ws():
 def test_version():
     print("\n[4/4] Versione dichiarata")
     try:
-        src = open("server.pyw", encoding="utf-8").read()
+        src = open(os.path.join("liquidmouse", "version.py"), encoding="utf-8").read()
         m = re.search(r'VERSION\s*=\s*"([^"]+)"', src)
-        check("VERSION presente in server.pyw", bool(m), m.group(1) if m else "")
+        check("VERSION presente in liquidmouse/version.py", bool(m), m.group(1) if m else "")
     except OSError as e:
-        check("VERSION presente in server.pyw", False, str(e))
+        check("VERSION presente in liquidmouse/version.py", False, str(e))
 
 if __name__ == "__main__":
     print("=" * 50)
