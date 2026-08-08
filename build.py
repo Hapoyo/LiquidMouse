@@ -33,14 +33,18 @@ def check_files():
     un file mancante dal bundle non fa fallire la build, produce un EXE che
     risponde 404 solo a runtime — e solo sul percorso remoto.
     """
+    # Stringhe letterali con "/" e non os.path.join: tests/test_assets_consistency.py
+    # estrae questi percorsi con una regex sulle stringhe quotate, la stessa
+    # che legge il `datas` di LiquidControl.spec — deve trovare lo stesso
+    # testo letterale nei due file per poterli confrontare.
     required = [
         "server.pyw",
-        "index.html",
-        "app.css",
-        "app.js",
-        "xterm.js",
-        "xterm.css",
-        "icon.ico",
+        "static/index.html",
+        "static/app.css",
+        "static/app.js",
+        "static/vendor/xterm.js",
+        "static/vendor/xterm.css",
+        "static/icon.ico",
         os.path.join("liquidmouse", "version.py"),
         os.path.join("liquidmouse", "__init__.py"),
         os.path.join("liquidmouse", "gui", "window.py"),

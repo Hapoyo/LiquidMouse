@@ -19,14 +19,16 @@ import os
 # È una whitelist: qualunque path non elencato riceve 404. Il percorso LAN
 # serviva invece l'intera BASE_DIR, quindi esponeva anche server.pyw e la
 # config a chiunque fosse sulla rete.
+# Le chiavi (URL pubblici) non cambiano mai per riorganizzazioni interne: solo
+# il nome su disco (secondo elemento) riflette dove il file vive nel repo.
 STATIC_ROUTES: dict[str, tuple[str, str]] = {
-    "/":           ("index.html", "text/html; charset=utf-8"),
-    "/index.html": ("index.html", "text/html; charset=utf-8"),
-    "/app.css":    ("app.css",    "text/css; charset=utf-8"),
-    "/app.js":     ("app.js",     "application/javascript; charset=utf-8"),
-    "/xterm.js":   ("xterm.js",   "application/javascript; charset=utf-8"),
-    "/xterm.css":  ("xterm.css",  "text/css; charset=utf-8"),
-    "/icon.ico":   ("icon.ico",   "image/x-icon"),
+    "/":           ("static/index.html", "text/html; charset=utf-8"),
+    "/index.html": ("static/index.html", "text/html; charset=utf-8"),
+    "/app.css":    ("static/app.css",    "text/css; charset=utf-8"),
+    "/app.js":     ("static/app.js",     "application/javascript; charset=utf-8"),
+    "/xterm.js":   ("static/vendor/xterm.js",  "application/javascript; charset=utf-8"),
+    "/xterm.css":  ("static/vendor/xterm.css", "text/css; charset=utf-8"),
+    "/icon.ico":   ("static/icon.ico",   "image/x-icon"),
 }
 
 
