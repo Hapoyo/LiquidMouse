@@ -16,4 +16,4 @@ def base_dir() -> str:
 
 
 BASE_DIR = base_dir()
-ICON_PATH = os.path.join(BASE_DIR, "icon.ico")
+ICON_PATH = os.path.join(BASE_DIR, "static", "icon.ico")

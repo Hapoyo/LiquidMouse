@@ -18,10 +18,14 @@ a = Analysis(
     pathex=[],
     binaries=_winpty_bins,
     # Ogni file elencato qui va elencato anche in STATIC_ROUTES
-    # (liquidmouse/net/static.py) e in check_files() di build.py.
+    # (liquidmouse/net/static.py) e in check_files() di build.py. Destinazione
+    # nel bundle uguale al percorso sorgente: l'albero estratto sotto
+    # sys._MEIPASS ha la stessa forma della cartella static/ del repo.
     datas=[
-        ('index.html', '.'), ('app.css', '.'), ('app.js', '.'),
-        ('icon.ico', '.'), ('xterm.js', '.'), ('xterm.css', '.'),
+        ('static/index.html', 'static'), ('static/app.css', 'static'),
+        ('static/app.js', 'static'), ('static/icon.ico', 'static'),
+        ('static/vendor/xterm.js', 'static/vendor'),
+        ('static/vendor/xterm.css', 'static/vendor'),
     ] + _winpty_data,
     hiddenimports=[
         # server.pyw importa la GUI dentro un try/except per poter mostrare un
@@ -83,5 +87,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['icon.ico'],
+    icon=['static/icon.ico'],
 )

@@ -20,6 +20,7 @@ import pytest
 from liquidmouse.net.static import STATIC_ROUTES
 
 ROOT = Path(__file__).resolve().parent.parent
+INDEX_HTML = ROOT / "static" / "index.html"
 
 # Elencati nello spec ma non serviti via HTTP: l'icona della finestra è letta
 # dal disco da Tk, non richiesta dal browser sotto questo nome.
@@ -33,7 +34,10 @@ def _file_in_static_routes() -> set[str]:
 def _file_nel_datas() -> set[str]:
     spec = (ROOT / "LiquidControl.spec").read_text(encoding="utf-8")
     blocco = spec[spec.index("datas=["):spec.index("] + _winpty_data")]
-    return set(re.findall(r"\('([^']+)',\s*'\.'\)", blocco))
+    # La destinazione (secondo elemento) non è più sempre '.': da quando gli
+    # asset vivono sotto static/, rispecchia il percorso sorgente. Qui conta
+    # solo il primo elemento (il file sorgente), qualunque sia la destinazione.
+    return set(re.findall(r"\('([^']+)',\s*'[^']*'\)", blocco))
 
 
 def _file_in_check_files() -> set[str]:
@@ -72,7 +76,7 @@ class TestRiferimentiNellaPagina:
     """Ciò che index.html carica dev'essere servito."""
 
     def test_ogni_risorsa_referenziata_e_in_static_routes(self):
-        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        html = INDEX_HTML.read_text(encoding="utf-8")
         riferimenti = set(re.findall(r'(?:src|href)="([^"]+)"', html))
         # Solo risorse locali: niente URL assoluti o ancore.
         locali = {r for r in riferimenti
@@ -87,7 +91,7 @@ class TestRiferimentiNellaPagina:
         # Lo split è la ragione per cui questi controlli esistono: se il JS
         # tornasse inline, test_client_js in test_server.py scansionerebbe di
         # nuovo la pagina e questi test andrebbero rivisti.
-        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        html = INDEX_HTML.read_text(encoding="utf-8")
         assert "<style>" not in html
         assert "<script>" not in html
         assert 'href="app.css"' in html
@@ -96,14 +100,14 @@ class TestRiferimentiNellaPagina:
     def test_gli_script_sono_deferiti(self):
         # xterm.js sono 283 KB render-blocking; app.js deve eseguire dopo di lui
         # e dopo il parsing del markup, che contiene gli onclick inline.
-        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        html = INDEX_HTML.read_text(encoding="utf-8")
         for script in re.findall(r"<script[^>]*src=[^>]*>", html):
             assert "defer" in script, f"script non deferito: {script}"
 
     def test_app_js_non_e_un_modulo(self):
         # I 13 onclick= inline richiedono funzioni globali: con type="module"
         # tutti i bottoni della barra del terminale smetterebbero di funzionare.
-        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        html = INDEX_HTML.read_text(encoding="utf-8")
         assert 'src="app.js" defer' in html
         assert 'type="module"' not in html
         assert "onclick=" in html

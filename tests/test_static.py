@@ -11,12 +11,17 @@ from liquidmouse.net.static import (
 
 @pytest.fixture
 def sito(tmp_path):
-    (tmp_path / "index.html").write_bytes(b"<html>ciao</html>")
-    (tmp_path / "app.css").write_bytes(b"body{}")
-    (tmp_path / "app.js").write_bytes(b"// app")
-    (tmp_path / "xterm.js").write_bytes(b"// xterm")
-    (tmp_path / "xterm.css").write_bytes(b".x{}")
-    (tmp_path / "icon.ico").write_bytes(b"\x00icon")
+    static_dir = tmp_path / "static"
+    vendor_dir = static_dir / "vendor"
+    vendor_dir.mkdir(parents=True)
+    (static_dir / "index.html").write_bytes(b"<html>ciao</html>")
+    (static_dir / "app.css").write_bytes(b"body{}")
+    (static_dir / "app.js").write_bytes(b"// app")
+    (vendor_dir / "xterm.js").write_bytes(b"// xterm")
+    (vendor_dir / "xterm.css").write_bytes(b".x{}")
+    (static_dir / "icon.ico").write_bytes(b"\x00icon")
+    # Resta alla radice, fuori da static/: verifica che i sorgenti restino
+    # irraggiungibili anche dopo la riorganizzazione.
     (tmp_path / "server.pyw").write_bytes(b"segreti")
     sf = StaticFiles(str(tmp_path))
     sf.load()
@@ -32,14 +37,16 @@ class TestCaricamento:
         assert sito.get("/") is sito.get("/index.html")
 
     def test_riporta_i_file_mancanti(self, tmp_path):
-        (tmp_path / "index.html").write_bytes(b"x")
+        (tmp_path / "static").mkdir()
+        (tmp_path / "static" / "index.html").write_bytes(b"x")
         sf = StaticFiles(str(tmp_path))
         mancanti = sf.load()
-        assert "xterm.js" in mancanti
-        assert "index.html" not in mancanti
+        assert "static/vendor/xterm.js" in mancanti
+        assert "static/index.html" not in mancanti
 
     def test_un_file_mancante_non_impedisce_gli_altri(self, tmp_path):
-        (tmp_path / "index.html").write_bytes(b"x")
+        (tmp_path / "static").mkdir()
+        (tmp_path / "static" / "index.html").write_bytes(b"x")
         sf = StaticFiles(str(tmp_path))
         sf.load()
         assert sf.get("/") is not None

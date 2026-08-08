@@ -63,16 +63,17 @@ py -3.13 server.pyw
 ## Project layout
 
 ```
-server.pyw          → server (WS + WSS + HTTP + HTTPS, GUI, tray) — run directly for testing
-index.html          → browser client (touchpad, keyboard, terminal)
-test_server.py      → smoke test (run while the server is up)
-build.py            → local build → EXE/LiquidControl.exe  (--pre → pre-release/ candidate)
-release.py          → versioned release (local git-less workflow, archives to release/)
-LiquidControl.spec  → PyInstaller configuration
-EXE/                → latest local build
-pre-release/        → timestamped release candidates
-release/            → versioned final builds
-build/              → PyInstaller work dir (disposable)
+server.pyw          → entrypoint: wires up the dependencies and starts the server
+liquidmouse/         → package: net, input, terminal, security, GUI, config
+static/              → browser client: index.html, app.css, app.js, icon.ico
+static/vendor/       → third-party client libraries (xterm.js, xterm.css), unmodified
+tests/               → pytest suite (no Windows required)
+test_server.py       → smoke test (run while the server is up)
+build.py             → local build → EXE/LiquidControl.exe  (--pre → pre-release/ candidate)
+LiquidControl.spec   → PyInstaller configuration
+EXE/                 → latest local build
+pre-release/         → timestamped release candidates
+build/               → PyInstaller work dir (disposable)
 ```
 
 ## Development
@@ -82,7 +83,7 @@ py -3.13 server.pyw          # run from source (test mode)
 py -3.13 test_server.py      # smoke test against the running server
 py -3.13 build.py            # build EXE/LiquidControl.exe
 py -3.13 build.py --pre      # build + archive a pre-release candidate
-py -3.13 release.py -v X.Y.Z --yes   # tag & push → GitHub Actions builds the release
+git tag vX.Y.Z && git push origin vX.Y.Z   # publishes the release via GitHub Actions
 ```
 
 ## Troubleshooting

@@ -28,7 +28,7 @@ pytestmark = pytest.mark.skipif(
 
 def _estrai_decoder() -> str:
     """Prende dal client la costante del tipo di frame e handleBinaryFrame."""
-    js = (ROOT / "app.js").read_text(encoding="utf-8")
+    js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
     costante = re.search(r"const FRAME_TERM_OUTPUT = (0x[0-9a-fA-F]+);", js)
     assert costante, "FRAME_TERM_OUTPUT non trovata in app.js"
     inizio = js.index("function handleBinaryFrame(buf)")
