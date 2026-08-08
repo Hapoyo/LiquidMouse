@@ -27,8 +27,24 @@ def _can_import(mod: str) -> bool:
         return False
 
 def check_files():
-    """Verifica l'integrità dei componenti essenziali del progetto."""
-    required = ["server.pyw", "index.html"]
+    """Verifica l'integrità dei componenti essenziali del progetto.
+
+    Ogni asset elencato nel `datas` di LiquidControl.spec va elencato anche qui:
+    un file mancante dal bundle non fa fallire la build, produce un EXE che
+    risponde 404 solo a runtime — e solo sul percorso remoto.
+    """
+    required = [
+        "server.pyw",
+        "index.html",
+        "app.css",
+        "app.js",
+        "xterm.js",
+        "xterm.css",
+        "icon.ico",
+        os.path.join("liquidmouse", "version.py"),
+        os.path.join("liquidmouse", "__init__.py"),
+        os.path.join("liquidmouse", "gui", "window.py"),
+    ]
     missing = [f for f in required if not os.path.exists(os.path.join(SCRIPT_DIR, f))]
     
     if missing:
@@ -126,7 +142,8 @@ def build():
         # --pre: archivia una candidate versionata in pre-release/
         if "--pre" in sys.argv:
             m = re.search(r'VERSION\s*=\s*"([^"]+)"',
-                          open(os.path.join(SCRIPT_DIR, "server.pyw"), encoding="utf-8").read())
+                          open(os.path.join(SCRIPT_DIR, "liquidmouse", "version.py"),
+                               encoding="utf-8").read())
             ver = m.group(1) if m else "dev"
             stamp = datetime.now().strftime("%Y%m%d-%H%M")
             pre_dir = os.path.join(SCRIPT_DIR, "pre-release")

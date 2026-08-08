@@ -10,6 +10,7 @@ il client (regressione v2.2.x: `break` illegale → "In attesa..." perenne).
 """
 import asyncio
 import json
+import os
 import re
 import socket
 import ssl
@@ -46,29 +47,43 @@ def test_ports():
 
 def test_static():
     print("\n[2/4] Client statico (HTTP 8000 + porta unica HTTPS 8443)")
+    # /app.js e /app.css vanno chiesti esplicitamente: dopo lo split di
+    # index.html il JS non sta piu' nella pagina, e un asset non elencato in
+    # STATIC_ROUTES o nel datas dello spec da' 404 solo qui.
     for url, label in ((f"http://{HOST}:{HTTP_PORT}/", "HTTP /"),
+                       (f"http://{HOST}:{HTTP_PORT}/app.js", "HTTP /app.js"),
                        (f"https://{HOST}:{HTTPS_PORT}/", "HTTPS / (porta unica)"),
+                       (f"https://{HOST}:{HTTPS_PORT}/app.js", "HTTPS /app.js"),
+                       (f"https://{HOST}:{HTTPS_PORT}/app.css", "HTTPS /app.css"),
                        (f"https://{HOST}:{HTTPS_PORT}/xterm.js", "HTTPS /xterm.js")):
         try:
             r = urllib.request.urlopen(url, context=_ssl_noverify, timeout=10)
             body = r.read()
             check(label, r.status == 200 and len(body) > 1000, f"{r.status}, {len(body)} byte")
-            if label == "HTTP /":
+            if label == "HTTP /app.js":
                 test_client_js(body.decode("utf-8", errors="replace"))
         except Exception as e:
             check(label, False, str(e))
 
-def test_client_js(html):
+def test_client_js(js):
     # Regressione v2.2.x: un `break` in una catena if/else = SyntaxError che
     # uccide l'intero script → client congelato su "In attesa...".
     # Un `break` legale sta sempre dentro for/while/switch: qui verifichiamo
     # che ogni `break;` nel sorgente sia racchiuso in uno di quei costrutti
     # con una euristica di prossimità (nessun loop/switch → sospetto).
+    #
+    # NB: va eseguito sul corpo di /app.js, non su quello di /. Puntato alla
+    # pagina scansionerebbe un HTML senza JS e passerebbe sempre, perdendo in
+    # silenzio la copertura su questa regressione.
+    if "function" not in js:
+        check("il corpo analizzato contiene JS", False,
+              "test_client_js ha ricevuto qualcosa che non e' il client")
+        return
     suspects = []
-    for m in re.finditer(r"\bbreak\s*;", html):
-        window = html[max(0, m.start() - 600):m.start()]
+    for m in re.finditer(r"\bbreak\s*;", js):
+        window = js[max(0, m.start() - 600):m.start()]
         if not re.search(r"\b(for|while|switch)\b", window):
-            line = html.count("\n", 0, m.start()) + 1
+            line = js.count("\n", 0, m.start()) + 1
             suspects.append(line)
     check("nessun `break` sospetto nel client JS", not suspects,
           f"righe: {suspects}" if suspects else "")
@@ -93,11 +108,11 @@ def test_ws():
 def test_version():
     print("\n[4/4] Versione dichiarata")
     try:
-        src = open("server.pyw", encoding="utf-8").read()
+        src = open(os.path.join("liquidmouse", "version.py"), encoding="utf-8").read()
         m = re.search(r'VERSION\s*=\s*"([^"]+)"', src)
-        check("VERSION presente in server.pyw", bool(m), m.group(1) if m else "")
+        check("VERSION presente in liquidmouse/version.py", bool(m), m.group(1) if m else "")
     except OSError as e:
-        check("VERSION presente in server.pyw", False, str(e))
+        check("VERSION presente in liquidmouse/version.py", False, str(e))
 
 if __name__ == "__main__":
     print("=" * 50)

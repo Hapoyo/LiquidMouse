@@ -14,10 +14,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -28,8 +28,21 @@ jobs:
         id: version
         shell: bash
         run: |
-          VERSION=$(python -c "import re; m=re.search(r'VERSION\s*=\s*\"([^\"]+)\"', open('server.pyw',encoding='utf-8').read()); print(m.group(1) if m else 'dev')")
+          VERSION=$(python -c "import re; m=re.search(r'VERSION\s*=\s*\"([^\"]+)\"', open('liquidmouse/version.py',encoding='utf-8').read()); print(m.group(1) if m else 'dev')")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Versione dichiarata: $VERSION"
+
+      # Senza questo controllo, taggare v2.4.0 con VERSION = "2.3.0" pubblica in
+      # silenzio una release v2.4.0 contenente LiquidControl_v2.3.0.exe.
+      - name: Verifica che il tag combaci con VERSION
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          if [ "$TAG" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::error::Tag v$TAG != VERSION ${{ steps.version.outputs.version }} in liquidmouse/version.py"
+            exit 1
+          fi
 
       - name: Build EXE
         run: python -m PyInstaller --clean --log-level WARN --distpath EXE LiquidControl.spec
@@ -39,14 +52,14 @@ jobs:
         run: mv EXE/LiquidControl.exe "EXE/LiquidControl_v${{ steps.version.outputs.version }}.exe"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: LiquidControl-v${{ steps.version.outputs.version }}
           path: EXE/LiquidControl_v${{ steps.version.outputs.version }}.exe
 
       - name: Crea Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: EXE/LiquidControl_v${{ steps.version.outputs.version }}.exe
           generate_release_notes: true

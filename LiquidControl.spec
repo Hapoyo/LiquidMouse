@@ -17,8 +17,20 @@ a = Analysis(
     ['server.pyw'],
     pathex=[],
     binaries=_winpty_bins,
-    datas=[('index.html', '.'), ('icon.ico', '.'), ('xterm.js', '.'), ('xterm.css', '.')] + _winpty_data,
+    # Ogni file elencato qui va elencato anche in STATIC_ROUTES
+    # (liquidmouse/net/static.py) e in check_files() di build.py.
+    datas=[
+        ('index.html', '.'), ('app.css', '.'), ('app.js', '.'),
+        ('icon.ico', '.'), ('xterm.js', '.'), ('xterm.css', '.'),
+    ] + _winpty_data,
     hiddenimports=[
+        # server.pyw importa la GUI dentro un try/except per poter mostrare un
+        # messaggio se mancano pystray/PIL/qrcode. Dichiararla qui evita di
+        # dipendere da come PyInstaller analizza gli import condizionali: senza,
+        # la build resterebbe verde e l'EXE non partirebbe.
+        'liquidmouse.gui',
+        'liquidmouse.gui.window',
+        'liquidmouse.gui.effects',
         'winpty',
         'winpty.ptyprocess',
         'websockets',

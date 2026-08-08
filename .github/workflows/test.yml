@@ -1,0 +1,72 @@
+name: Test
+
+# I test girano su ogni push e PR, non solo sui tag come la build: servono a
+# fare da rete di sicurezza durante il refactor, quindi devono essere veloci e
+# non dipendere da Windows.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# Il job fa checkout ed esegue pytest: non scrive nulla sul repository. Senza
+# questo blocco il GITHUB_TOKEN eredita i permessi di default, piu' ampi del
+# necessario.
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # websockets serve a test_server_module.py, che carica davvero server.pyw.
+      # Le librerie GUI (tkinter, pystray, PIL, qrcode) restano fuori di
+      # proposito: sono sostituite da stub, e la loro assenza e' cio' che
+      # dimostra che il core non dipende dalla GUI.
+      - name: Installa dipendenze di test
+        run: pip install pytest websockets
+
+      - name: Test unitari
+        run: python -m pytest
+
+      # I moduli del core non devono trascinare tkinter, pystray o le API
+      # Windows: se l'import qui fallisce, il modulo è tornato accoppiato alla
+      # GUI e non è più testabile in isolamento.
+      - name: Verifica che il core sia importabile senza GUI
+        run: |
+          python - <<'PY'
+          import importlib
+          moduli = [
+              "liquidmouse",
+              "liquidmouse.config",
+              "liquidmouse.events",
+              "liquidmouse.paths",
+              "liquidmouse.ports",
+              "liquidmouse.theme",
+              "liquidmouse.version",
+              "liquidmouse.input.keymap",
+              "liquidmouse.input.win32",
+              "liquidmouse.net.addresses",
+              "liquidmouse.net.frames",
+              "liquidmouse.net.protocol",
+              "liquidmouse.net.server",
+              "liquidmouse.net.upnp",
+              "liquidmouse.net.static",
+              "liquidmouse.security.auth",
+              "liquidmouse.security.tls",
+              "liquidmouse.terminal.commands",
+              "liquidmouse.terminal.conpty",
+              "liquidmouse.terminal.launcher",
+              "liquidmouse.terminal.ringbuffer",
+              "liquidmouse.terminal.sessions",
+          ]
+          for nome in moduli:
+              importlib.import_module(nome)
+              print("ok", nome)
+          PY
