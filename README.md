@@ -1,9 +1,22 @@
 # LiquidControl
 
-**v2.4.0 «Popins»**
+**v2.5.0 «Popins»**
 
 Turn your smartphone into a wireless touchpad, keyboard and terminal for Windows.
 No app to install — the client runs entirely in the browser.
+
+## What's new in v2.5.0
+
+- **Terminal-styled UI** — the client now uses a black/white/gray palette and monospace
+  type throughout, flat surfaces and hairline borders instead of frosted glass, and a
+  blinking block cursor next to the status line — the same signature the desktop panel's
+  boot animation already used.
+- **New terminal session opens cmd.exe** — the "New session" button used to only offer
+  `claude`; it now starts a real Windows terminal by default.
+- **More robust remote access** — a broken UPnP native dependency (e.g. mismatched DLLs
+  in the EXE) used to fail silently and show a bare "Remote unavailable" with no reason;
+  it's now reported. The remote panel also no longer reports UPnP as active if the TLS
+  certificate isn't actually available.
 
 ## What's new in v2.4.0
 
