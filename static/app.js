@@ -679,10 +679,10 @@
             theme: {
                 background: '#0D0D0D',
                 foreground: '#E8E4E0',
-                cursor: '#DA7756',
+                cursor: '#C4C4C4',
                 cursorAccent: '#0D0D0D',
-                selectionBackground: 'rgba(218,119,86,0.3)',
-                black: '#0D0D0D', red: '#E55B5B', green: '#5BA878', yellow: '#DA7756',
+                selectionBackground: 'rgba(196,196,196,0.3)',
+                black: '#0D0D0D', red: '#E55B5B', green: '#5BA878', yellow: '#C4C4C4',
                 blue: '#5A8FD8', magenta: '#B58FD8', cyan: '#5BBDA8', white: '#E8E4E0',
                 brightBlack: '#5A5868', brightRed: '#FF7B7B', brightGreen: '#7BC898',
                 brightYellow: '#FFB876', brightBlue: '#7AAFE8', brightMagenta: '#D5AFE8',
@@ -883,10 +883,10 @@
                 <div class="name-new">Nuova sessione</div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button class="session-card-btn btn-new btn-claude">CLAUDE</button>
+                <button class="session-card-btn btn-new btn-cmd">CMD</button>
             </div>`;
-        newCard.querySelector('.btn-claude').addEventListener('click', () => {
-            ws.send(JSON.stringify({type: 'term_create', cmd: 'claude'}));
+        newCard.querySelector('.btn-cmd').addEventListener('click', () => {
+            ws.send(JSON.stringify({type: 'term_create', cmd: 'cmd.exe'}));
         });
         list.appendChild(newCard);
     }

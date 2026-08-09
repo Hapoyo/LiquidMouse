@@ -49,6 +49,17 @@ class UpnpMapper:
         except ImportError:
             self.last_error = "libreria miniupnpc non disponibile in questa build"
             return None
+        except Exception as e:
+            # Non solo ImportError: un'estensione nativa compilata male (DLL
+            # incompatibili in un EXE PyInstaller) puo' far fallire l'import
+            # con un errore diverso. Senza questo ramo l'eccezione si
+            # propagava non gestita fuori da setup_sync, e piu' su fuori da
+            # `await self.upnp.setup(...)` in start_websocket_server: l'intero
+            # thread dei servizi di rete moriva zitto, con last_error rimasto
+            # None e remote_mode fermo su "none" — lo stesso sintomo di
+            # "Remoto non disponibile" ma senza alcun dettaglio nel log.
+            self.last_error = f"libreria miniupnpc non caricabile: {e}"
+            return None
         try:
             u = miniupnpc.UPnP()
             u.discoverdelay = DISCOVER_DELAY_MS

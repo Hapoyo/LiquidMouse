@@ -3,35 +3,27 @@
    Servito dalla whitelist in liquidmouse/net/static.py. */
 
     :root {
-        /* Design System: Glassmorphism */
-        --bg-gradient: linear-gradient(135deg, #0d0d1a 0%, #1a0d2e 50%, #0d1a2e 100%);
-        --bg-color: #0d0d1a;
+        /* Design System: Terminal chrome — bordi netti, superfici piatte,
+           niente vetro smerigliato. Stessa palette del pannello desktop
+           (liquidmouse/theme.py), per un solo linguaggio visivo fra i due
+           schermi invece di due grigi scuri leggermente diversi. */
+        --bg-color: #0D0D0D;
 
-        /* Glass surfaces */
-        --glass-surface: rgba(255, 255, 255, 0.07);
-        --glass-surface-hover: rgba(255, 255, 255, 0.11);
-        --glass-border: rgba(255, 255, 255, 0.15);
-        --glass-border-strong: rgba(255, 255, 255, 0.22);
-        --glass-highlight: rgba(255, 255, 255, 0.08);
-        --glass-blur: blur(24px) saturate(180%);
+        /* Superfici */
+        --surface: #161616;
+        --surface-hover: #1F1F1F;
+        --surface-pressed: #0A0A0A;
+        --border: #2A2A2A;
+        --border-strong: #3A3A3A;
 
         /* Testo */
-        --text-primary: rgba(255, 255, 255, 0.92);
-        --text-subtle: rgba(255, 255, 255, 0.45);
-        --text-muted: rgba(255, 255, 255, 0.28);
+        --text-primary: #F0EDE8;
+        --text-subtle: #B8B5C0;
+        --text-muted: #918EA4;
 
-        /* Shadows */
-        --shadow-out:
-            0 8px 32px rgba(0, 0, 0, 0.45),
-            inset 0 1px 0 rgba(255, 255, 255, 0.10);
-        --shadow-in:
-            inset 6px 6px 14px rgba(0, 0, 0, 0.30),
-            inset -4px -4px 10px rgba(255, 255, 255, 0.04);
-        --shadow-glow: 0 0 20px rgba(218, 119, 86, 0.25);
-
-        /* Accenti */
-        --accent: #DA7756;
-        --accent-glow: rgba(218, 119, 86, 0.35);
+        /* Cursore / accento (grigio neutro, non un colore di brand) */
+        --accent: #C4C4C4;
+        --accent-glow: rgba(196, 196, 196, 0.35);
         --active-gold: #ffcc00;
         --active-gold-glow: rgba(255, 204, 0, 0.30);
         --ok-color: #5BA878;
@@ -41,37 +33,17 @@
         margin: 0;
         height: 100vh;
         height: 100dvh;
-        background: var(--bg-gradient);
-        background-attachment: fixed;
+        background: var(--bg-color);
         display: flex;
         flex-direction: column;
         align-items: stretch;
         justify-content: flex-start;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-family: Consolas, Menlo, "SF Mono", "Courier New", monospace;
         overflow: hidden;
         user-select: none;
         box-sizing: border-box;
     }
 
-    body::before {
-        content: '';
-        position: fixed;
-        inset: -50%;
-        width: 200%;
-        height: 200%;
-        background: radial-gradient(ellipse at 30% 20%, rgba(218, 119, 86, 0.12) 0%, transparent 50%),
-                    radial-gradient(ellipse at 70% 80%, rgba(90, 60, 140, 0.15) 0%, transparent 50%),
-                    radial-gradient(ellipse at 50% 50%, rgba(13, 26, 46, 0.8) 0%, transparent 70%);
-        animation: bgPulse 20s ease-in-out infinite alternate;
-        pointer-events: none;
-        z-index: 0;
-    }
-
-    @keyframes bgPulse {
-        0%   { transform: rotate(0deg) scale(1); }
-        50%  { transform: rotate(3deg) scale(1.05); }
-        100% { transform: rotate(-2deg) scale(1.02); }
-    }
     #content-touchpad {
         align-items: center;
         justify-content: center;
@@ -79,13 +51,10 @@
     }
 
     .fluid-panel {
-        background: var(--glass-surface);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border-radius: 24px;
-        border: 1px solid var(--glass-border);
-        box-shadow: var(--shadow-out);
-        transition: all 0.12s cubic-bezier(0.25, 0.8, 0.25, 1);
+        background: var(--surface);
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        transition: background 0.1s, border-color 0.1s, transform 0.08s;
         display: flex;
         justify-content: center;
         align-items: center;
@@ -96,21 +65,11 @@
         overflow: hidden;
     }
 
-    .fluid-panel::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
-        pointer-events: none;
-    }
-
     .fluid-pressed {
-        box-shadow: var(--shadow-in) !important;
-        transform: scale(0.95);
-        background: rgba(0, 0, 0, 0.18) !important;
-        color: rgba(255, 255, 255, 0.7) !important;
-        border-color: rgba(255, 255, 255, 0.08) !important;
+        transform: scale(0.96);
+        background: var(--surface-pressed) !important;
+        color: var(--text-primary) !important;
+        border-color: var(--border-strong) !important;
     }
 
     /* Stile per i tasti "Lucchetto" (Drag, Ctrl, Shift) quando attivi */
@@ -155,7 +114,7 @@
     .mouse-btn {
         flex: 1;
         height: 100%;
-        border-radius: 24px;
+        border-radius: 8px;
         cursor: pointer;
         display: flex;
         flex-direction: column;
@@ -178,7 +137,26 @@
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 2px;
-        opacity: 0.6;
+        opacity: 0.7;
+    }
+
+    /* Cursore a blocco lampeggiante: la stessa firma del pannello desktop
+       (liquidmouse/gui/window.py, animazione typewriter all'avvio) — il filo
+       che tiene insieme telefono e PC come un solo terminale. */
+    #status::after {
+        content: '\2588';
+        margin-left: 4px;
+        color: var(--accent);
+        animation: cursorBlink 1s step-end infinite;
+    }
+
+    @keyframes cursorBlink {
+        0%, 100% { opacity: 1; }
+        50%      { opacity: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        #status::after { animation: none; }
     }
 
     #text-display {
@@ -186,21 +164,17 @@
         top: 58px;
         left: 14px;
         right: 14px;
-        background: rgba(0, 0, 0, 0.55);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid var(--glass-border);
-        border-radius: 18px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
         padding: 12px 16px;
         color: var(--ok-color);
         font-size: 15px;
-        font-family: 'Courier New', monospace;
         font-weight: 500;
         min-height: 32px;
         line-height: 1.4;
         display: none;
         z-index: 100;
-        box-shadow: var(--shadow-out);
     }
 
     #text-display.active {
@@ -217,9 +191,9 @@
         position: fixed;
         top: 0; left: 0;
         width: 100%; height: 100%;
-        background: rgba(8, 8, 18, 0.82);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -233,31 +207,19 @@
     }
 
     .config-content {
-        background: var(--glass-surface);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border-radius: 28px;
-        border: 1px solid var(--glass-border-strong);
-        box-shadow: var(--shadow-out), 0 0 60px rgba(0,0,0,0.5);
+        background: var(--surface);
+        border-radius: 10px;
+        border: 1px solid var(--border-strong);
         padding: 40px;
         text-align: center;
         max-width: 90%;
         position: relative;
-        overflow: hidden;
-    }
-
-    .config-content::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 10%; right: 10%;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
     }
 
     .config-input {
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid var(--glass-border);
-        border-radius: 14px;
+        background: var(--surface-pressed);
+        border: 1px solid var(--border);
+        border-radius: 6px;
         padding: 13px 18px;
         color: var(--text-primary);
         font-size: 16px;
@@ -265,12 +227,11 @@
         width: 100%;
         box-sizing: border-box;
         outline: none;
-        transition: border-color 0.2s, box-shadow 0.2s;
+        transition: border-color 0.15s;
     }
 
     .config-input:focus {
         border-color: var(--accent);
-        box-shadow: 0 0 0 3px var(--accent-glow);
     }
 
     .config-input::placeholder {
@@ -278,20 +239,20 @@
     }
 
     .config-btn {
-        background: var(--glass-surface-hover);
+        background: transparent;
         border: 1px solid var(--accent);
-        border-radius: 14px;
+        border-radius: 6px;
         padding: 13px 28px;
         color: var(--accent);
         font-weight: 600;
+        letter-spacing: 1px;
         cursor: pointer;
         margin-top: 10px;
-        transition: background 0.15s, box-shadow 0.15s;
+        transition: background 0.1s;
     }
 
     .config-btn:active {
-        background: rgba(218, 119, 86, 0.18);
-        box-shadow: var(--shadow-glow);
+        background: rgba(196, 196, 196, 0.15);
     }
 
     /* --- MENU OVERLAY AGGIORNATO (Griglia 3x3) --- */
@@ -299,9 +260,9 @@
         position: fixed;
         top: 0; left: 0;
         width: 100%; height: 100%;
-        background: rgba(8, 8, 18, 0.65);
-        backdrop-filter: blur(18px) saturate(150%);
-        -webkit-backdrop-filter: blur(18px) saturate(150%);
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
         z-index: 500;
         display: flex;
         flex-direction: column;
@@ -337,12 +298,9 @@
     .menu-btn-item {
         width: 100%;
         aspect-ratio: 1;
-        border-radius: 22px;
-        background: var(--glass-surface);
-        backdrop-filter: var(--glass-blur);
-        -webkit-backdrop-filter: var(--glass-blur);
-        border: 1px solid var(--glass-border);
-        box-shadow: var(--shadow-out);
+        border-radius: 8px;
+        background: var(--surface);
+        border: 1px solid var(--border);
         display: flex;
         flex-direction: column;
         justify-content: center;
@@ -351,11 +309,11 @@
         color: var(--text-subtle);
         text-align: center;
         cursor: pointer;
-        transition: background 0.12s, transform 0.1s;
+        transition: background 0.1s, transform 0.1s;
     }
 
     .menu-btn-item:active {
-        background: var(--glass-surface-hover);
+        background: var(--surface-hover);
         transform: scale(0.94);
     }
 
@@ -377,10 +335,8 @@
         left: 0;
         right: 0;
         height: 48px;
-        background: rgba(13, 13, 26, 0.75);
-        backdrop-filter: blur(20px) saturate(160%);
-        -webkit-backdrop-filter: blur(20px) saturate(160%);
-        border-bottom: 1px solid var(--glass-border);
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
         display: flex;
         align-items: stretch;
         z-index: 200;
@@ -402,7 +358,6 @@
     .tab-btn.active {
         color: var(--text-primary);
         border-bottom-color: var(--accent);
-        text-shadow: 0 0 12px var(--accent-glow);
     }
     .tab-btn.disabled {
         opacity: 0.22;
@@ -455,8 +410,8 @@
     .session-card {
         width: 100%;
         max-width: 360px;
-        background: #161616;
-        border-radius: 14px;
+        background: var(--surface);
+        border-radius: 8px;
         padding: 16px;
         display: flex;
         justify-content: space-between;
@@ -473,7 +428,7 @@
         padding: 8px 14px; font-size: 11px; font-weight: bold; cursor: pointer;
     }
     .btn-resume { background: rgba(91,168,120,0.18); color: #5BA878; border: 1px solid rgba(91,168,120,0.3); }
-    .btn-new    { background: rgba(218,119,86,0.18); color: #DA7756; border: 1px solid rgba(218,119,86,0.3); }
+    .btn-new    { background: rgba(196,196,196,0.18); color: #C4C4C4; border: 1px solid rgba(196,196,196,0.3); }
     #terminal-active {
         flex: 1; display: none;
         flex-direction: column; overflow: hidden;
@@ -494,11 +449,11 @@
     }
     #xterm-container .xterm-viewport::-webkit-scrollbar { width: 6px; }
     #xterm-container .xterm-viewport::-webkit-scrollbar-thumb {
-        background: rgba(218,119,86,0.4); border-radius: 3px;
+        background: rgba(196,196,196,0.4); border-radius: 3px;
     }
     #bottom-bar {
-        background: #161616;
-        border-top: 1px solid rgba(255,255,255,0.06);
+        background: var(--surface);
+        border-top: 1px solid var(--border);
         padding: 8px;
         flex-shrink: 0;
         padding-bottom: calc(8px + env(safe-area-inset-bottom));
@@ -509,11 +464,9 @@
         flex: 1;
         min-width: 0;
         height: 100%;
-        border-radius: 16px;
-        background: var(--glass-surface);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid var(--glass-border);
+        border-radius: 6px;
+        background: var(--surface-hover);
+        border: 1px solid var(--border);
         color: var(--text-subtle);
         font-size: 18px;
         display: flex;
@@ -523,24 +476,13 @@
         gap: 3px;
         cursor: pointer;
         transition: background 0.1s, transform 0.08s;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         position: relative;
-        overflow: hidden;
-    }
-
-    .qbtn::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 5%; right: 5%;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);
     }
 
     .qbtn:active, .qbtn.pressed {
-        background: rgba(0,0,0,0.22) !important;
-        transform: scale(0.93);
-        box-shadow: var(--shadow-in);
-        border-color: rgba(255,255,255,0.08);
+        background: var(--surface-pressed) !important;
+        transform: scale(0.95);
+        border-color: var(--border-strong);
     }
 
     .qbtn.lock-active {

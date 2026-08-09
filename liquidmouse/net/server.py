@@ -252,7 +252,19 @@ class NetworkServices:
         ssl_ctx = self.tls.context_for(self.local_ip)
 
         ext_ip = await self.upnp.setup(self.local_ip)
-        if ext_ip:
+        if ext_ip and not ssl_ctx:
+            # UPnP ha aperto la porta ma senza certificato TLS il server
+            # HTTPS_PORT/WSS_PORT non viene nemmeno aggiunto a `servers` più
+            # sotto: dichiarare il remoto attivo sarebbe un falso positivo,
+            # un QR che punta a una porta chiusa. Riusa lo stesso canale
+            # (upnp.last_error) già letto da gui/window.py invece di
+            # inventarne uno nuovo.
+            self.upnp.last_error = (
+                "UPnP attivo ma certificato TLS non disponibile: il percorso "
+                "remoto resta chiuso (vedi log)")
+            log_message(self.upnp.last_error, color=COLOR_ERROR)
+            ext_ip = None
+        elif ext_ip:
             log_message(f"UPnP attivo: {ext_ip}", color=COLOR_OK)
         else:
             log_message(f"UPnP non riuscito: {self.upnp.last_error}", color=COLOR_MUTED)

@@ -6,6 +6,7 @@ log, rendendo impossibile diagnosticare senza leggere il codice sorgente.
 """
 
 import asyncio
+import builtins
 import sys
 import types
 
@@ -93,6 +94,27 @@ class TestMotiviDiFallimento:
         monkeypatch.setitem(sys.modules, "miniupnpc", None)
         mapper = UpnpMapper()
         assert mapper.setup_sync("192.168.1.10") is None
+        assert "miniupnpc" in mapper.last_error
+
+    def test_libreria_rompe_l_import_con_errore_diverso_da_import_error(self, monkeypatch):
+        # Caso limite reale: un'estensione nativa compilata male (DLL
+        # incompatibili in un EXE PyInstaller) puo' far fallire `import
+        # miniupnpc` con un errore diverso da ImportError. Prima del fix
+        # quell'eccezione si propagava non gestita fuori da setup_sync,
+        # lasciando last_error a None: lo stesso sintomo di "remoto non
+        # disponibile" ma senza alcun dettaglio diagnostico nel log.
+        monkeypatch.delitem(sys.modules, "miniupnpc", raising=False)
+        vero_import = builtins.__import__
+
+        def import_che_rompe(name, *args, **kwargs):
+            if name == "miniupnpc":
+                raise OSError("impossibile caricare miniupnpc.dll")
+            return vero_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", import_che_rompe)
+        mapper = UpnpMapper()
+        assert mapper.setup_sync("192.168.1.10") is None
+        assert mapper.last_error is not None
         assert "miniupnpc" in mapper.last_error
 
     def test_nessun_router_trovato(self, monkeypatch):
