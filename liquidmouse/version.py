@@ -7,5 +7,5 @@ Questo file è letto anche fuori da Python (regex, senza importarlo):
 Non aggiungere logica qui: deve restare parsabile con una regex banale.
 """
 
-VERSION = "2.5.0"
-CODENAME = "Popins"   # 2.5.0: tema monocromo terminale, robustezza remoto UPnP/TLS, cmd.exe default
+VERSION = "2.5.1"
+CODENAME = "Popins"   # 2.5.1: finestra desktop allineata allo stile piatto del terminale web
