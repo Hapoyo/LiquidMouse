@@ -458,55 +458,7 @@
         flex-shrink: 0;
         padding-bottom: calc(8px + env(safe-area-inset-bottom));
         display: flex; gap: 6px; align-items: center;
-        flex-wrap: wrap;
     }
-    .qbtn {
-        flex: 1;
-        min-width: 0;
-        height: 100%;
-        border-radius: 6px;
-        background: var(--surface-hover);
-        border: 1px solid var(--border);
-        color: var(--text-subtle);
-        font-size: 18px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 3px;
-        cursor: pointer;
-        transition: background 0.1s, transform 0.08s;
-        position: relative;
-    }
-
-    .qbtn:active, .qbtn.pressed {
-        background: var(--surface-pressed) !important;
-        transform: scale(0.95);
-        border-color: var(--border-strong);
-    }
-
-    .qbtn.lock-active {
-        background: rgba(255, 204, 0, 0.10) !important;
-        border-color: var(--active-gold-glow) !important;
-        color: var(--active-gold) !important;
-    }
-
-    .qbtn-label {
-        font-size: 9px;
-        letter-spacing: 0.5px;
-        color: var(--text-muted);
-        text-transform: uppercase;
-    }
-    .qbtn-y   { color: #5BA878; }
-    .qbtn-n   { color: #E55B5B; }
-    .qbtn-esc { color: var(--text-subtle); }
-    .qbtn-c   { color: var(--text-subtle); }
-    .qbtn-tab { color: var(--text-subtle); }
-    .qbtn-kbd { color: var(--accent); margin-left: auto; }
-    .qbtn-kill { color: #E55B5B; }
-    .qbtn-agent { color: var(--accent); font-weight: 700; }
-    .qbtn-nav { color: #5A8FD8; }
-    .qbtn-sz  { color: var(--text-subtle); font-size: 11px; }
     #session-dot-bar {
         width: 10px; height: 10px;
         border-radius: 50%; background: #5A5868;

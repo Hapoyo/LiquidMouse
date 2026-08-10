@@ -747,20 +747,6 @@
         resizeRaf = requestAnimationFrame(fitXterm);
     }
 
-    function termFontSize(delta) {
-        termFontSz = Math.max(8, Math.min(18, termFontSz + delta));
-        localStorage.setItem('termFontSize', termFontSz);
-        if (xterm) {
-            xterm.options.fontSize = termFontSz;
-            requestAnimationFrame(() => requestAnimationFrame(fitXterm));
-        }
-    }
-
-    function termAgentMode() {
-        termQuick('\x1b[D\x1b[D');
-        setTimeout(scheduleFit, 300);
-    }
-
     window.addEventListener('resize', scheduleFit);
     window.addEventListener('orientationchange', () => setTimeout(scheduleFit, 200));
 
@@ -789,25 +775,12 @@
         setTimeout(() => banner.classList.remove('visible'), 5000);
     }
 
-    function termQuick(data) {
-        if (ws && ws.readyState === WebSocket.OPEN && termSessionId) {
-            ws.send(JSON.stringify({type:'term_input', id: termSessionId, data}));
-        }
-        if (xterm) xterm.focus();
-    }
-
-    function termKillSession() {
-        if (!termSessionId) return;
-        if (!confirm('Terminare la sessione?')) return;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({type:'term_kill', id: termSessionId}));
-        }
-    }
-
-    // Tastiera mobile: hidden input, sync ad xterm
+    // Tastiera mobile: hidden input, sync ad xterm. Il tap sul terminale
+    // stesso porta il focus qui (niente più bottone dedicato) così la
+    // tastiera di sistema si apre come su un vero terminale.
     const termKbdInput = document.getElementById('term-kbd-input');
     let termKbdPrev = '';
-    document.getElementById('btn-show-kbd').addEventListener('click', () => {
+    document.getElementById('xterm-container').addEventListener('click', () => {
         termKbdInput.value = '';
         termKbdPrev = '';
         termKbdInput.focus();

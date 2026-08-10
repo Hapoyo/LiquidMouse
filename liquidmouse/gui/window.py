@@ -15,15 +15,15 @@ import tkinter as tk
 
 import pystray
 import qrcode
-from PIL import Image, ImageChops, ImageDraw, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 
 from liquidmouse.events import log_message
-from liquidmouse.gui.effects import apply_dwm_acrylic
+from liquidmouse.gui.effects import apply_dwm_style
 from liquidmouse.paths import ICON_PATH
 from liquidmouse.ports import HTTP_PORT, HTTPS_PORT
 from liquidmouse.terminal.launcher import open_pc_terminal
 from liquidmouse.theme import (
-    COLOR_ACCENT, COLOR_BG, COLOR_BORDER_GLOW, COLOR_ERROR,
+    COLOR_ACCENT, COLOR_BG, COLOR_BORDER, COLOR_ERROR,
     COLOR_GLASS, COLOR_MUTED, COLOR_OK, COLOR_SURFACE, COLOR_TEXT,
     COLOR_TRANSPARENT,
 )
@@ -272,7 +272,7 @@ def setup_gui():
     root.overrideredirect(True)
     root.attributes('-alpha', 0.0)
     # Niente "-transparentcolor": finestra opaca, angoli arrotondati da DWM
-    # (vedi _apply_dwm_acrylic). La trasparenza keyed lasciava puntini bianchi
+    # (vedi apply_dwm_style). La trasparenza keyed lasciava puntini bianchi
     # sui bordi e "bucava" gli angoli.
     root.configure(bg=COLOR_TRANSPARENT)
 
@@ -292,45 +292,24 @@ def setup_gui():
         return c.create_polygon(pts, smooth=True, **kw)
 
     PAD = 8
-    CORNER_R = 22
-    # Sfondo glass: bordo glow sottile invece del bordo piatto
+    # Angoli smussati quanto i pannelli del terminale web (8-10px), non i 22px
+    # da "card glass": stesso linguaggio visivo, non un blob arrotondato.
+    CORNER_R = 10
+    # Card piatta: bordo netto invece del bordo glow, niente riflesso.
     rounded_rect(canvas, PAD, PAD, w-PAD, h-PAD, CORNER_R,
-                 fill=COLOR_GLASS, outline=COLOR_BORDER_GLOW, width=1)
-
-    # Riflesso superiore (simulazione highlight glass): un vero gradiente
-    # alpha via PIL, non lo stipple di Tk. Lo stipple approssima la
-    # trasparenza con un pattern di puntini bianchi visibili — non un
-    # riflesso, un difetto — perché create_polygon non supporta alpha reale.
-    card_w, card_h = w - PAD * 2, h - PAD * 2
-    GRADIENT_H = 70
-    GRADIENT_ALPHA_MAX = 46
-    highlight = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
-    hdraw = ImageDraw.Draw(highlight)
-    for y in range(GRADIENT_H):
-        alpha = round(GRADIENT_ALPHA_MAX * (1 - y / GRADIENT_H))
-        if alpha <= 0:
-            break
-        hdraw.line([(0, y), (card_w, y)], fill=(255, 255, 255, alpha))
-    # Maschera sugli stessi angoli arrotondati della card, cosi' il gradiente
-    # non sborda oltre il bordo curvo in alto.
-    mask = Image.new("L", (card_w, card_h), 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (0, 0, card_w, card_h), radius=CORNER_R, fill=255)
-    highlight.putalpha(ImageChops.multiply(highlight.split()[3], mask))
-    root._highlight_photo = ImageTk.PhotoImage(highlight)
-    canvas.create_image(PAD, PAD, anchor="nw", image=root._highlight_photo)
+                 fill=COLOR_GLASS, outline=COLOR_BORDER, width=1)
 
     # Linea separatore dopo titolo
     sep_y = 70
-    canvas.create_line(PAD+30, sep_y,        w-PAD-30, sep_y,        fill=COLOR_BORDER_GLOW, width=1)
+    canvas.create_line(PAD+30, sep_y,        w-PAD-30, sep_y,        fill=COLOR_BORDER, width=1)
 
     # Linea separatore prima sezione remota
     sep_y_remote = 215
-    canvas.create_line(PAD+30, sep_y_remote, w-PAD-30, sep_y_remote, fill=COLOR_BORDER_GLOW, width=1)
+    canvas.create_line(PAD+30, sep_y_remote, w-PAD-30, sep_y_remote, fill=COLOR_BORDER, width=1)
 
     # Linea separatore sopra lo status
     sep_y2 = h - 75
-    canvas.create_line(PAD+30, sep_y2,       w-PAD-30, sep_y2,       fill=COLOR_BORDER_GLOW, width=1)
+    canvas.create_line(PAD+30, sep_y2,       w-PAD-30, sep_y2,       fill=COLOR_BORDER, width=1)
 
     # --- Dragging finestra ---
     def get_pos(e):
@@ -479,7 +458,7 @@ def setup_gui():
                 hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
             except Exception:
                 return
-        apply_dwm_acrylic(hwnd)
+        apply_dwm_style(hwnd)
     root.after(200, _dwm_later)
 
 _DOT_MAP = {COLOR_OK: COLOR_OK, COLOR_ACCENT: COLOR_OK, COLOR_ERROR: COLOR_ERROR}

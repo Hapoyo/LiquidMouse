@@ -17,7 +17,6 @@ COLOR_ACCENT      = "#C4C4C4"        # accento grigio (tema monocromo)
 # tiene la stessa tonalità lavanda-grigio ma sale a 5.1-4.5:1.
 COLOR_MUTED       = "#918EA4"        # testo secondario/muted
 COLOR_BORDER      = "#2A2A2A"        # bordo sottile
-COLOR_BORDER_GLOW = "#3A3540"        # bordo glass luminoso
 COLOR_ERROR       = "#E55B5B"
 COLOR_OK          = "#5BA878"
 # Ex colore chiave "-transparentcolor": la trasparenza keyed produceva puntini

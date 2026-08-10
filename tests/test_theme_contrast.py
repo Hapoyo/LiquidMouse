@@ -19,7 +19,7 @@ from liquidmouse.theme import (
 WCAG_AA_NORMAL_TEXT = 4.5
 
 # Colori di testo effettivamente usati come fg su sfondo scuro nella GUI.
-# COLOR_BORDER e COLOR_BORDER_GLOW sono bordi, non testo: esclusi apposta.
+# COLOR_BORDER e' un bordo, non testo: escluso apposta.
 TEXT_COLORS = {
     "COLOR_TEXT": COLOR_TEXT,
     "COLOR_ACCENT": COLOR_ACCENT,

@@ -152,18 +152,6 @@
             <div id="xterm-container"></div>
             <div id="bottom-bar">
                 <div id="session-dot-bar"></div>
-                <button class="qbtn qbtn-tab" onclick="termQuick('\t')">⇥</button>
-                <button class="qbtn qbtn-esc" onclick="termQuick('\x1b')">esc</button>
-                <button class="qbtn qbtn-c"   onclick="termQuick('\x03')">^C</button>
-                <button class="qbtn qbtn-y"   onclick="termQuick('y\r')">y</button>
-                <button class="qbtn qbtn-n"   onclick="termQuick('n\r')">n</button>
-                <button class="qbtn qbtn-agent" onclick="termAgentMode()" title="Agent mode (←←)">AGT</button>
-                <button class="qbtn qbtn-nav" onclick="termQuick('\x1b[D')" title="←">◀</button>
-                <button class="qbtn qbtn-nav" onclick="termQuick('\x1b[C')" title="→">▶</button>
-                <button class="qbtn qbtn-sz"  onclick="termFontSize(-1)" title="Font più piccolo">A−</button>
-                <button class="qbtn qbtn-sz"  onclick="termFontSize(1)"  title="Font più grande">A+</button>
-                <button class="qbtn qbtn-kill" onclick="termKillSession()">✕</button>
-                <button class="qbtn qbtn-kbd" id="btn-show-kbd">⌨ TASTIERA</button>
             </div>
             <input type="text" id="term-kbd-input" autocomplete="off" autocorrect="off" autocapitalize="off">
         </div>
