@@ -7,5 +7,5 @@ Questo file è letto anche fuori da Python (regex, senza importarlo):
 Non aggiungere logica qui: deve restare parsabile con una regex banale.
 """
 
-VERSION = "2.6.0"
-CODENAME = "Cyber"    # 2.6.0: tema cyber di PiDash, ritorno al nome Liquid Mouse
+VERSION = "2.6.1"
+CODENAME = "Cyber"    # 2.6.1: chiusura delle sessioni dall'elenco

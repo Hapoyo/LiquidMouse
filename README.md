@@ -1,9 +1,17 @@
 # Liquid Mouse
 
-**v2.6.0 «Cyber»**
+**v2.6.1 «Cyber»**
 
 Turn your smartphone into a wireless touchpad, keyboard and terminal for Windows.
 No app to install — the client runs entirely in the browser.
+
+## What's new in v2.6.1
+
+- **Close terminal sessions** — every session in the resume list has a `×`: the first tap
+  asks for confirmation (`chiudi?`), the second one ends the shell on the PC. Sessions used
+  to stay open forever: `esc` goes to the shell, and the list was unreachable once inside.
+- **Back to the list** — a `‹ sessioni` button above the terminal returns to the session
+  list without closing the session.
 
 ## What's new in v2.6.0
 

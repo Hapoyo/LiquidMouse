@@ -250,7 +250,11 @@ async def _term_resize(ctx: ClientConnection, data: dict) -> None:
 
 @handles('term_kill')
 async def _term_kill(ctx: ClientConnection, data: dict) -> None:
-    ctx.sessions.kill(data.get('id', ''), ws=ctx.ws)
+    # Senza ws: la × arriva dall'elenco delle sessioni, dove il client non è
+    # agganciato. Il controllo sull'aggancio non proteggeva nulla, perché un
+    # client autenticato può sempre agganciarsi con term_attach; bloccava
+    # solo la chiusura, e le sessioni restavano aperte per sempre.
+    ctx.sessions.kill(data.get('id', ''))
     await ctx.send_session_list()
 
 

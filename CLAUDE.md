@@ -1,6 +1,6 @@
 # Liquid Mouse — CLAUDE.md
 
-Versione 2.6.0 · 2026-09-27
+Versione 2.6.1 · 2026-09-27
 
 ## 1. Scopo
 Il telefono diventa touchpad, tastiera e terminale per un PC Windows. Il server Python
@@ -91,6 +91,9 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Sessioni terminale sopravvivono alla disconnessione (ring buffer 64 KB); quelle uscite
   vengono chiuse e rimosse. ConPTY: un thread chiude la pseudo-console all'uscita del
   processo, altrimenti ReadFile non riceve mai EOF.
+- Sessioni: si chiudono con la × dell'elenco (conferma al secondo tocco); `term_kill` non
+  richiede l'aggancio, che non è un confine (term_attach è libero per i client autenticati).
+  `esc` va alla shell, non chiude. "‹ sessioni" torna all'elenco lasciando la sessione viva.
 - Errore di autenticazione nel client = niente riconnessione automatica (evita il blocco IP).
 - Nome: LiquidControl fino alla 2.5.x, Liquid Mouse dalla 2.6.0 (config migrata copiando).
 - Font TTF e non woff2: gli stessi file servono al browser e a Tk (AddFontResourceEx privato).
@@ -100,7 +103,7 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - ConPTY via ctypes richiede Windows 10 1809+; pywinpty è il backend preferito.
 - Certificato auto-firmato: al primo accesso remoto il browser mostra l'avviso.
 - Ancora da provare su Windows: font privati in Tk, ConPTY senza pywinpty, barra tasti del
-  terminale, EXE 2.6.0 (pubblicato, non ancora provato).
+  terminale, chiusura delle sessioni, EXE 2.6.x.
 
 ## 9. Glossario
 - **PTY / ConPTY**: pseudo-terminale; ConPTY è quello nativo di Windows.
