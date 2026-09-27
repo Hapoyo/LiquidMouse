@@ -1,9 +1,26 @@
 # Liquid Mouse
 
-**v2.5.0 «Popins»**
+**v2.6.0 «Cyber»**
 
 Turn your smartphone into a wireless touchpad, keyboard and terminal for Windows.
 No app to install — the client runs entirely in the browser.
+
+## What's new in v2.6.0
+
+- **Back to the name Liquid Mouse** — the executable is now `LiquidMouse.exe`. The
+  settings folder moves from `%APPDATA%\LiquidControl` to `%APPDATA%\LiquidMouse`: on
+  first start the old one is copied over, so the PIN saved on your phones and the
+  certificate you already accepted keep working.
+- **"Cyber" look, shared with [PiDash](https://github.com/Hapoyo/PiDash)** — warm near-black
+  background, filled rounded panels in orange, amber, cream and pink, big numbers in
+  Space Grotesk and lowercase labels in Space Mono. Both the phone client and the desktop
+  window are laid out as a card file: numbered tabs (`001 touchpad`, `002 terminale`)
+  over an open folder. The desktop window now scales with the screen DPI.
+- **A wrong PIN no longer locks you out** — the client used to reconnect on its own with
+  the same wrong PIN until the server blocked the IP for 30 minutes. It now stops and
+  asks again.
+- **Terminal sessions that exit are released** — a session closed with `exit` used to
+  keep its PTY and buffer allocated until the program was closed.
 
 ## What's new in v2.5.0
 
@@ -56,10 +73,11 @@ py -3.13 server.pyw
 
 ## Usage
 
-1. Start LiquidMouse on the PC
+1. Start Liquid Mouse on the PC
 2. Scan the QR code shown in the window (or type the address in the phone browser)
-   - **HOST QR** → local network (`http://<lan-ip>:8000`)
-   - **SCAN REMOTO QR** → UPnP, works away from home (PIN included in the link)
+   - **scan lan** QR → local network (`http://<lan-ip>:8000`)
+   - **remoto // upnp** QR → UPnP, works away from home (PIN included in the link)
+   - the **002 terminale** tab of the window lists the open terminal sessions
 3. To quit: tray icon → Esci
 
 ## Features
@@ -79,11 +97,12 @@ py -3.13 server.pyw
 server.pyw          → entrypoint: wires up the dependencies and starts the server
 liquidmouse/         → package: net, input, terminal, security, GUI, config
 static/              → browser client: index.html, app.css, app.js, icon.ico
+static/fonts/        → Space Grotesk, Space Mono (Latin subset, SIL OFL 1.1) — browser and Tk
 static/vendor/       → third-party client libraries (xterm.js, xterm.css), unmodified
 tests/               → pytest suite (no Windows required)
 test_server.py       → smoke test (run while the server is up)
 build.py             → local build → EXE/LiquidMouse.exe  (--pre → pre-release/ candidate)
-LiquidMouse.spec   → PyInstaller configuration
+LiquidMouse.spec     → PyInstaller configuration
 EXE/                 → latest local build
 pre-release/         → timestamped release candidates
 build/               → PyInstaller work dir (disposable)
@@ -119,3 +138,4 @@ run `py -3.13 test_server.py` and check the browser console.
 ## License
 
 MIT — see [LICENSE](LICENSE). Fully open: use it, fork it, ship it.
+The bundled fonts are under the SIL Open Font License 1.1 (`static/fonts/OFL-*.txt`).

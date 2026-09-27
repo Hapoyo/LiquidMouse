@@ -7,5 +7,5 @@ Questo file è letto anche fuori da Python (regex, senza importarlo):
 Non aggiungere logica qui: deve restare parsabile con una regex banale.
 """
 
-VERSION = "2.5.1"
-CODENAME = "Popins"   # 2.5.1: finestra desktop allineata allo stile piatto del terminale web
+VERSION = "2.6.0"
+CODENAME = "Cyber"    # 2.6.0: tema cyber di PiDash, ritorno al nome Liquid Mouse
