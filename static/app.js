@@ -260,7 +260,9 @@
             clearTimeout(connectionTimeout);
             // Suggerisce di accettare il certificato se connessione remota fallisce
             if (wsUrl.startsWith('wss://') && reconnectAttempts === 0) {
-                const httpsUrl = `https://${ip.trim()}:8443`;
+                // La porta della pagina, non 8443 fissa: se il modem ha
+                // rifiutato la 8443 il QR punta a una porta di riserva.
+                const httpsUrl = `https://${ip.trim()}:${window.location.port || '8443'}`;
                 certLink.textContent = httpsUrl;
                 certLink.onclick = () => window.open(httpsUrl, '_blank');
                 certHint.style.display = 'block';

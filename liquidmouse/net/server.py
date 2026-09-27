@@ -100,6 +100,12 @@ class NetworkServices:
     def external_ip(self) -> str | None:
         return self.upnp.external_ip
 
+    @property
+    def external_port(self) -> int:
+        """Porta pubblica del QR: il router può aver rifiutato la 8443 e
+        averne concessa una di riserva (vedi net/upnp.py)."""
+        return getattr(self.upnp, "external_port", None) or HTTPS_PORT
+
     # --- autorizzazione ---------------------------------------------------
 
     async def authorize(self, websocket, client_ip: str) -> bool:
@@ -237,12 +243,14 @@ class NetworkServices:
     async def _upnp_keepalive(self) -> None:
         while True:
             await asyncio.sleep(UPNP_KEEPALIVE_SECS)
-            precedente = self.external_ip
+            precedente = (self.external_ip, self.external_port)
             nuovo_ip = await self.upnp.setup(self.local_ip)
             nuovo_mode = 'upnp' if nuovo_ip else 'none'
-            if nuovo_mode != self.remote_mode or (nuovo_ip and nuovo_ip != precedente):
+            cambiato = nuovo_ip and (nuovo_ip, self.external_port) != precedente
+            if nuovo_mode != self.remote_mode or cambiato:
                 if nuovo_ip:
-                    log_message(f"UPnP rinnovato: {nuovo_ip}", color=COLOR_OK)
+                    log_message(f"UPnP rinnovato: {nuovo_ip}:{self.external_port}",
+                                color=COLOR_OK)
                 else:
                     log_message(f"UPnP perso: {self.upnp.last_error}", color=COLOR_MUTED)
                 self._set_remote_mode(nuovo_mode)
@@ -265,7 +273,7 @@ class NetworkServices:
             log_message(self.upnp.last_error, color=COLOR_ERROR)
             ext_ip = None
         elif ext_ip:
-            log_message(f"UPnP attivo: {ext_ip}", color=COLOR_OK)
+            log_message(f"UPnP attivo: {ext_ip}:{self.external_port}", color=COLOR_OK)
         else:
             log_message(f"UPnP non riuscito: {self.upnp.last_error}", color=COLOR_MUTED)
         self._set_remote_mode('upnp' if ext_ip else 'none')
