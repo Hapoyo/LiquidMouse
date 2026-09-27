@@ -35,6 +35,10 @@ python build.py               # genera l'EXE in EXE/
 py -3.13 test_server.py       # smoke test, con il server gia' avviato
 ```
 
+Se cambi l'aspetto del client o della finestra, rigenera le immagini del README
+(`tools/anteprime.py`, istruzioni nel README § 7.3) e aggiungi una riga alla voce
+"Unreleased" di [CHANGELOG.md](CHANGELOG.md).
+
 I test unitari partono su ogni push e PR. Se tocchi il protocollo dei messaggi o
 il serving degli asset, aggiungi il caso corrispondente in `tests/` — sono le due
 aree dove un errore si manifesta solo da remoto o solo dentro l'EXE.

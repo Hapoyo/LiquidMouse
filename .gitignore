@@ -35,7 +35,8 @@ release/
 # ── Script e file locali (non per pubblicazione) ──
 release.py
 _archive/
-docs/
+docs/*
+!docs/img/
 
 # ── Configurazione locale Claude ──────────────────
 # CLAUDE.md invece è tracciato: è la memoria del progetto per Claude Code.
