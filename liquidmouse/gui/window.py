@@ -92,6 +92,7 @@ _main_canvas        = None
 _status_dot         = None
 _remote_status_var  = None
 _remote_status_label = None
+_remote_title_var   = None   # "remoto // upnp" o "remoto // tunnel"
 _remote_qr_item     = None
 _remote_qr_box      = None   # (x, y, lato) dell'area del QR remoto
 _sessions_win       = None
@@ -140,10 +141,11 @@ def terminate_application(icon=None, item=None):
     root.after(100, root.destroy)
 
 # --- ACCESSO REMOTO: ETICHETTA E QR ---
-# L'unica strada remota è UPnP: il router apre una porta pubblica (la 8443 o, se
-# il modem la rifiuta, una di riserva) verso la 8443 del PC e il QR ci punta con il
-# PIN già in query string, così dal telefono basta scansionare. Il certificato è
-# self-signed, quindi al primo accesso il browser mostra l'avviso una volta.
+# Due strade, con il PIN nel QR in entrambe. UPnP: il router apre una porta
+# pubblica (la 8443 o una di riserva) verso la 8443 del PC; certificato
+# self-signed, quindi al primo accesso il browser mostra l'avviso. Tunnel
+# Cloudflare, quando UPnP non può funzionare (CGNAT): indirizzo
+# *.trycloudflare.com con certificato valido, diverso a ogni avvio.
 
 def _remote_endpoint() -> tuple[str, str] | None:
     """(etichetta, url del QR) per l'accesso remoto, None se non disponibile.
@@ -153,13 +155,18 @@ def _remote_endpoint() -> tuple[str, str] | None:
     potevano divergere.
     """
     servizi = _deps.services()
-    if servizi is None or servizi.remote_mode != 'upnp':
+    if servizi is None:
         return None
-    external_ip = servizi.external_ip
-    porta = servizi.external_port
     pin = _deps.config.get('pin_plain', '')
-    return (f"UPnP  {external_ip}:{porta}",
-            f"https://{external_ip}:{porta}/?pin={pin}")
+    if servizi.remote_mode == 'upnp':
+        external_ip = servizi.external_ip
+        porta = servizi.external_port
+        return (f"UPnP  {external_ip}:{porta}",
+                f"https://{external_ip}:{porta}/?pin={pin}")
+    if servizi.remote_mode == 'tunnel' and servizi.tunnel_url:
+        url = servizi.tunnel_url
+        return (f"Tunnel  {url.removeprefix('https://')}", f"{url}/?pin={pin}")
+    return None
 
 
 def _get_remote_tray_label():
@@ -185,10 +192,14 @@ def update_remote_ui():
     """
     if not _remote_status_var:
         return
+    servizi = _deps.services()
+    modo = servizi.remote_mode if servizi is not None else 'none'
+    if _remote_title_var is not None:
+        titolo = "remoto // tunnel" if modo == 'tunnel' else "remoto // upnp"
+        root.after(0, lambda t=titolo: _remote_title_var.set(t))
     endpoint = _remote_endpoint()
     if endpoint is None:
-        servizi = _deps.services()
-        motivo = servizi.upnp.last_error if servizi else None
+        motivo = servizi.remote_problem if servizi else None
         etichetta = (f"Remoto non disponibile: {_troncato(motivo)}" if motivo
                      else "Remoto non disponibile")
         # COLOR_MUTED, non COLOR_ERROR: UPnP non ancora riuscito e' uno stato
@@ -407,7 +418,7 @@ def _scegli_font() -> None:
 
 def setup_gui():
     global ip_label_var, status_var, status_label, _main_canvas, _status_dot
-    global _remote_status_var, _remote_status_label, _remote_qr_box, _scale
+    global _remote_status_var, _remote_status_label, _remote_title_var, _remote_qr_box, _scale
 
     root.title("Liquid Mouse")
     try:
@@ -520,7 +531,8 @@ def setup_gui():
     ry2 = ry1 + P(128)
     pin_l = R - P(150)
     _panel(c, L, ry1, pin_l - GAP, ry2, COLOR_BG, COLOR_BORDER)
-    _text(c, L + P(12), ry1 + P(10), "remoto // upnp", _f_label(12), COLOR_MUTED)
+    _remote_title_var = _text(c, L + P(12), ry1 + P(10), "remoto // upnp",
+                              _f_label(12), COLOR_MUTED)
     rqr = P(88)
     _remote_qr_box = (pin_l - GAP - P(12) - rqr, ry1 + (ry2 - ry1 - rqr) // 2, rqr)
     # Crema come il QR LAN; finché UPnP non risponde mostra "qr in attesa".

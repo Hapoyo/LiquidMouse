@@ -11,3 +11,7 @@ PORT       = 8765   # WS locale
 HTTP_PORT  = 8000   # HTTP locale
 HTTPS_PORT = 8443   # HTTPS remoto (con TLS) — pagina + WSS insieme
 WSS_PORT   = 8766   # WSS remoto (con TLS) — legacy, client pre-porta-unica
+# Origine del tunnel Cloudflare: solo 127.0.0.1, ci si collega cloudflared.
+# Porta a sé perché da qui tutti i client arrivano come loopback, che sulle
+# altre porte è fidato senza PIN: su questa il PIN è sempre obbligatorio.
+TUNNEL_PORT = 8767

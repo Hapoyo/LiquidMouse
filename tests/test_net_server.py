@@ -93,3 +93,143 @@ class TestModalitaRemotaCoerenteConTls:
         services = _build_services(monkeypatch, ssl_ctx=object(), ext_ip=None)
         asyncio.run(_avvia_e_ferma(services))
         assert services.remote_mode == "none"
+
+
+# --- tunnel Cloudflare -----------------------------------------------------
+
+import json
+
+from liquidmouse.net.server import TUNNEL_GUARD_KEY, tunnel_client_ip
+from liquidmouse.security.auth import AuthGuard, hash_pin
+
+
+class _FakeTunnel:
+    def __init__(self, url="https://a-b-c.trycloudflare.com"):
+        self._url = url
+        self.url = None
+        self.status = None
+        self.running = False
+        self.on_change = None
+        self.avvii = 0
+        self.fermate = 0
+
+    def start(self):
+        self.avvii += 1
+        self.running = True
+        self.url = self._url
+
+    def stop(self):
+        self.fermate += 1
+        self.running = False
+        self.url = None
+
+
+def _build_con_tunnel(monkeypatch, *, ext_ip, tunnel):
+    monkeypatch.setattr(server_mod.websockets, "serve", lambda *a, **k: _FakeServeCtx())
+    return NetworkServices(
+        config={}, auth_guard=None, trusted_peer=None, sessions=None,
+        static=None, tls=_FakeTls(object()), upnp=_FakeUpnp(ext_ip),
+        local_ip="192.168.1.10", tunnel=tunnel,
+    )
+
+
+class TestSceltaDelTunnel:
+    def test_upnp_fallito_avvia_il_tunnel(self, monkeypatch):
+        tunnel = _FakeTunnel()
+        services = _build_con_tunnel(monkeypatch, ext_ip=None, tunnel=tunnel)
+        asyncio.run(_avvia_e_ferma(services))
+        assert tunnel.avvii == 1
+        assert services.remote_mode == "tunnel"
+        # All'uscita del server il tunnel va chiuso con lui.
+        assert tunnel.fermate == 1
+
+    def test_upnp_riuscito_non_avvia_il_tunnel(self, monkeypatch):
+        tunnel = _FakeTunnel()
+        services = _build_con_tunnel(monkeypatch, ext_ip="203.0.113.5", tunnel=tunnel)
+        asyncio.run(_avvia_e_ferma(services))
+        assert tunnel.avvii == 0
+        assert services.remote_mode == "upnp"
+
+    def test_tunnel_senza_indirizzo_resta_none_poi_diventa_tunnel(self, monkeypatch):
+        # L'indirizzo arriva dopo qualche secondo, dal thread del tunnel.
+        tunnel = _FakeTunnel(url=None)
+        services = _build_con_tunnel(monkeypatch, ext_ip=None, tunnel=tunnel)
+        asyncio.run(_avvia_e_ferma(services))
+        assert services.remote_mode == "none"
+        tunnel.url = "https://a-b-c.trycloudflare.com"
+        tunnel.on_change()
+        assert services.remote_mode == "tunnel"
+
+    def test_upnp_tornato_ferma_il_tunnel(self, monkeypatch):
+        tunnel = _FakeTunnel()
+        services = _build_con_tunnel(monkeypatch, ext_ip=None, tunnel=tunnel)
+        services._ssl_ctx = object()
+        asyncio.run(services._refresh_remote(primo=True))
+        assert services.remote_mode == "tunnel"
+        services.upnp._ext_ip = "203.0.113.5"
+        asyncio.run(services._refresh_remote())
+        assert services.remote_mode == "upnp"
+        assert tunnel.fermate == 1
+
+    def test_motivo_mostrato_e_quello_del_tunnel(self, monkeypatch):
+        tunnel = _FakeTunnel(url=None)
+        services = _build_con_tunnel(monkeypatch, ext_ip=None, tunnel=tunnel)
+        services.upnp.last_error = "cgnat dell'operatore (100.107.62.102)"
+        tunnel.running = True
+        tunnel.status = "download di cloudflared…"
+        assert "download" in services.remote_problem
+
+
+class TestIpDietroIlTunnel:
+    def test_usa_l_header_di_cloudflare(self):
+        assert tunnel_client_ip({"CF-Connecting-IP": "198.51.100.7"}) == "198.51.100.7"
+
+    def test_header_assente_o_falso(self):
+        assert tunnel_client_ip({}) == TUNNEL_GUARD_KEY
+        assert tunnel_client_ip({"CF-Connecting-IP": "non-un-ip"}) == TUNNEL_GUARD_KEY
+        assert tunnel_client_ip(None) == TUNNEL_GUARD_KEY
+
+
+class _FakeWs:
+    def __init__(self, messaggi):
+        self._messaggi = list(messaggi)
+        self.inviati = []
+        self.chiuso = False
+
+    async def recv(self):
+        return self._messaggi.pop(0)
+
+    async def send(self, m):
+        self.inviati.append(json.loads(m))
+
+    async def close(self):
+        self.chiuso = True
+
+
+class TestPinSulTunnel:
+    """Dal tunnel ogni client arriva da 127.0.0.1: senza il ramo dedicato il
+    loopback lo farebbe entrare senza PIN."""
+
+    def _services(self):
+        return NetworkServices(
+            config={"pin_hash": hash_pin("1234")}, auth_guard=AuthGuard(),
+            trusted_peer=None, sessions=None, static=None, tls=None,
+            upnp=_FakeUpnp(None), local_ip="192.168.1.10",
+        )
+
+    def test_senza_pin_rifiuta_anche_da_loopback(self):
+        ws = _FakeWs([json.dumps({"type": "auth", "pin": "sbagliato"})])
+        ok = asyncio.run(self._services().authorize(ws, "127.0.0.1", via_tunnel=True))
+        assert not ok
+        assert ws.inviati[0]["type"] == "auth_fail"
+
+    def test_pin_giusto_entra(self):
+        ws = _FakeWs([json.dumps({"type": "auth", "pin": "1234"})])
+        ok = asyncio.run(self._services().authorize(ws, "198.51.100.7", via_tunnel=True))
+        assert ok
+        assert ws.inviati[-1]["type"] == "auth_ok"
+
+    def test_loopback_diretto_resta_fidato(self):
+        # La finestra terminale sul PC continua a entrare senza PIN.
+        ws = _FakeWs([])
+        assert asyncio.run(self._services().authorize(ws, "127.0.0.1"))

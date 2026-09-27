@@ -31,11 +31,11 @@ MAPPING_DESC = 'LiquidMouse'
 # Reti che, come IP "esterno" del router, indicano un altro NAT a monte.
 # Elenco esplicito e non `is_global`: interessa solo il NAT, e `is_global`
 # scarterebbe anche i blocchi di documentazione usati nei test.
+_CGNAT_NET = ipaddress.ip_network("100.64.0.0/10")   # NAT condiviso dell'operatore
 _NAT_NETS = tuple(ipaddress.ip_network(n) for n in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",   # LAN (RFC 1918)
-    "100.64.0.0/10",                                    # CGNAT dell'operatore
     "169.254.0.0/16", "127.0.0.0/8",
-))
+)) + (_CGNAT_NET,)
 
 
 def _is_public_ip(ip: str) -> bool:
@@ -146,13 +146,15 @@ class UpnpMapper:
                     "(probabile doppio NAT: un altro router/modem a monte)")
                 return None
             if not _is_public_ip(ext_ip):
-                # Il router UPnP sta dietro un altro NAT (modem dell'operatore
-                # davanti a un router proprio, o CGNAT): il mapping riuscirebbe
-                # ma aprirebbe la porta solo verso il modem, e il QR punterebbe
-                # a un indirizzo irraggiungibile da fuori.
-                self.last_error = (
-                    f"ip esterno del router non pubblico ({ext_ip}): doppio NAT "
-                    "o CGNAT, la porta va aperta sul modem a monte")
+                # Il router UPnP sta dietro un altro NAT: il mapping riuscirebbe
+                # ma aprirebbe la porta solo verso lo strato sopra, e il QR
+                # punterebbe a un indirizzo irraggiungibile da fuori. Messaggi
+                # corti: il pannello remoto li tronca, e nella 2.6.2 la parte
+                # utile ("doppio NAT o CGNAT") finiva tagliata.
+                if ipaddress.ip_address(ext_ip) in _CGNAT_NET:
+                    self.last_error = f"cgnat dell'operatore ({ext_ip})"
+                else:
+                    self.last_error = f"doppio nat, modem a monte ({ext_ip})"
                 return None
             fallite = []
             scelta = None

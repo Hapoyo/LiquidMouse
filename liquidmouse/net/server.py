@@ -4,12 +4,15 @@ Tutto quello che serve arriva dal costruttore invece che da variabili globali:
 è ciò che permette di far girare i servizi senza GUI e di sostituire i pezzi
 nei test.
 
-Le porte in gioco sono quattro (vedi `liquidmouse/ports.py`); la 8443 è la
-"porta unica" remota e serve sia la pagina sia il canale comandi.
+Le porte in gioco sono cinque (vedi `liquidmouse/ports.py`); la 8443 è la
+"porta unica" remota e serve sia la pagina sia il canale comandi. La 8767 è
+l'origine del tunnel Cloudflare, la strada remota quando UPnP non può
+funzionare (CGNAT).
 """
 
 import asyncio
 import contextlib
+import ipaddress
 import json
 import threading
 from http import HTTPStatus
@@ -23,7 +26,7 @@ from liquidmouse.events import log_message
 from liquidmouse.net.addresses import is_loopback, is_private_ip
 from liquidmouse.net.protocol import ClientConnection, dispatch
 from liquidmouse.net.static import etag_matches
-from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, WSS_PORT
+from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, TUNNEL_PORT, WSS_PORT
 from liquidmouse.security.auth import AUTH_MAX_FAILS, pin_matches
 from liquidmouse.theme import COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_OK
 
@@ -34,6 +37,25 @@ WS_PING_TIMEOUT = 10
 # (che azzera il NAT) e recupera i casi in cui l'UPnP viene abilitato a server
 # già avviato.
 UPNP_KEEPALIVE_SECS = 600
+# Chiave anti brute force per chi arriva dal tunnel senza l'header di
+# Cloudflare (in pratica solo un processo locale).
+TUNNEL_GUARD_KEY = "tunnel"
+
+
+def tunnel_client_ip(headers) -> str:
+    """IP del client dietro il tunnel, dall'header che mette Cloudflare.
+
+    Dal tunnel tutte le connessioni arrivano da 127.0.0.1: usato come chiave
+    dell'anti brute force, cinque PIN sbagliati di chiunque su internet
+    avrebbero bloccato per 30 minuti anche il telefono del proprietario.
+    L'header è affidabile perché la porta del tunnel ascolta solo in loopback:
+    ci arriva cloudflared, e Cloudflare lo riscrive sempre.
+    """
+    valore = (headers.get("CF-Connecting-IP") or "").strip() if headers else ""
+    try:
+        return str(ipaddress.ip_address(valore))
+    except ValueError:
+        return TUNNEL_GUARD_KEY
 
 
 def make_http_handler(static):
@@ -82,7 +104,7 @@ def make_http_handler(static):
 
 class NetworkServices:
     def __init__(self, *, config, auth_guard, trusted_peer, sessions, static,
-                 tls, upnp, local_ip: str,
+                 tls, upnp, local_ip: str, tunnel=None,
                  on_remote_change=None, on_session_created=None) -> None:
         self.config = config
         self.auth_guard = auth_guard
@@ -91,10 +113,14 @@ class NetworkServices:
         self.static = static
         self.tls = tls
         self.upnp = upnp
+        self.tunnel = tunnel
+        if tunnel is not None:
+            tunnel.on_change = self._on_tunnel_change
         self.local_ip = local_ip
         self.on_remote_change = on_remote_change
         self.on_session_created = on_session_created
-        self.remote_mode = "none"   # "upnp" | "none"
+        self.remote_mode = "none"   # "upnp" | "tunnel" | "none"
+        self._ssl_ctx = None
 
     @property
     def external_ip(self) -> str | None:
@@ -106,9 +132,21 @@ class NetworkServices:
         averne concessa una di riserva (vedi net/upnp.py)."""
         return getattr(self.upnp, "external_port", None) or HTTPS_PORT
 
+    @property
+    def tunnel_url(self) -> str | None:
+        return self.tunnel.url if self.tunnel is not None else None
+
+    @property
+    def remote_problem(self) -> str | None:
+        """Perché il remoto non è attivo: lo stato del tunnel quando è lui la
+        strada in corso, altrimenti il motivo del fallimento UPnP."""
+        if self.tunnel is not None and self.tunnel.running and self.tunnel.status:
+            return f"tunnel: {self.tunnel.status}"
+        return self.upnp.last_error
+
     # --- autorizzazione ---------------------------------------------------
 
-    async def authorize(self, websocket, client_ip: str) -> bool:
+    async def authorize(self, websocket, client_ip: str, *, via_tunnel: bool = False) -> bool:
         """Applica il modello di autorizzazione. False = connessione già chiusa.
 
         Tre percorsi: remoto → PIN obbligatorio; loopback → sempre fidato (serve
@@ -117,7 +155,11 @@ class NetworkServices:
 
         Nota: `is_private_ip` esclude il range CGNAT 100.64/10, quindi un client
         dietro il NAT condiviso dell'ISP conta come remoto e deve dare il PIN.
+        Dal tunnel il PIN serve sempre: lì ogni client arriva da 127.0.0.1, e
+        il ramo loopback lo lascerebbe entrare senza.
         """
+        if via_tunnel:
+            return await self._authorize_remote(websocket, client_ip)
         is_remote = not is_private_ip(client_ip)
 
         if not is_remote:
@@ -175,10 +217,13 @@ class NetworkServices:
 
     # --- WebSocket --------------------------------------------------------
 
-    async def handler(self, websocket):
+    async def handler(self, websocket, *, via_tunnel: bool = False):
         """Ciclo di vita di una connessione client."""
-        client_ip = websocket.remote_address[0]
-        if not await self.authorize(websocket, client_ip):
+        if via_tunnel:
+            client_ip = tunnel_client_ip(getattr(websocket.request, "headers", None))
+        else:
+            client_ip = websocket.remote_address[0]
+        if not await self.authorize(websocket, client_ip, via_tunnel=via_tunnel):
             return
 
         ctx = ClientConnection(websocket, client_ip, self.sessions,
@@ -240,45 +285,71 @@ class NetworkServices:
         if self.on_remote_change:
             self.on_remote_change()
 
-    async def _upnp_keepalive(self) -> None:
+    def _tunnel_mode(self) -> str:
+        return 'tunnel' if self.tunnel_url else 'none'
+
+    def _on_tunnel_change(self) -> None:
+        """Il tunnel ha cambiato stato (dal suo thread). Con UPnP attivo il
+        tunnel non è la strada in uso e non cambia nulla."""
+        if self.remote_mode == 'upnp':
+            return
+        self._set_remote_mode(self._tunnel_mode())
+
+    async def _refresh_remote(self, *, primo: bool = False) -> None:
+        """Sceglie la strada remota: UPnP se apre la porta, altrimenti il tunnel.
+
+        Unico punto di decisione, usato all'avvio e dal keepalive: prima il
+        keepalive rifaceva la scelta per conto suo e saltava il controllo sul
+        certificato TLS.
+        """
+        precedente = (self.remote_mode, self.external_ip, self.external_port)
+        ext_ip = await self.upnp.setup(self.local_ip)
+        if ext_ip and not self._ssl_ctx:
+            # UPnP ha aperto la porta ma senza certificato TLS il server
+            # HTTPS_PORT/WSS_PORT non viene nemmeno avviato: dichiarare il
+            # remoto UPnP attivo sarebbe un falso positivo, un QR che punta a
+            # una porta chiusa.
+            self.upnp.last_error = (
+                "UPnP attivo ma certificato TLS non disponibile: il percorso "
+                "remoto resta chiuso (vedi log)")
+            ext_ip = None
+            if primo:
+                log_message(self.upnp.last_error, color=COLOR_ERROR)
+
+        if ext_ip:
+            if self.tunnel is not None and self.tunnel.running:
+                # Porta aperta: il tunnel non serve più, e lasciarlo su terrebbe
+                # un secondo indirizzo pubblico aperto senza motivo.
+                self.tunnel.stop()
+            if precedente != ('upnp', ext_ip, self.external_port):
+                log_message(f"UPnP attivo: {ext_ip}:{self.external_port}", color=COLOR_OK)
+                self._set_remote_mode('upnp')
+            return
+
+        if primo or precedente[0] == 'upnp':
+            log_message(f"UPnP non riuscito: {self.upnp.last_error}", color=COLOR_MUTED)
+        if self.tunnel is not None and not self.tunnel.running:
+            log_message("Accesso remoto tramite tunnel Cloudflare", color=COLOR_MUTED)
+            self.tunnel.start()
+        nuovo = self._tunnel_mode()
+        if primo or nuovo != precedente[0]:
+            self._set_remote_mode(nuovo)
+
+    async def _remote_keepalive(self) -> None:
         while True:
             await asyncio.sleep(UPNP_KEEPALIVE_SECS)
-            precedente = (self.external_ip, self.external_port)
-            nuovo_ip = await self.upnp.setup(self.local_ip)
-            nuovo_mode = 'upnp' if nuovo_ip else 'none'
-            cambiato = nuovo_ip and (nuovo_ip, self.external_port) != precedente
-            if nuovo_mode != self.remote_mode or cambiato:
-                if nuovo_ip:
-                    log_message(f"UPnP rinnovato: {nuovo_ip}:{self.external_port}",
-                                color=COLOR_OK)
-                else:
-                    log_message(f"UPnP perso: {self.upnp.last_error}", color=COLOR_MUTED)
-                self._set_remote_mode(nuovo_mode)
+            await self._refresh_remote()
+
+    async def _tunnel_handler(self, websocket):
+        await self.handler(websocket, via_tunnel=True)
 
     async def start_websocket_server(self) -> None:
         log_message("Protocolli di comunicazione inizializzati.", color=COLOR_MUTED)
         ssl_ctx = self.tls.context_for(self.local_ip)
+        self._ssl_ctx = ssl_ctx
 
-        ext_ip = await self.upnp.setup(self.local_ip)
-        if ext_ip and not ssl_ctx:
-            # UPnP ha aperto la porta ma senza certificato TLS il server
-            # HTTPS_PORT/WSS_PORT non viene nemmeno aggiunto a `servers` più
-            # sotto: dichiarare il remoto attivo sarebbe un falso positivo,
-            # un QR che punta a una porta chiusa. Riusa lo stesso canale
-            # (upnp.last_error) già letto da gui/window.py invece di
-            # inventarne uno nuovo.
-            self.upnp.last_error = (
-                "UPnP attivo ma certificato TLS non disponibile: il percorso "
-                "remoto resta chiuso (vedi log)")
-            log_message(self.upnp.last_error, color=COLOR_ERROR)
-            ext_ip = None
-        elif ext_ip:
-            log_message(f"UPnP attivo: {ext_ip}:{self.external_port}", color=COLOR_OK)
-        else:
-            log_message(f"UPnP non riuscito: {self.upnp.last_error}", color=COLOR_MUTED)
-        self._set_remote_mode('upnp' if ext_ip else 'none')
-
-        asyncio.get_running_loop().create_task(self._upnp_keepalive())
+        await self._refresh_remote(primo=True)
+        asyncio.get_running_loop().create_task(self._remote_keepalive())
 
         servers = [
             websockets.serve(self.handler, "0.0.0.0", PORT,
@@ -299,6 +370,15 @@ class NetworkServices:
                                  ping_interval=WS_PING_INTERVAL,
                                  ping_timeout=WS_PING_TIMEOUT)
             )
+        if self.tunnel is not None:
+            # Origine del tunnel: solo loopback, pagina + WS insieme come la
+            # 8443. Il TLS lo termina Cloudflare, qui arriva in chiaro.
+            servers.append(
+                websockets.serve(self._tunnel_handler, "127.0.0.1", TUNNEL_PORT,
+                                 ping_interval=WS_PING_INTERVAL,
+                                 ping_timeout=WS_PING_TIMEOUT,
+                                 process_request=self.https_process_request)
+            )
 
         try:
             async with contextlib.AsyncExitStack() as stack:
@@ -312,6 +392,8 @@ class NetworkServices:
         finally:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self.upnp.cleanup)
+            if self.tunnel is not None:
+                self.tunnel.stop()
 
     def run(self) -> None:
         """Punto di ingresso del thread dei servizi."""

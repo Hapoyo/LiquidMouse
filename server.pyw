@@ -11,13 +11,15 @@ import sys
 import threading
 
 from liquidmouse import events
-from liquidmouse.config import Config
+from liquidmouse.config import Config, get_config_path
 from liquidmouse.events import log_message
 from liquidmouse.net.addresses import TrustedPeer, get_local_ip, is_loopback
 from liquidmouse.net.server import NetworkServices
 from liquidmouse.net.static import StaticFiles
+from liquidmouse.net.tunnel import CloudflareTunnel
 from liquidmouse.net.upnp import UpnpMapper
 from liquidmouse.paths import BASE_DIR
+from liquidmouse.ports import TUNNEL_PORT
 from liquidmouse.security.auth import AuthGuard
 from liquidmouse.security.tls import SelfSignedCert
 from liquidmouse.terminal.launcher import open_pc_terminal
@@ -50,6 +52,9 @@ _session_manager = SessionManager()
 _static = StaticFiles(BASE_DIR)
 _tls = SelfSignedCert(_config)
 _upnp = UpnpMapper()
+# Strada remota quando UPnP non può funzionare (CGNAT): cloudflared scaricato
+# una volta accanto alla config.
+_tunnel = CloudflareTunnel(TUNNEL_PORT, get_config_path().parent / "bin")
 
 # Costruiti in main(), quando l'IP locale è noto e la finestra esiste.
 _services: NetworkServices | None = None
@@ -105,6 +110,7 @@ def _build_services() -> NetworkServices:
         static=_static,
         tls=_tls,
         upnp=_upnp,
+        tunnel=_tunnel,
         local_ip=LOCAL_IP,
         on_remote_change=window.update_remote_ui,
         on_session_created=_on_session_created,
