@@ -97,3 +97,32 @@ class TestUscitaNaturale:
         manager, session = asyncio.run(scenario())
         assert manager.get(session.id) is None
         assert pty.closed >= 1
+
+
+class TestChiusuraDallElenco:
+    """La × dell'elenco chiude una sessione a cui il client non è agganciato."""
+
+    def test_term_kill_da_un_client_non_agganciato(self, monkeypatch):
+        from liquidmouse.net.protocol import ClientConnection, dispatch
+
+        finto = FintoPty([])
+        finto.isalive = lambda: True
+        finto.read = lambda size: (_ for _ in ()).throw(EOFError("attesa")) if finto.closed else b""
+        monkeypatch.setattr(sessions_mod, "make_pty", lambda argv, cwd: finto)
+        monkeypatch.setattr(sessions_mod, "resolve_argv", lambda cmd: [cmd])
+
+        async def scenario():
+            manager = SessionManager()
+            session = manager.create("cmd.exe")
+            ws = FintoWs()                      # mai agganciato a `session`
+            ctx = ClientConnection(ws, "192.168.1.30", manager)
+            await dispatch(ctx, '{"type": "term_kill", "id": "%s"}' % session.id)
+            await asyncio.sleep(0.05)
+            return manager, session, ws
+
+        manager, session, ws = asyncio.run(scenario())
+        assert not session.alive
+        assert manager.get(session.id) is None
+        assert finto.closed >= 1
+        # Il client riceve l'elenco aggiornato, senza la sessione chiusa.
+        assert any('"term_sessions"' in p and session.id not in p for p in ws.inviati if isinstance(p, str))

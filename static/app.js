@@ -33,6 +33,10 @@
     // --- TERMINAL STATE ---
     let termSessionId = null;
     let attached = false;          // true quando la sessione è agganciata a questo ws
+    let termSessionCmd = '';       // comando della sessione aperta, per l'intestazione
+    // Sessioni chiuse con la × da questo telefono: la loro term_closed non è un
+    // errore da mostrare nel banner, l'utente l'ha chiesta.
+    const chiuseDaQui = new Set();
     let pendingTermId = null;      // deep-link ?term=<id> (finestra terminale sul PC)
     let xterm = null;
     let xtermOpened = false;
@@ -221,6 +225,7 @@
                     renderSessionPicker(msg.sessions);
                 } else if (msg.type === 'term_created') {
                     termSessionId = msg.id;
+                    termSessionCmd = 'cmd.exe';
                     attachSession(msg.id);
                 } else if (msg.type === 'term_closed') {
                     // NB: qui siamo in una catena if/else dentro una funzione, non in un
@@ -230,7 +235,11 @@
                     document.getElementById('tab-terminal-dot').style.display = 'none';
                     document.getElementById('terminal-active').classList.remove('visible');
                     document.getElementById('session-picker').style.display = '';
-                    showTermError(`Sessione terminata (exit ${msg.exit_code})`);
+                    if (chiuseDaQui.delete(msg.id)) {
+                        // Chiusa con la ×: niente banner d'errore.
+                    } else {
+                        showTermError(`Sessione terminata (exit ${msg.exit_code})`);
+                    }
                     termSessionId = null;
                     attached = false;
                     ws.send(JSON.stringify({type: 'term_list'}));
@@ -778,7 +787,12 @@
             showTermError('WebSocket non connesso — connetti prima dalla schermata principale.');
             return;
         }
-        if (termSessionId && attached) {
+        const pickerAperto = !document.getElementById('terminal-active').classList.contains('visible');
+        if (termSessionId && attached && pickerAperto) {
+            // Tornati all'elenco con "‹ sessioni": la sessione resta agganciata
+            // (xterm continua a ricevere l'output), ma l'elenco va aggiornato.
+            ws.send(JSON.stringify({type: 'term_list'}));
+        } else if (termSessionId && attached) {
             // Già agganciata: la sessione è rimasta viva al cambio tab e
             // xterm ha già lo stato aggiornato. Riallinea solo le dimensioni.
             openXtermIfNeeded();
@@ -945,7 +959,7 @@
 
             const metaDiv = document.createElement('div');
             metaDiv.className = 'meta';
-            metaDiv.textContent = `avviata ${age} min fa`;
+            metaDiv.textContent = (s.id === termSessionId ? 'aperta qui · ' : '') + `avviata ${age} min fa`;
 
             labelDiv.appendChild(nameDiv);
             labelDiv.appendChild(metaDiv);
@@ -956,11 +970,42 @@
             resumeBtn.textContent = 'riprendi';
             resumeBtn.addEventListener('click', () => {
                 termSessionId = s.id;
+                termSessionCmd = s.cmd;
                 attachSession(s.id);
             });
 
+            // × chiude la sessione (termina la shell sul PC). Il primo tocco
+            // chiede conferma, il secondo chiude: un tocco sbagliato in un
+            // elenco non deve bastare a perdere un lavoro in corso.
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'session-card-close';
+            closeBtn.setAttribute('aria-label', `chiudi la sessione ${s.cmd}`);
+            closeBtn.textContent = '×';
+            let annulla = null;
+            closeBtn.addEventListener('click', () => {
+                if (!closeBtn.classList.contains('confirm')) {
+                    closeBtn.classList.add('confirm');
+                    closeBtn.textContent = 'chiudi?';
+                    annulla = setTimeout(() => {
+                        closeBtn.classList.remove('confirm');
+                        closeBtn.textContent = '×';
+                    }, 3000);
+                    return;
+                }
+                clearTimeout(annulla);
+                if (!ws || ws.readyState !== WebSocket.OPEN) return;
+                closeBtn.disabled = true;
+                chiuseDaQui.add(s.id);
+                ws.send(JSON.stringify({type: 'term_kill', id: s.id}));
+            });
+
+            const actions = document.createElement('div');
+            actions.className = 'session-card-actions';
+            actions.appendChild(resumeBtn);
+            actions.appendChild(closeBtn);
+
             card.appendChild(labelDiv);
-            card.appendChild(resumeBtn);
+            card.appendChild(actions);
             list.appendChild(card);
         });
 
@@ -977,7 +1022,18 @@
         list.appendChild(newCard);
     }
 
+    // "‹ sessioni": torna all'elenco senza chiudere né sganciare la sessione,
+    // che continua a girare sul PC. Prima, una volta dentro, l'elenco non si
+    // rivedeva più finché la shell non usciva da sola.
+    function showSessionPicker() {
+        document.getElementById('terminal-active').classList.remove('visible');
+        document.getElementById('session-picker').style.display = '';
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'term_list'}));
+    }
+    document.getElementById('term-back').addEventListener('click', showSessionPicker);
+
     function attachSession(sid) {
+        document.getElementById('term-title').textContent = `${termSessionCmd || 'sessione'} · ${sid}`;
         document.getElementById('session-picker').style.display = 'none';
         document.getElementById('terminal-active').classList.add('visible');
         document.getElementById('tab-terminal-dot').style.display = 'block';

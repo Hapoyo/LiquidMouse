@@ -460,6 +460,32 @@ button { font-family: inherit; }
     cursor: pointer;
 }
 .btn-resume { background: var(--orange); }
+.session-card-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 8px;
+}
+/* × di chiusura: contorno scuro sul pannello crema; al primo tocco diventa
+   "chiudi?" su rosa, il secondo tocco chiude. */
+.session-card-close {
+    min-width: 40px;
+    padding: 0 10px;
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--ink);
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+.session-card-close.confirm {
+    background: var(--pink);
+    border-color: var(--pink);
+    font-size: 12px;
+    font-weight: 700;
+}
+.session-card-close:disabled { opacity: 0.5; }
 .btn-new    { background: var(--amber); }
 
 #terminal-active {
@@ -470,6 +496,35 @@ button { font-family: inherit; }
     overflow: hidden;
 }
 #terminal-active.visible { display: flex; }
+/* Intestazione del terminale: torna all'elenco senza chiudere la sessione. */
+#term-head {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--tan);
+}
+#term-back {
+    flex: 0 0 auto;
+    height: 32px;
+    padding: 0 12px;
+    background: var(--bg);
+    color: var(--cream);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    font-size: 12px;
+    cursor: pointer;
+}
+#term-title {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 #xterm-container {
     flex: 1;
     min-height: 0;

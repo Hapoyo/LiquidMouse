@@ -91,6 +91,9 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Sessioni terminale sopravvivono alla disconnessione (ring buffer 64 KB); quelle uscite
   vengono chiuse e rimosse. ConPTY: un thread chiude la pseudo-console all'uscita del
   processo, altrimenti ReadFile non riceve mai EOF.
+- Sessioni: si chiudono con la × dell'elenco (conferma al secondo tocco); `term_kill` non
+  richiede l'aggancio, che non è un confine (term_attach è libero per i client autenticati).
+  `esc` va alla shell, non chiude. "‹ sessioni" torna all'elenco lasciando la sessione viva.
 - Errore di autenticazione nel client = niente riconnessione automatica (evita il blocco IP).
 - Nome: LiquidControl fino alla 2.5.x, Liquid Mouse dalla 2.6.0 (config migrata copiando).
 - Font TTF e non woff2: gli stessi file servono al browser e a Tk (AddFontResourceEx privato).
