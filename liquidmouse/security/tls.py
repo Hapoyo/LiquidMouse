@@ -76,7 +76,7 @@ class SelfSignedCert:
         from cryptography.x509.oid import NameOID
 
         key = rsa.generate_private_key(public_exponent=65537, key_size=RSA_KEY_SIZE)
-        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "LiquidControl")])
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "LiquidMouse")])
         try:
             san = x509.SubjectAlternativeName([
                 x509.IPAddress(ipaddress.ip_address(local_ip))])

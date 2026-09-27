@@ -1,4 +1,4 @@
-# LiquidControl
+# Liquid Mouse
 
 **v2.5.0 «Popins»**
 
@@ -44,7 +44,7 @@ No app to install — the client runs entirely in the browser.
 
 ## Installation
 
-**Executable** — download `LiquidControl.exe` from
+**Executable** — download `LiquidMouse.exe` from
 [Releases](https://github.com/Hapoyo/LiquidMouse/releases) and run it.
 
 **From source** — Python 3.10–3.13 (3.14 not yet supported: `miniupnpc` has no wheel):
@@ -56,7 +56,7 @@ py -3.13 server.pyw
 
 ## Usage
 
-1. Start LiquidControl on the PC
+1. Start LiquidMouse on the PC
 2. Scan the QR code shown in the window (or type the address in the phone browser)
    - **HOST QR** → local network (`http://<lan-ip>:8000`)
    - **SCAN REMOTO QR** → UPnP, works away from home (PIN included in the link)
@@ -82,8 +82,8 @@ static/              → browser client: index.html, app.css, app.js, icon.ico
 static/vendor/       → third-party client libraries (xterm.js, xterm.css), unmodified
 tests/               → pytest suite (no Windows required)
 test_server.py       → smoke test (run while the server is up)
-build.py             → local build → EXE/LiquidControl.exe  (--pre → pre-release/ candidate)
-LiquidControl.spec   → PyInstaller configuration
+build.py             → local build → EXE/LiquidMouse.exe  (--pre → pre-release/ candidate)
+LiquidMouse.spec   → PyInstaller configuration
 EXE/                 → latest local build
 pre-release/         → timestamped release candidates
 build/               → PyInstaller work dir (disposable)
@@ -94,7 +94,7 @@ build/               → PyInstaller work dir (disposable)
 ```bash
 py -3.13 server.pyw          # run from source (test mode)
 py -3.13 test_server.py      # smoke test against the running server
-py -3.13 build.py            # build EXE/LiquidControl.exe
+py -3.13 build.py            # build EXE/LiquidMouse.exe
 py -3.13 build.py --pre      # build + archive a pre-release candidate
 git tag vX.Y.Z && git push origin vX.Y.Z   # publishes the release via GitHub Actions
 ```

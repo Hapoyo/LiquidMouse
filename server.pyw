@@ -1,5 +1,5 @@
 """
-LIQUID CONTROL - Server Application
+LIQUID MOUSE - Server Application
 Author: Hapone
 
 Entrypoint. Costruisce le dipendenze, le collega e avvia GUI e servizi.

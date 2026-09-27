@@ -257,13 +257,13 @@ def run_tray_service():
         pystray.Menu.SEPARATOR,
         pystray.MenuItem('Esci', terminate_application),
     )
-    pystray.Icon("LiquidControl", create_tray_icon(), "Liquid Control", menu).run()
+    pystray.Icon("LiquidMouse", create_tray_icon(), "Liquid Mouse", menu).run()
 
 def setup_gui():
     global ip_label_var, status_var, status_label, _main_canvas
     global _remote_status_var, _remote_status_label
 
-    root.title("Liquid Control")
+    root.title("Liquid Mouse")
     w, h = 560, 460
     sx = (root.winfo_screenwidth()  - w) // 2
     sy = (root.winfo_screenheight() - h) // 2
@@ -427,7 +427,7 @@ def setup_gui():
 
     anim_data = [
         (title_prefix,      ">_",                      40),
-        (title_main,        " Liquid Control",           25),
+        (title_main,        " Liquid Mouse",           25),
         (lbl_ip_header,     "HOST",                     15),
         (ip_label_var,      f"{_deps.local_ip}:{HTTP_PORT}",  18),
         (lbl_status_header, "STATO",                    15),

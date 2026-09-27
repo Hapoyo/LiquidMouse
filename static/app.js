@@ -1,4 +1,4 @@
-// LiquidControl — logica del client.
+// LiquidMouse — logica del client.
 // Estratto da index.html, dove era inline.
 //
 // Caricato come script classico e NON come modulo: il markup usa attributi

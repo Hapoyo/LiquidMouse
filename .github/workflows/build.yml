@@ -1,4 +1,4 @@
-name: Build LiquidControl
+name: Build LiquidMouse
 
 on:
   push:
@@ -33,7 +33,7 @@ jobs:
           echo "Versione dichiarata: $VERSION"
 
       # Senza questo controllo, taggare v2.4.0 con VERSION = "2.3.0" pubblica in
-      # silenzio una release v2.4.0 contenente LiquidControl_v2.3.0.exe.
+      # silenzio una release v2.4.0 contenente LiquidMouse_v2.3.0.exe.
       - name: Verifica che il tag combaci con VERSION
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
@@ -45,21 +45,21 @@ jobs:
           fi
 
       - name: Build EXE
-        run: python -m PyInstaller --clean --log-level WARN --distpath EXE LiquidControl.spec
+        run: python -m PyInstaller --clean --log-level WARN --distpath EXE LiquidMouse.spec
 
       - name: Rinomina EXE con versione
         shell: bash
-        run: mv EXE/LiquidControl.exe "EXE/LiquidControl_v${{ steps.version.outputs.version }}.exe"
+        run: mv EXE/LiquidMouse.exe "EXE/LiquidMouse_v${{ steps.version.outputs.version }}.exe"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: LiquidControl-v${{ steps.version.outputs.version }}
-          path: EXE/LiquidControl_v${{ steps.version.outputs.version }}.exe
+          name: LiquidMouse-v${{ steps.version.outputs.version }}
+          path: EXE/LiquidMouse_v${{ steps.version.outputs.version }}.exe
 
       - name: Crea Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
-          files: EXE/LiquidControl_v${{ steps.version.outputs.version }}.exe
+          files: EXE/LiquidMouse_v${{ steps.version.outputs.version }}.exe
           generate_release_notes: true
