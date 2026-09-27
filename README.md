@@ -1,191 +1,263 @@
 # Liquid Mouse
 
-**v2.7.0 «Cyber»**
+> v2.7.0 «Cyber» · 2026-09-27
 
-Turn your smartphone into a wireless touchpad, keyboard and terminal for Windows.
-No app to install — the client runs entirely in the browser.
+Turn your phone into a wireless touchpad, keyboard and terminal for a Windows PC.
+Nothing to install on the phone: the PC serves the client as a web page, you scan a QR code
+and the browser does the rest — on the same Wi-Fi or from anywhere.
 
-## What's new in v2.7.0
+[![Test](https://github.com/Hapoyo/LiquidMouse/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Hapoyo/LiquidMouse/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/Hapoyo/LiquidMouse?color=ee7b50&label=release)](https://github.com/Hapoyo/LiquidMouse/releases/latest)
+![Windows 10/11](https://img.shields.io/badge/windows-10%20%7C%2011-5b514a?logo=windows&logoColor=white)
+![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-3776AB?logo=python&logoColor=white)
+![Phone](https://img.shields.io/badge/phone-any%20browser-f2bb5b)
+[![License MIT](https://img.shields.io/badge/license-MIT-eee4cd)](LICENSE)
 
-- **Remote access behind CGNAT** — when UPnP can't open a port (the ISP shares one public
-  IP among customers, common on FWA/4G/5G lines), the PC starts a free Cloudflare quick
-  tunnel instead: the remote QR points to `https://<words>.trycloudflare.com`. It works
-  without any port forwarding, the certificate is valid (no browser warning) and the PIN
-  is still required. The address changes at every start, so scan the QR again.
-  `cloudflared` (~55 MB) is downloaded once into `%APPDATA%\LiquidMouse\bin`.
-- **Shorter remote diagnosis** — the panel now tells `cgnat dell'operatore` apart from
-  `doppio nat` instead of cutting the message off.
+![The desktop window and the phone client, touchpad and terminal](docs/img/copertina.png)
 
-## What's new in v2.6.2
+> **In italiano** — Liquid Mouse trasforma il telefono in touchpad, tastiera e terminale per
+> un PC Windows. Sul PC gira un piccolo server con una finestra e un'icona nella tray; sul
+> telefono basta il browser: si inquadra il QR e si usa, senza app. In casa passa dalla rete
+> Wi-Fi, fuori casa da HTTPS con PIN, aprendo la porta del router via UPnP o, dietro CGNAT,
+> con un tunnel Cloudflare gratuito. Il terminale è una vera shell di Windows (cmd.exe) nel
+> browser, con sessioni che sopravvivono alla disconnessione. L'interfaccia è in italiano e
+> condivide lo stile "cyber" di [PiDash](https://github.com/Hapoyo/PiDash); il download è in
+> [Releases](https://github.com/Hapoyo/LiquidMouse/releases/latest).
 
-- **Phone keyboard no longer hides the terminal** — the page now follows the visible area
-  above the keyboard: the prompt line and the shortcut keys stay on screen while typing.
-  With the keyboard open the tabs and the terminal header step aside to leave more rows.
-- **UPnP fallback ports** — many ISP modems keep `8443` for themselves and refuse the
-  mapping. The PC now tries `9443`, `10443`, `18443`, `28443` and `38443` as external
-  ports (all forwarded to `8443` on the PC) and the QR carries whichever one was granted.
-- **Clear double-NAT diagnosis** — if the UPnP router itself sits behind another modem or
-  the ISP's CGNAT, the remote panel says so instead of showing an unreachable QR.
+## 1. Features
 
-## What's new in v2.6.1
+- **Touchpad** — tap to click, double-tap, long-press for right click, two-finger scroll,
+  drag lock. Sub-pixel accumulation keeps slow movements smooth; speed is adjustable and
+  remembered by the phone.
+- **Keyboard** — the phone's own keyboard, Unicode included; what you type is echoed on
+  screen. A quick menu adds `esc`, copy, paste, select all, `win`, `win+v`, play/pause and
+  `ctrl`/`shift` locks.
+- **Real terminal** — `cmd.exe` running on the PC, shown with xterm.js. Sessions survive
+  disconnections (64 KB of scrollback is replayed on return), several phones can watch the
+  same session, and a session started from the phone also opens in a window on the PC.
+  A two-row key bar provides arrows, `esc`, `tab`, one-shot `ctrl`/`alt`, `home`/`end`,
+  page up/down and `^c ^d ^z ^l`.
+- **Zero install on the phone** — any modern mobile browser; the page follows the on-screen
+  keyboard so the prompt line never disappears behind it.
+- **Works away from home** — HTTPS/WSS on a single port with a PIN. The PC asks the router
+  to open it via UPnP; when that is impossible (CGNAT, double NAT) it starts a free
+  Cloudflare quick tunnel instead. Either way the QR code carries the address and the PIN.
+- **Secure by default** — first-come whitelist on the LAN, PIN with brute-force lockout for
+  remote access, static files served from an explicit whitelist.
+- **Light on both ends** — terminal output travels as raw binary frames, assets are cached
+  in memory with ETags, and the phone sends input only while your finger moves.
+- **One executable** — `LiquidMouse.exe`, built and published by GitHub Actions.
 
-- **Close terminal sessions** — every session in the resume list has a `×`: the first tap
-  asks for confirmation (`chiudi?`), the second one ends the shell on the PC. Sessions used
-  to stay open forever: `esc` goes to the shell, and the list was unreachable once inside.
-- **Back to the list** — a `‹ sessioni` button above the terminal returns to the session
-  list without closing the session.
+## 2. Screenshots
 
-## What's new in v2.6.0
+<p align="center">
+  <img src="docs/img/animazione.gif" width="300"
+       alt="Connection, cursor movement, typed text, quick menu and a terminal session">
+</p>
 
-- **Back to the name Liquid Mouse** — the executable is now `LiquidMouse.exe`. The
-  settings folder moves from `%APPDATA%\LiquidControl` to `%APPDATA%\LiquidMouse`: on
-  first start the old one is copied over, so the PIN saved on your phones and the
-  certificate you already accepted keep working.
-- **"Cyber" look, shared with [PiDash](https://github.com/Hapoyo/PiDash)** — warm near-black
-  background, filled rounded panels in orange, amber, cream and pink, big numbers in
-  Space Grotesk and lowercase labels in Space Mono. Both the phone client and the desktop
-  window are laid out as a card file: numbered tabs (`001 touchpad`, `002 terminale`)
-  over an open folder. The desktop window now scales with the screen DPI.
-- **Key bar in the terminal** — two rows under the terminal: `esc`, `tab`, `ctrl` and
-  `alt` (one-shot: they apply to the next key or typed character, e.g. `ctrl` + `r`), the
-  four arrows, `home`/`end`, page up/down, and the shortcuts `^c ^d ^z ^l`. Arrows and
-  page keys repeat while held; tapping a key keeps the phone keyboard open.
-- **A wrong PIN no longer locks you out** — the client used to reconnect on its own with
-  the same wrong PIN until the server blocked the IP for 30 minutes. It now stops and
-  asks again.
-- **Terminal sessions that exit are released** — a session closed with `exit` used to
-  keep its PTY and buffer allocated until the program was closed. With the built-in
-  ConPTY backend (used when pywinpty is missing) it even stayed "active" forever: the
-  pseudo console is now closed as soon as the process exits.
+On the phone:
 
-## What's new in v2.5.0
+| 001 · Touchpad | Quick menu | Typed text |
+|:---:|:---:|:---:|
+| <img src="docs/img/client-touchpad.png" width="240" alt="Touchpad"> | <img src="docs/img/client-menu.png" width="240" alt="Quick menu with drag lock on"> | <img src="docs/img/client-testo.png" width="240" alt="Typed text echoed on the touchpad"> |
+| **002 · Sessions** | **002 · Terminal** | **Remote access: PIN** |
+| <img src="docs/img/client-sessioni.png" width="240" alt="Terminal sessions list"> | <img src="docs/img/client-terminale.png" width="240" alt="cmd.exe session with the key bar"> | <img src="docs/img/client-pin.png" width="240" alt="Connection panel after a wrong PIN"> |
 
-- **Terminal-styled UI** — the client now uses a black/white/gray palette and monospace
-  type throughout, flat surfaces and hairline borders instead of frosted glass, and a
-  blinking block cursor next to the status line — the same signature the desktop panel's
-  boot animation already used.
-- **New terminal session opens cmd.exe** — the "New session" button used to only offer
-  `claude`; it now starts a real Windows terminal by default.
-- **More robust remote access** — a broken UPnP native dependency (e.g. mismatched DLLs
-  in the EXE) used to fail silently and show a bare "Remote unavailable" with no reason;
-  it's now reported. The remote panel also no longer reports UPnP as active if the TLS
-  certificate isn't actually available.
+On the PC:
 
-## What's new in v2.4.0
+| Remote access via UPnP | Remote access via Cloudflare tunnel |
+|:---:|:---:|
+| ![Desktop window, UPnP](docs/img/finestra-upnp.png) | ![Desktop window, tunnel](docs/img/finestra-tunnel.png) |
 
-- **Smoother cursor** — slow finger movements no longer stall. The sub-pixel remainder
-  of the rounding was being discarded, so gentle motion produced no movement at all.
-- **Faster terminal** — PTY output now travels as raw binary WebSocket frames instead of
-  base64 inside JSON: roughly 33% less bandwidth and no per-byte decoding on the phone.
-- **Faster page load** — static assets are cached in memory and served with an ETag, so a
-  reload revalidates with an empty `304` instead of re-transferring 283 KB of xterm.js.
-- **Remote access is UPnP only** — Tailscale support has been removed. The router opens
-  `8443` and the QR carries the PIN.
-- **Restructured codebase** — the logic now lives in a `liquidmouse/` package with 257
-  automated tests running in CI. `server.pyw` is a thin entrypoint.
-- **Security** — the LAN HTTP server used to serve its whole directory without
-  authentication, which exposed `server.pyw` and the config file containing the PIN.
-  Both paths now serve an explicit whitelist.
-- **Single remote port** — page and command channel both travel on `8443`
-  (many routers/ISPs filter unusual ports; one port, one certificate).
-- **UPnP self-healing** — mappings renewed every 10 minutes, survives router reboots.
+<p align="center">
+  <img src="docs/img/finestra-sessioni.png" width="500" alt="Terminal sessions on the PC"><br>
+  <sub><b>002 · Terminal sessions</b> — double-click a row to open it in a window on the PC</sub>
+</p>
 
-## Requirements
+Images generated from the code with demo data (addresses, PIN and sessions are made up):
+see [§ 7.3](#73-previews).
 
-- Windows 10 / 11
-- Phone and PC on the same Wi-Fi network — **or**, for remote use, a router with UPnP
-  enabled; without it (or behind CGNAT) remote access goes through a Cloudflare tunnel
+## 3. Requirements
 
-## Installation
+| Component | Requirement |
+|---|---|
+| PC | Windows 10 (1809+) or Windows 11 |
+| Phone | any recent browser: Safari on iOS, Chrome or Firefox on Android |
+| Network, at home | phone and PC on the same Wi-Fi; TCP `8000` and `8765` allowed by the firewall |
+| Network, away | nothing: UPnP on the router, or the Cloudflare tunnel when UPnP can't work |
+| From source | Python 3.10–3.13 (3.14 is not supported yet: `miniupnpc` has no wheel) |
 
-**Executable** — download `LiquidMouse.exe` from
-[Releases](https://github.com/Hapoyo/LiquidMouse/releases) and run it.
+## 4. Installation
 
-**From source** — Python 3.10–3.13 (3.14 not yet supported: `miniupnpc` has no wheel):
+### 4.1 Executable
+
+Download `LiquidMouse_vX.Y.Z.exe` from
+[Releases](https://github.com/Hapoyo/LiquidMouse/releases/latest) and run it. No installer,
+no administrator rights. Settings, PIN and certificate live in `%APPDATA%\LiquidMouse`.
+
+The first time, Windows Firewall asks whether to allow the program on private networks:
+allow it, otherwise the phone can't reach the PC.
+
+### 4.2 From source
 
 ```bash
+git clone https://github.com/Hapoyo/LiquidMouse.git
+cd LiquidMouse
 py -3.13 -m pip install websockets pystray Pillow qrcode cryptography pywinpty miniupnpc
 py -3.13 server.pyw
 ```
 
-## Usage
+### 4.3 Update
 
-1. Start Liquid Mouse on the PC
-2. Scan the QR code shown in the window (or type the address in the phone browser)
-   - **scan lan** QR → local network (`http://<lan-ip>:8000`)
-   - **remoto // upnp** or **remoto // tunnel** QR → works away from home (PIN included
-     in the link)
-   - the **002 terminale** tab of the window lists the open terminal sessions
-3. To quit: tray icon → Esci
+Download the new executable and replace the old one: settings stay in `%APPDATA%`, so the
+PIN saved on your phones and the certificate you already accepted keep working.
 
-## Features
+## 5. Usage
 
-- Touchpad with tap, double-tap, long-press (right-click), two-finger scroll, drag lock
-- Full virtual keyboard with Unicode support
-- **Terminal mode** — a real Windows terminal (xterm.js) in the browser, multi-viewer,
-  sessions survive disconnections, with a key bar for arrows, ctrl/alt and shortcuts
-- Quick menu: Copy, Paste, ESC, Ctrl/Shift lock, Select All, Win, Play/Pause
-- Adjustable cursor sensitivity, saved on the phone
-- Security: IP whitelist on LAN · PIN + SHA-256 + brute-force lockout for remote
-  connections, tunnel included · static assets served from an explicit whitelist
+1. Start Liquid Mouse on the PC: the window opens and an icon appears in the tray.
+2. Scan a QR code with the phone camera:
+   - **scan lan** — at home, on the same Wi-Fi (`http://<pc-ip>:8000`);
+   - **remoto // upnp** or **remoto // tunnel** — from anywhere, PIN included in the link.
+3. Use the **001 touchpad** and **002 terminale** tabs on the phone.
+4. Closing the window with `×` hides it in the tray; to quit, tray icon → **Esci**.
 
-## Project layout
+### 5.1 Connections
 
-```
-server.pyw          → entrypoint: wires up the dependencies and starts the server
-liquidmouse/         → package: net, input, terminal, security, GUI, config
-static/              → browser client: index.html, app.css, app.js, icon.ico
-static/fonts/        → Space Grotesk, Space Mono (Latin subset, SIL OFL 1.1) — browser and Tk
-static/vendor/       → third-party client libraries (xterm.js, xterm.css), unmodified
-tests/               → pytest suite (no Windows required)
-test_server.py       → smoke test (run while the server is up)
-build.py             → local build → EXE/LiquidMouse.exe  (--pre → pre-release/ candidate)
-LiquidMouse.spec     → PyInstaller configuration
-EXE/                 → latest local build
-pre-release/         → timestamped release candidates
-build/               → PyInstaller work dir (disposable)
-```
+| | LAN | Remote · UPnP | Remote · tunnel |
+|---|---|---|---|
+| When | same Wi-Fi | router with UPnP and a public IP | CGNAT, double NAT, UPnP off |
+| Address | `http://192.168.x.x:8000` | `https://<public-ip>:8443` | `https://<words>.trycloudflare.com` |
+| Certificate | — | self-signed: accept the warning once | valid, no warning |
+| PIN | no (first device wins) | yes, in the QR | yes, in the QR |
+| Notes | reset the device from the tray menu | fallback ports `9443`…`38443` if the router keeps `8443` | new address at every start; `cloudflared` downloaded once |
 
-## Development
+The PC picks the remote path on its own: UPnP when the router opens the port, otherwise
+the tunnel. The mapping is renewed every 10 minutes and survives router reboots.
+
+### 5.2 Gestures
+
+| Gesture | Action |
+|---|---|
+| tap | left click |
+| double tap | double click |
+| hold (0.65 s) | right click |
+| two fingers up/down | scroll |
+| **menu → trascina** | drag lock: move to select or drag, tap again to release |
+| **menu → ctrl / shift** | held until tapped again |
+
+### 5.3 Terminal
+
+**002 terminale** lists the sessions running on the PC: **riprendi** re-attaches one,
+**cmd** starts a new `cmd.exe`, `×` (twice, to confirm) ends it. **‹ sessioni** goes back to
+the list without closing anything. The PC's **002 terminale** tab shows the same list;
+double-click a row to open that session in a window on the PC.
+
+## 6. Security
+
+- **LAN** — the first device that connects is trusted; others are refused until you reset
+  it from the tray menu. The CGNAT range `100.64.0.0/10` counts as remote, not LAN.
+- **Remote** — a random PIN (`secrets.token_urlsafe`) generated on first start, checked as a
+  SHA-256 hash; 5 wrong attempts block the address for 30 minutes. Behind the tunnel every
+  client arrives from loopback, so the PIN is always required and the lockout uses the real
+  client IP (`CF-Connecting-IP`). The phone never retries a wrong PIN on its own.
+- **Files** — the HTTP servers answer only for the files in an explicit whitelist; any other
+  path is a 404.
+- **Terminal** — only whitelisted shells can be started; every value coming from the phone
+  is validated and clamped.
+
+## 7. Development
+
+Tests run on Linux, without Windows or a screen: Win32, Tk and the network are replaced by
+stubs.
 
 ```bash
-py -3.13 server.pyw          # run from source (test mode)
-py -3.13 test_server.py      # smoke test against the running server
-py -3.13 build.py            # build EXE/LiquidMouse.exe
-py -3.13 build.py --pre      # build + archive a pre-release candidate
-git tag vX.Y.Z && git push origin vX.Y.Z   # publishes the release via GitHub Actions
+pip install pytest websockets
+python -m pytest                 # 377 tests, the same ones CI runs on every push
+py -3.13 server.pyw              # run from source (Windows)
+py -3.13 test_server.py          # smoke test against the running server (Windows)
+py -3.13 build.py                # build EXE/LiquidMouse.exe  (--pre: archive a candidate)
 ```
 
-## Troubleshooting
+### 7.1 Architecture
 
-**Phone won't connect on LAN** — same Wi-Fi network? Windows Firewall must allow TCP
+```
+server.pyw          entrypoint: builds the dependencies and wires them, no logic
+liquidmouse/
+  net/              HTTP/WS servers, message protocol, static whitelist, binary frames,
+                    UPnP, Cloudflare tunnel
+  input/            key names → virtual keys, SendInput
+  terminal/         sessions, ConPTY (pywinpty or ctypes), command whitelist, ring buffer
+  security/         PIN and brute-force lockout, self-signed certificate
+  gui/              desktop window, tray, sessions panel — the only package using Tk
+static/             phone client: index.html, app.css, app.js, fonts, xterm.js
+tests/              pytest suite
+tools/anteprime.py  regenerates the images in docs/img
+```
+
+The GUI depends on the core, never the other way round: the core reports through
+`events.log_message` and the window is just one of its listeners. Code conventions, the lists
+that must stay aligned and the reasons behind each choice are in [CLAUDE.md](CLAUDE.md).
+
+### 7.2 Workflow
+
+Every change goes through a branch and a pull request to `main`, merged once CI is green.
+A release is published by running the `build` workflow on `main` with `pubblica=true` (or by
+pushing a `vX.Y.Z` tag matching `liquidmouse/version.py`): GitHub Actions builds the
+executable on Windows and attaches it to the release. History: [CHANGELOG.md](CHANGELOG.md).
+
+### 7.3 Previews
+
+The screenshots, the GIF and the cover are drawn by the real code with demo data: the phone
+client runs in Chromium at 390 px against a fake PC, the desktop window runs under Xvfb.
+
+```bash
+pip install playwright pillow qrcode        # plus tkinter from the system
+xvfb-run -s "-screen 0 1920x1080x24 -dpi 192" python tools/anteprime.py
+```
+
+## 8. Troubleshooting
+
+**The phone won't connect on the LAN** — same Wi-Fi network? Windows Firewall must allow TCP
 `8000` and `8765`. Some routers isolate Wi-Fi clients from each other ("AP isolation"):
 disable it in the router settings.
 
 **Remote shows "non disponibile"** — when UPnP fails the PC falls back to the Cloudflare
 tunnel, so the panel usually shows the tunnel state:
-- *tunnel: download di cloudflared…* / *avvio del tunnel…*: wait a few seconds.
-- *tunnel: download di cloudflared fallito*: the PC can't reach github.com; check the
+- *tunnel: download di cloudflared…* / *avvio del tunnel…* — wait a few seconds.
+- *tunnel: download di cloudflared fallito* — the PC can't reach github.com; check the
   firewall/antivirus, or put `cloudflared.exe` in `%APPDATA%\LiquidMouse\bin` by hand.
-- *tunnel: quick tunnel provisioning failed…*: Cloudflare refused the tunnel (rate limit);
+- *tunnel: quick tunnel provisioning failed…* — Cloudflare refused the tunnel (rate limit);
   it retries by itself.
 
 The UPnP reasons, shown when the tunnel isn't running:
-- *nessun router UPnP/IGD trovato*: UPnP is disabled in the router settings.
-- *il router ha rifiutato la mappatura*: the router refused `8443` and every fallback port.
-- *doppio nat, modem a monte*: your router sits behind the ISP modem. Put the modem in
+- *nessun router UPnP/IGD trovato* — UPnP is disabled in the router settings.
+- *il router ha rifiutato la mappatura* — the router refused `8443` and every fallback port.
+- *doppio nat, modem a monte* — your router sits behind the ISP modem. Put the modem in
   bridge mode, or forward TCP `8443` on the modem to your router.
-- *cgnat dell'operatore*: the ISP shares one public address among customers; no port can
+- *cgnat dell'operatore* — the ISP shares one public address among customers; no port can
   be opened from home. Use the tunnel, or ask the ISP for a public IP.
 
-**Stuck on "In attesa..."** — reload the page (old cached client). If it persists,
-run `py -3.13 test_server.py` and check the browser console.
+**The browser warns about the certificate** — expected with UPnP: the certificate is
+self-signed. Accept it once; the tunnel address has a valid certificate.
 
-## Author
+**Stuck on "In attesa…"** — reload the page (an old client may be cached). If it persists,
+run `py -3.13 test_server.py` on the PC and check the browser console.
 
-[Hapoyo](https://github.com/Hapoyo)
+## 9. Documentation
 
-## License
+| Document | Contents |
+|---|---|
+| [CHANGELOG.md](CHANGELOG.md) | changes by version |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | bug reports, pull requests, tests to run |
+| [CLAUDE.md](CLAUDE.md) | structure, conventions, design decisions, known limits (Italian) |
 
-MIT — see [LICENSE](LICENSE). Fully open: use it, fork it, ship it.
-The bundled fonts are under the SIL Open Font License 1.1 (`static/fonts/OFL-*.txt`).
+## 10. Credits and licenses
+
+- **Code**: MIT — see [LICENSE](LICENSE). Use it, fork it, ship it.
+- **Fonts**: Space Grotesk and Space Mono, SIL Open Font License 1.1 (`static/fonts/OFL-*.txt`).
+- **Terminal**: [xterm.js](https://xtermjs.org), MIT.
+- **Remote tunnel**: [cloudflared](https://github.com/cloudflare/cloudflared), Apache 2.0,
+  downloaded at runtime and not bundled.
+- **Style**: the "cyber" theme of [PiDash](https://github.com/Hapoyo/PiDash).
+
+Made by [Hapoyo](https://github.com/Hapoyo).

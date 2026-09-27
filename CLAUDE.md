@@ -30,6 +30,12 @@ static/                  index.html, app.css, app.js, icon.ico
 static/fonts/            Space Grotesk Medium, Space Mono (sottoinsieme latino) + OFL
 static/vendor/           xterm.js, xterm.css: non modificare
 tests/                   pytest, girano su Linux senza Windows né schermo
+tools/anteprime.py       rigenera le immagini di docs/img (client in Chromium, finestra Tk
+                         sotto Xvfb, dati dimostrativi e WebSocket finto)
+docs/img/                schermate, GIF, copertina e social preview del README (solo docs/img
+                         è tracciata: il resto di docs/ resta locale, vedi .gitignore)
+README.md, CHANGELOG.md  in inglese, stile PiDash (sezioni numerate); le novità vanno nel
+                         CHANGELOG, non nel README
 test_server.py           smoke test da lanciare con il server avviato (solo Windows)
 build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 .github/workflows/       test.yml (ogni push e PR), build.yml (EXE; release con pubblica=true
@@ -41,8 +47,12 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Core senza GUI: i moduli elencati in `.github/workflows/test.yml` devono importarsi su Linux
 - Avvio da sorgente (Windows): `py -3.13 -m pip install websockets pystray Pillow qrcode cryptography pywinpty miniupnpc` poi `py -3.13 server.pyw`
 - Smoke test (Windows, server avviato): `py -3.13 test_server.py`
+- Anteprime del README: `xvfb-run -s "-screen 0 1920x1080x24 -dpi 192" python tools/anteprime.py`
+  (servono playwright, Pillow, qrcode e tkinter; qui tkinter c'è solo in `/usr/bin/python3.12`
+  dopo `apt install python3-tk`). Rigenerarle quando cambia l'aspetto di client o finestra.
 - Build locale: `py -3.13 build.py` (`--pre` archivia una candidate in pre-release/)
-- Rilascio: versione in `liquidmouse/version.py` + README, unire in main, poi avviare
+- Rilascio: versione in `liquidmouse/version.py` + README + CHANGELOG (la voce "Unreleased"
+  prende numero e data), unire in main, poi avviare
   `build.yml` su main con `pubblica=true` (workflow_dispatch, anche via API GitHub): crea
   tag e release `vX.Y.Z` con `LiquidMouse_vX.Y.Z.exe`. Da qui il push dei tag non passa.
   In alternativa il push di un tag `vX.Y.Z` fa lo stesso (il tag deve coincidere con VERSION).
@@ -78,7 +88,8 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 | Cosa | Dove |
 |---|---|
 | Asset statici | `LiquidMouse.spec` (datas) · `net/static.py` (STATIC_ROUTES) · `build.py` (required) |
-| Versione | `version.py` · intestazione del README · tag git |
+| Versione | `version.py` · intestazione del README · tag git · titolo in CHANGELOG.md |
+| Immagini del README | link in `README.md` · file in `docs/img` (test_readme.py) |
 | Palette | `theme.py` · `static/app.css` `:root` |
 | Frame binari del terminale | `net/frames.py` · `handleBinaryFrame` in app.js |
 | Tasti del terminale | `TERM_KEYS` in app.js · `.tkey[data-key]` in index.html |
