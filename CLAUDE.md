@@ -31,7 +31,8 @@ static/vendor/           xterm.js, xterm.css: non modificare
 tests/                   pytest, girano su Linux senza Windows né schermo
 test_server.py           smoke test da lanciare con il server avviato (solo Windows)
 build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
-.github/workflows/       test.yml (ogni push), build.yml (tag v* → release con l'EXE)
+.github/workflows/       test.yml (ogni push e PR), build.yml (EXE; release con pubblica=true
+                         o con il push di un tag v*)
 ```
 
 ## 3. Comandi
@@ -51,7 +52,11 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Qui non c'è Windows: ciò che tocca Win32, Tk, EXE o rete reale va verificato con test su
   Linux (stub/finti) e anteprime (Tk sotto Xvfb, client con Playwright a 390 px); le prove
   su Windows vanno elencate all'utente come passi da eseguire.
-- Commit: uno per intervento, messaggi in italiano all'imperativo.
+- Sviluppo solo tramite Claude Code e GitHub: lavorare su un ramo, aprire una PR verso
+  `main` e unirla (merge commit) appena i controlli sono verdi. Unire sempre in `main`:
+  niente lavoro lasciato su rami. Un ramo già unito riparte da `origin/main`.
+- Commit: uno per intervento, messaggi in italiano all'imperativo. Non riscrivere commit
+  già pubblicati (il force push è bloccato).
 - Modifiche estese: prima un piano numerato dei file, poi l'esecuzione.
 
 ## 5. Convenzioni
@@ -94,7 +99,8 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Python 3.14 non supportato (miniupnpc senza wheel).
 - ConPTY via ctypes richiede Windows 10 1809+; pywinpty è il backend preferito.
 - Certificato auto-firmato: al primo accesso remoto il browser mostra l'avviso.
-- Ancora da provare su Windows: font privati in Tk, ConPTY senza pywinpty, EXE 2.6.0.
+- Ancora da provare su Windows: font privati in Tk, ConPTY senza pywinpty, barra tasti del
+  terminale, EXE 2.6.0 (pubblicato, non ancora provato).
 
 ## 9. Glossario
 - **PTY / ConPTY**: pseudo-terminale; ConPTY è quello nativo di Windows.
