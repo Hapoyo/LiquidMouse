@@ -160,9 +160,29 @@
 
         <div id="terminal-active">
             <div id="xterm-container"></div>
+            <!-- Barra tasti: le sequenze sono in TERM_KEYS (app.js). data-repeat =
+                 tenendo premuto il tasto si ripete. -->
             <div id="bottom-bar">
-                <div id="session-dot-bar"></div>
-                <span>tocca il terminale per scrivere</span>
+                <div class="tkeys">
+                    <button class="tkey" data-key="esc">esc</button>
+                    <button class="tkey" data-key="tab">tab</button>
+                    <button class="tkey mod" data-key="ctrl">ctrl</button>
+                    <button class="tkey mod" data-key="alt">alt</button>
+                    <button class="tkey arrow" data-key="left" data-repeat aria-label="freccia sinistra">←</button>
+                    <button class="tkey arrow" data-key="up" data-repeat aria-label="freccia su">↑</button>
+                    <button class="tkey arrow" data-key="down" data-repeat aria-label="freccia giù">↓</button>
+                    <button class="tkey arrow" data-key="right" data-repeat aria-label="freccia destra">→</button>
+                </div>
+                <div class="tkeys">
+                    <button class="tkey hot" data-key="ctrl-c" aria-label="ctrl+c, interrompi">^c</button>
+                    <button class="tkey hot" data-key="ctrl-d" aria-label="ctrl+d, fine input">^d</button>
+                    <button class="tkey hot" data-key="ctrl-z" aria-label="ctrl+z">^z</button>
+                    <button class="tkey hot" data-key="ctrl-l" aria-label="ctrl+l, pulisci">^l</button>
+                    <button class="tkey" data-key="home">home</button>
+                    <button class="tkey" data-key="end">end</button>
+                    <button class="tkey" data-key="pgup" data-repeat aria-label="pagina su">pg↑</button>
+                    <button class="tkey" data-key="pgdn" data-repeat aria-label="pagina giù">pg↓</button>
+                </div>
             </div>
             <input type="text" id="term-kbd-input" autocomplete="off" autocorrect="off" autocapitalize="off">
         </div>

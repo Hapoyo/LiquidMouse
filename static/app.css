@@ -487,23 +487,41 @@ button { font-family: inherit; }
     background: var(--line);
     border-radius: 3px;
 }
+/* Barra tasti del terminale: due file da otto, senza scorrimento orizzontale
+   (un tocco che scorre verrebbe letto come pressione del tasto). */
 #bottom-bar {
     flex: 0 0 auto;
     background: var(--panel);
     border-top: 1px solid var(--line);
-    padding: 8px 12px;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
     display: flex;
-    gap: 8px;
-    align-items: center;
-    font-size: 11px;
-    color: var(--tan);
+    flex-direction: column;
+    gap: 5px;
 }
-#session-dot-bar {
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    background: var(--line);
+.tkeys {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 5px;
 }
-#session-dot-bar.alive { background: var(--amber); }
+.tkey {
+    min-width: 0;
+    height: 36px;
+    padding: 0;
+    background: var(--bg);
+    color: var(--cream);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: background 0.08s, border-color 0.08s;
+}
+.tkey.arrow { font-size: 17px; }
+.tkey.hot { color: var(--orange); border-color: var(--orange); }
+.tkey.fluid-pressed { background: var(--line); border-color: var(--cream); }
+.tkey.lock-active { background: var(--amber); border-color: var(--amber); color: var(--ink); }
 #term-error-banner {
     display: none;
     margin: 8px;

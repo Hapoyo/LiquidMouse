@@ -227,7 +227,6 @@
                     // loop: un `break` è SyntaxError e uccide l'intero script della pagina
                     // (bug v2.2.x: client morto su "In attesa..." su tutti i browser)
                     if (msg.id && msg.id !== termSessionId) return;
-                    document.getElementById('session-dot-bar').classList.remove('alive');
                     document.getElementById('tab-terminal-dot').style.display = 'none';
                     document.getElementById('terminal-active').classList.remove('visible');
                     document.getElementById('session-picker').style.display = '';
@@ -798,6 +797,97 @@
         setTimeout(() => banner.classList.remove('visible'), 5000);
     }
 
+    // --- TASTI DEL TERMINALE: contratto (tests/test_term_keys.py) ---
+    // Sequenze VT inviate al PTY come term_input: ConPTY e winpty le
+    // traducono nei tasti Windows corrispondenti, come fa Windows Terminal.
+    const TERM_KEYS = {
+        esc: '\x1b', tab: '\t', enter: '\r',
+        up: '\x1b[A', down: '\x1b[B', right: '\x1b[C', left: '\x1b[D',
+        home: '\x1b[H', end: '\x1b[F', pgup: '\x1b[5~', pgdn: '\x1b[6~',
+        'ctrl-c': '\x03', 'ctrl-d': '\x04', 'ctrl-z': '\x1a', 'ctrl-l': '\x0c',
+    };
+    // Tasti che con un modificatore diventano CSI 1;<mod><finale> (xterm):
+    // ctrl+← = parola precedente, ctrl+home = inizio del buffer.
+    const CSI_MOD_FINAL = { up: 'A', down: 'B', right: 'C', left: 'D', home: 'H', end: 'F' };
+
+    // Ctrl+carattere come lo produce una tastiera vera: lettere e @[\]^_ →
+    // codice di controllo (ctrl+c = 0x03), spazio → NUL. Il resto non cambia.
+    function ctrlChar(c) {
+        if (c === ' ') return '\x00';
+        const code = c.toUpperCase().charCodeAt(0);
+        return (code >= 64 && code <= 95) ? String.fromCharCode(code - 64) : c;
+    }
+
+    // Applica ctrl/alt a un tasto della barra (`name`) o a un carattere
+    // digitato (`name` null). Funzione pura: mods arriva da fuori.
+    function withMods(data, name, mods) {
+        if (!mods.ctrl && !mods.alt) return data;
+        if (name && CSI_MOD_FINAL[name]) {
+            const m = 1 + (mods.alt ? 2 : 0) + (mods.ctrl ? 4 : 0);
+            return `\x1b[1;${m}${CSI_MOD_FINAL[name]}`;
+        }
+        let out = data;
+        if (mods.ctrl && out.length === 1) out = ctrlChar(out);
+        if (mods.alt) out = '\x1b' + out;
+        return out;
+    }
+    // --- fine contratto ---
+
+    function termSend(data) {
+        if (ws && ws.readyState === WebSocket.OPEN && termSessionId) {
+            ws.send(JSON.stringify({type: 'term_input', id: termSessionId, data}));
+        }
+    }
+
+    // Ctrl e alt della barra valgono per il tasto successivo (barra o tastiera
+    // del telefono), poi si spengono: come sulle tastiere dei terminali mobili.
+    const termMods = { ctrl: false, alt: false };
+    function setTermMod(name, on) {
+        termMods[name] = on;
+        document.querySelector(`.tkey[data-key="${name}"]`).classList.toggle('lock-active', on);
+    }
+    function consumeTermMods() {
+        const mods = { ...termMods };
+        if (mods.ctrl) setTermMod('ctrl', false);
+        if (mods.alt) setTermMod('alt', false);
+        return mods;
+    }
+
+    function pressTermKey(name) {
+        if (name === 'ctrl' || name === 'alt') { setTermMod(name, !termMods[name]); return; }
+        const seq = TERM_KEYS[name];
+        if (seq !== undefined) termSend(withMods(seq, name, consumeTermMods()));
+    }
+
+    const TKEY_REPEAT_DELAY = 400, TKEY_REPEAT_EVERY = 70;
+    document.querySelectorAll('.tkey').forEach(el => {
+        let delay = null, every = null;
+        const stop = () => {
+            clearTimeout(delay); clearInterval(every); delay = every = null;
+            el.classList.remove('fluid-pressed');
+        };
+        el.addEventListener('touchstart', (e) => {
+            // preventDefault: il tocco non sposta il focus, così la tastiera
+            // del telefono resta aperta mentre si usano frecce e scorciatoie.
+            e.preventDefault();
+            el.classList.add('fluid-pressed');
+            pressTermKey(el.dataset.key);
+            // Tenere premuto ripete (frecce, pagine): scorrere la cronologia
+            // o spostare il cursore senza toccare venti volte.
+            if ('repeat' in el.dataset) {
+                delay = setTimeout(() => {
+                    every = setInterval(() => pressTermKey(el.dataset.key), TKEY_REPEAT_EVERY);
+                }, TKEY_REPEAT_DELAY);
+            }
+        }, { passive: false });
+        el.addEventListener('touchend', stop);
+        el.addEventListener('touchcancel', stop);
+        // Mouse (finestra del terminale sul PC): niente cambio di focus
+        // al mousedown, azione al click. Col tocco il click non arriva.
+        el.addEventListener('mousedown', (e) => e.preventDefault());
+        el.addEventListener('click', () => pressTermKey(el.dataset.key));
+    });
+
     // Tastiera mobile: hidden input, sync ad xterm. Il tap sul terminale
     // stesso porta il focus qui (niente più bottone dedicato) così la
     // tastiera di sistema si apre come su un vero terminale.
@@ -813,25 +903,27 @@
         const val = termKbdInput.value;
         if (val.length > termKbdPrev.length) {
             const added = val.substring(termKbdPrev.length);
-            ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: added}));
+            // Un solo carattere dopo ctrl/alt della barra: ctrl+r, alt+f...
+            // Un blocco più lungo (incolla, suggerimento) passa così com'è.
+            termSend(added.length === 1 ? withMods(added, null, consumeTermMods()) : added);
         } else if (val.length < termKbdPrev.length) {
-            const del = termKbdPrev.length - val.length;
-            ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\b'.repeat(del)}));
+            termSend('\b'.repeat(termKbdPrev.length - val.length));
         }
         termKbdPrev = val;
     });
     termKbdInput.addEventListener('keydown', e => {
         if (!ws || ws.readyState !== WebSocket.OPEN || !termSessionId) return;
+        const frecce = { ArrowUp: 'up', ArrowDown: 'down', ArrowRight: 'right', ArrowLeft: 'left' };
         if (e.key === 'Enter') {
             e.preventDefault();
-            ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\r'}));
+            termSend('\r');
             termKbdInput.value = ''; termKbdPrev = '';
         } else if (e.key === 'Backspace' && termKbdInput.value.length === 0) {
-            ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\b'}));
-        } else if (e.key === 'ArrowUp')    { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[A'})); }
-        else if (e.key === 'ArrowDown')  { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[B'})); }
-        else if (e.key === 'ArrowRight') { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[C'})); }
-        else if (e.key === 'ArrowLeft')  { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[D'})); }
+            termSend('\b');
+        } else if (frecce[e.key]) {
+            e.preventDefault();
+            pressTermKey(frecce[e.key]);
+        }
     });
 
     function renderSessionPicker(sessions) {
@@ -888,7 +980,6 @@
     function attachSession(sid) {
         document.getElementById('session-picker').style.display = 'none';
         document.getElementById('terminal-active').classList.add('visible');
-        document.getElementById('session-dot-bar').classList.add('alive');
         document.getElementById('tab-terminal-dot').style.display = 'block';
         // Il server, su term_attach, re-invia l'intero ring buffer. Azzeriamo
         // xterm PRIMA del replay così lo schermo si ricostruisce senza

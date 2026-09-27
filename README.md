@@ -16,6 +16,10 @@ No app to install — the client runs entirely in the browser.
   Space Grotesk and lowercase labels in Space Mono. Both the phone client and the desktop
   window are laid out as a card file: numbered tabs (`001 touchpad`, `002 terminale`)
   over an open folder. The desktop window now scales with the screen DPI.
+- **Key bar in the terminal** — two rows under the terminal: `esc`, `tab`, `ctrl` and
+  `alt` (one-shot: they apply to the next key or typed character, e.g. `ctrl` + `r`), the
+  four arrows, `home`/`end`, page up/down, and the shortcuts `^c ^d ^z ^l`. Arrows and
+  page keys repeat while held; tapping a key keeps the phone keyboard open.
 - **A wrong PIN no longer locks you out** — the client used to reconnect on its own with
   the same wrong PIN until the server blocked the IP for 30 minutes. It now stops and
   asks again.
@@ -87,7 +91,7 @@ py -3.13 server.pyw
 - Touchpad with tap, double-tap, long-press (right-click), two-finger scroll, drag lock
 - Full virtual keyboard with Unicode support
 - **Terminal mode** — a real Windows terminal (xterm.js) in the browser, multi-viewer,
-  sessions survive disconnections
+  sessions survive disconnections, with a key bar for arrows, ctrl/alt and shortcuts
 - Quick menu: Copy, Paste, ESC, Ctrl/Shift lock, Select All, Win, Play/Pause
 - Adjustable cursor sensitivity, saved on the phone
 - Security: IP whitelist on LAN · PIN + SHA-256 + brute-force lockout for remote
