@@ -4,7 +4,16 @@ on:
   push:
     tags:
       - 'v*'
+  # Avvio manuale (anche via API): senza input produce solo l'EXE come
+  # artifact; con pubblica=true crea anche tag e release v<VERSION> sul commit.
+  # Serve perché il progetto si lavora solo tramite Claude Code, e da lì il
+  # push dei tag non passa: la release deve poter partire da GitHub.
   workflow_dispatch:
+    inputs:
+      pubblica:
+        description: 'Pubblica la release v<VERSION> (crea il tag sul commit di main)'
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -44,6 +53,22 @@ jobs:
             exit 1
           fi
 
+      # Pubblicazione manuale: solo da main, e mai sopra un tag che esiste già
+      # (softprops aggiornerebbe in silenzio la release precedente).
+      - name: Verifica la pubblicazione manuale
+        if: github.event_name == 'workflow_dispatch' && inputs.pubblica
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::La release si pubblica solo da main (ref: $GITHUB_REF)"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::Il tag v$VERSION esiste già: aggiorna VERSION in liquidmouse/version.py"
+            exit 1
+          fi
+
       - name: Build EXE
         run: python -m PyInstaller --clean --log-level WARN --distpath EXE LiquidMouse.spec
 
@@ -57,9 +82,16 @@ jobs:
           name: LiquidMouse-v${{ steps.version.outputs.version }}
           path: EXE/LiquidMouse_v${{ steps.version.outputs.version }}.exe
 
+      # Con il push di un tag, tag_name coincide con il tag (verificato sopra).
+      # Con la pubblicazione manuale il tag non esiste ancora: la release lo
+      # crea su target_commitish. Un tag creato con GITHUB_TOKEN non fa
+      # ripartire questo workflow, quindi niente doppia build.
       - name: Crea Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.pubblica)
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Liquid Mouse v${{ steps.version.outputs.version }}
           files: EXE/LiquidMouse_v${{ steps.version.outputs.version }}.exe
           generate_release_notes: true
