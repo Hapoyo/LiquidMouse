@@ -85,6 +85,7 @@
         const btn = document.getElementById('tab-' + name);
         if (content) content.classList.add('active');
         if (btn) btn.classList.add('active');
+        document.body.classList.toggle('term-open', name === 'terminal');
         if (name === 'terminal') onTerminalTabOpen();
     }
 
@@ -259,7 +260,9 @@
             clearTimeout(connectionTimeout);
             // Suggerisce di accettare il certificato se connessione remota fallisce
             if (wsUrl.startsWith('wss://') && reconnectAttempts === 0) {
-                const httpsUrl = `https://${ip.trim()}:8443`;
+                // La porta della pagina, non 8443 fissa: se il modem ha
+                // rifiutato la 8443 il QR punta a una porta di riserva.
+                const httpsUrl = `https://${ip.trim()}:${window.location.port || '8443'}`;
                 certLink.textContent = httpsUrl;
                 certLink.onclick = () => window.open(httpsUrl, '_blank');
                 certHint.style.display = 'block';
@@ -781,6 +784,41 @@
     window.addEventListener('resize', scheduleFit);
     window.addEventListener('orientationchange', () => setTimeout(scheduleFit, 200));
 
+    // --- TASTIERA DEL TELEFONO: pagina ridotta all'area visibile ---
+    // La tastiera copre la pagina senza ridurne l'altezza (Safari sempre,
+    // Chrome Android senza interactive-widget): la riga del cursore e la barra
+    // tasti finivano sotto. visualViewport misura l'area davvero visibile e il
+    // body (app.css) la segue; il terminale poi si ridimensiona sulle righe
+    // rimaste e torna in fondo, dove c'è il cursore.
+    const vv = window.visualViewport;
+    let vvFullH = { w: 0, h: 0 };   // altezza a tastiera chiusa, per larghezza
+    let kbdOpen = false;
+    function syncViewport() {
+        if (!vv || Math.abs(vv.scale - 1) > 0.01) return;
+        const root = document.documentElement.style;
+        root.setProperty('--vv-h', `${Math.round(vv.height)}px`);
+        root.setProperty('--vv-top', `${Math.round(vv.offsetTop)}px`);
+        // Tastiera aperta = altezza visibile ben sotto quella a tastiera
+        // chiusa. innerHeight non basta: con resizes-content si accorcia anche
+        // lui. Il massimo si azzera quando cambia la larghezza (rotazione).
+        if (vvFullH.w !== vv.width) vvFullH = { w: vv.width, h: 0 };
+        vvFullH.h = Math.max(vvFullH.h, vv.height, window.innerHeight);
+        const aperta = vv.height < vvFullH.h * 0.8;
+        if (aperta !== kbdOpen) {
+            kbdOpen = aperta;
+            document.body.classList.toggle('kbd-open', aperta);
+        }
+        scheduleFit();
+        // Dopo il ridimensionamento il cursore deve restare in vista: xterm
+        // non scorre da solo quando le righe diminuiscono sotto lo scroll.
+        requestAnimationFrame(() => { if (xterm && xtermOpened) xterm.scrollToBottom(); });
+    }
+    if (vv) {
+        vv.addEventListener('resize', syncViewport);
+        vv.addEventListener('scroll', syncViewport);
+        syncViewport();
+    }
+
     function onTerminalTabOpen() {
         initXterm();
         if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -850,6 +888,9 @@
     function termSend(data) {
         if (ws && ws.readyState === WebSocket.OPEN && termSessionId) {
             ws.send(JSON.stringify({type: 'term_input', id: termSessionId, data}));
+            // L'input passa da termKbdInput, non da xterm: senza questo, dopo
+            // aver scorso la cronologia si scriveva alla cieca, fuori vista.
+            if (xterm && xtermOpened) xterm.scrollToBottom();
         }
     }
 

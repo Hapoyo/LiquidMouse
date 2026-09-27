@@ -1,6 +1,6 @@
 # Liquid Mouse — CLAUDE.md
 
-Versione 2.6.1 · 2026-09-27
+Versione 2.6.2 · 2026-09-27
 
 ## 1. Scopo
 Il telefono diventa touchpad, tastiera e terminale per un PC Windows. Il server Python
@@ -85,6 +85,11 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 
 ## 7. Decisioni
 - Accesso remoto solo UPnP (Tailscale rimosso in 2.4.0); porta unica 8443 per pagina e WSS.
+  Se il modem rifiuta la 8443 esterna si provano le porte di `EXTERNAL_PORTS` (net/upnp.py),
+  sempre verso la 8443 interna: il QR porta la porta esterna, il client usa quella della
+  pagina. IP esterno del router privato/CGNAT = errore esplicito (doppio NAT), niente QR.
+- Tastiera del telefono: il body segue `visualViewport` (`--vv-h`, `--vv-top`) invece di
+  100dvh; `kbd-open` sul body nasconde linguette e intestazione del terminale.
 - LAN senza PIN ma whitelist "primo arrivato" (reset dal menu tray); CGNAT 100.64/10 = remoto.
 - Asset serviti da cache in memoria con ETag; qualunque path fuori whitelist → 404.
 - Output del terminale in frame binari, non base64 in JSON.
@@ -103,7 +108,8 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - ConPTY via ctypes richiede Windows 10 1809+; pywinpty è il backend preferito.
 - Certificato auto-firmato: al primo accesso remoto il browser mostra l'avviso.
 - Ancora da provare su Windows: font privati in Tk, ConPTY senza pywinpty, barra tasti del
-  terminale, chiusura delle sessioni, EXE 2.6.x.
+  terminale, chiusura delle sessioni, EXE 2.6.x. Sul telefono: tastiera aperta nel
+  terminale (Safari e Chrome). Sul router dell'utente: porte UPnP di riserva.
 
 ## 9. Glossario
 - **PTY / ConPTY**: pseudo-terminale; ConPTY è quello nativo di Windows.

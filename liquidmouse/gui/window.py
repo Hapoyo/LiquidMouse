@@ -27,7 +27,7 @@ from PIL import Image, ImageDraw, ImageTk
 from liquidmouse.events import log_message
 from liquidmouse.gui.effects import apply_dwm_style, load_private_fonts
 from liquidmouse.paths import BASE_DIR, ICON_PATH
-from liquidmouse.ports import HTTP_PORT, HTTPS_PORT
+from liquidmouse.ports import HTTP_PORT
 from liquidmouse.terminal.launcher import open_pc_terminal
 from liquidmouse.theme import (
     COLOR_ACCENT, COLOR_AMBER, COLOR_BG, COLOR_BORDER, COLOR_CREAM,
@@ -140,7 +140,8 @@ def terminate_application(icon=None, item=None):
     root.after(100, root.destroy)
 
 # --- ACCESSO REMOTO: ETICHETTA E QR ---
-# L'unica strada remota è UPnP: il router apre la 8443 e il QR ci punta con il
+# L'unica strada remota è UPnP: il router apre una porta pubblica (la 8443 o, se
+# il modem la rifiuta, una di riserva) verso la 8443 del PC e il QR ci punta con il
 # PIN già in query string, così dal telefono basta scansionare. Il certificato è
 # self-signed, quindi al primo accesso il browser mostra l'avviso una volta.
 
@@ -155,9 +156,10 @@ def _remote_endpoint() -> tuple[str, str] | None:
     if servizi is None or servizi.remote_mode != 'upnp':
         return None
     external_ip = servizi.external_ip
+    porta = servizi.external_port
     pin = _deps.config.get('pin_plain', '')
-    return (f"UPnP  {external_ip}:{HTTPS_PORT}",
-            f"https://{external_ip}:{HTTPS_PORT}/?pin={pin}")
+    return (f"UPnP  {external_ip}:{porta}",
+            f"https://{external_ip}:{porta}/?pin={pin}")
 
 
 def _get_remote_tray_label():

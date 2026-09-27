@@ -216,6 +216,7 @@ class TestModuloGui:
         class FinteServizi:
             remote_mode = "upnp"
             external_ip = "203.0.113.5"
+            external_port = 9443
 
         monkeypatch.setattr(gui_window, "_deps", gui_window.GuiDeps(
             config={"pin_plain": "abcd1234"}, sessions=_Qualunque(),
@@ -226,7 +227,7 @@ class TestModuloGui:
         gui_window.update_remote_ui()
 
         assert status_var.value is not None
-        assert "203.0.113.5" in status_var.value
+        assert "203.0.113.5:9443" in status_var.value
         assert status_label.fg == gui_window.COLOR_OK
 
 

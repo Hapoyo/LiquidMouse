@@ -7,6 +7,7 @@ sul router.
 
 import asyncio
 import atexit
+import ipaddress
 
 from liquidmouse.events import log_message
 from liquidmouse.ports import HTTPS_PORT
@@ -17,6 +18,34 @@ from liquidmouse.theme import COLOR_MUTED
 # anche con UPnP attivo sul router.
 DISCOVER_DELAY_MS = 2000
 
+# Porte esterne provate in ordine, tutte inoltrate alla 8443 del PC. Molti
+# modem degli operatori tengono la 8443 per la propria gestione remota e
+# rifiutano il mapping: con una sola porta il remoto restava chiuso anche con
+# UPnP attivo. Il browser si connette al WSS sulla stessa porta della pagina
+# (buildWsUrl in app.js), quindi basta che il QR porti la porta esterna.
+EXTERNAL_PORTS = (8443, 9443, 10443, 18443, 28443, 38443)
+
+MAPPING_DESC = 'LiquidMouse'
+
+
+# Reti che, come IP "esterno" del router, indicano un altro NAT a monte.
+# Elenco esplicito e non `is_global`: interessa solo il NAT, e `is_global`
+# scarterebbe anche i blocchi di documentazione usati nei test.
+_NAT_NETS = tuple(ipaddress.ip_network(n) for n in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",   # LAN (RFC 1918)
+    "100.64.0.0/10",                                    # CGNAT dell'operatore
+    "169.254.0.0/16", "127.0.0.0/8",
+))
+
+
+def _is_public_ip(ip: str) -> bool:
+    """False per indirizzi di LAN, CGNAT e non validi."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return not any(addr in net for net in _NAT_NETS)
+
 
 class UpnpMapper:
     """Mappatura della porta remota, con cleanup all'uscita.
@@ -26,10 +55,12 @@ class UpnpMapper:
     elencare i mapping (visto sul Home&Life SuperWiFi, lug 2026).
     """
 
-    def __init__(self, ports: list[int] | None = None) -> None:
-        self._ports_wanted = ports if ports is not None else [HTTPS_PORT]
+    def __init__(self, internal_port: int = HTTPS_PORT,
+                 external_ports: tuple[int, ...] = EXTERNAL_PORTS) -> None:
+        self._internal_port = internal_port
+        self._external_ports = tuple(external_ports)
         self._upnp = None
-        self._mapped: list[int] = []
+        self.external_port: int | None = None
         self._atexit_registered = False
         self.external_ip: str | None = None
         # Motivo dell'ultimo fallimento, per il log. Prima ogni causa (libreria
@@ -38,11 +69,51 @@ class UpnpMapper:
         # rendendo impossibile capire cosa correggere senza leggere il codice.
         self.last_error: str | None = None
 
+    def _candidate_ports(self) -> list[int]:
+        # Al rinnovo si riprova prima la porta già in uso: cambiarla
+        # invaliderebbe il QR già scansionato.
+        porte = list(self._external_ports)
+        if self.external_port in porte:
+            porte.remove(self.external_port)
+            porte.insert(0, self.external_port)
+        return porte
+
+    def _try_map(self, u, ext_port: int, local_ip: str) -> str | None:
+        """Mappa `ext_port` → porta interna. None se riuscito, altrimenti il motivo."""
+        try:
+            u.addportmapping(ext_port, 'TCP', local_ip, self._internal_port,
+                             MAPPING_DESC, '')
+            return None
+        except Exception as e:
+            errore = str(e) or type(e).__name__
+        # "ConflictInMappingEntry" (errore UPnP 718): la porta è già mappata.
+        # Se il mapping è nostro (residuo di un avvio che non è passato da
+        # cleanup: crash, kill, IP locale cambiato) si libera e si rimappa.
+        # Se è di un altro dispositivo non si tocca: prima veniva cancellato
+        # alla cieca, rompendo il port forward di qualcun altro.
+        try:
+            esistente = u.getspecificportmapping(ext_port, 'TCP')
+        except Exception:
+            esistente = None
+        if not esistente:
+            return errore
+        host, _porta_int, desc = esistente[0], esistente[1], esistente[2]
+        if host != local_ip and desc != MAPPING_DESC:
+            return f"occupata da {host}"
+        try:
+            u.deleteportmapping(ext_port, 'TCP')
+            u.addportmapping(ext_port, 'TCP', local_ip, self._internal_port,
+                             MAPPING_DESC, '')
+            return None
+        except Exception as e:
+            return str(e) or type(e).__name__
+
     def setup_sync(self, local_ip: str) -> str | None:
         """Discovery e mappatura. Bloccante: chiamare da `setup()`.
 
         Ritorna l'IP esterno, o None se il remoto via UPnP non è disponibile
-        (il motivo è in `self.last_error`).
+        (il motivo è in `self.last_error`). La porta esterna scelta è in
+        `self.external_port`.
         """
         try:
             import miniupnpc
@@ -74,32 +145,39 @@ class UpnpMapper:
                     "il router non riporta un IP pubblico valido "
                     "(probabile doppio NAT: un altro router/modem a monte)")
                 return None
-            mapped = []
+            if not _is_public_ip(ext_ip):
+                # Il router UPnP sta dietro un altro NAT (modem dell'operatore
+                # davanti a un router proprio, o CGNAT): il mapping riuscirebbe
+                # ma aprirebbe la porta solo verso il modem, e il QR punterebbe
+                # a un indirizzo irraggiungibile da fuori.
+                self.last_error = (
+                    f"ip esterno del router non pubblico ({ext_ip}): doppio NAT "
+                    "o CGNAT, la porta va aperta sul modem a monte")
+                return None
             fallite = []
-            for port in self._ports_wanted:
-                try:
-                    u.addportmapping(port, 'TCP', local_ip, port, 'LiquidMouse', '')
-                    mapped.append(port)
-                except Exception as e:
-                    # "ConflictInMappingEntry" (errore UPnP 718): la porta e'
-                    # gia' mappata, tipicamente residuo di un avvio precedente
-                    # che non e' passato da cleanup() (crash, kill, o un IP
-                    # locale cambiato nel frattempo). Si prova a liberarla e
-                    # rimappare una volta sola, prima di arrendersi.
-                    try:
-                        u.deleteportmapping(port, 'TCP')
-                        u.addportmapping(port, 'TCP', local_ip, port, 'LiquidMouse', '')
-                        mapped.append(port)
-                        continue
-                    except Exception:
-                        pass
-                    fallite.append(f"{port}: {e}")
-            if not mapped:
+            scelta = None
+            for porta in self._candidate_ports():
+                motivo = self._try_map(u, porta, local_ip)
+                if motivo is None:
+                    scelta = porta
+                    break
+                fallite.append(f"{porta}: {motivo}")
+            if scelta is None:
                 # Nessuna porta aperta: dichiarare il remoto attivo sarebbe un
                 # falso positivo, e il QR manderebbe il telefono nel vuoto.
                 self.last_error = f"il router ha rifiutato la mappatura ({'; '.join(fallite)})"
                 return None
-            self._mapped = mapped
+            if fallite:
+                log_message(f"UPnP: porte rifiutate ({'; '.join(fallite)}), "
+                            f"uso la {scelta}", color=COLOR_MUTED)
+            if self._upnp is not None and self.external_port not in (None, scelta):
+                # Il rinnovo ha scelto un'altra porta: la vecchia resterebbe
+                # aperta fino al riavvio del router.
+                try:
+                    self._upnp.deleteportmapping(self.external_port, 'TCP')
+                except Exception:
+                    pass
+            self.external_port = scelta
             self._upnp = u
             self.external_ip = ext_ip
             self.last_error = None
@@ -121,15 +199,15 @@ class UpnpMapper:
         return await loop.run_in_executor(None, self.setup_sync, local_ip)
 
     def cleanup(self) -> None:
-        """Rimuove i mapping. Lasciarli aperti esporrebbe la porta oltre la
+        """Rimuove il mapping. Lasciarlo aperto esporrebbe la porta oltre la
         durata del processo."""
-        if not self._upnp:
+        if not self._upnp or self.external_port is None:
             return
-        for port in self._mapped:
+        try:
+            self._upnp.deleteportmapping(self.external_port, 'TCP')
+        except Exception as e:
             try:
-                self._upnp.deleteportmapping(port, 'TCP')
-            except Exception as e:
-                try:
-                    log_message(f"UPnP cleanup porta {port}: {e}", color=COLOR_MUTED)
-                except Exception:
-                    pass
+                log_message(f"UPnP cleanup porta {self.external_port}: {e}",
+                            color=COLOR_MUTED)
+            except Exception:
+                pass
