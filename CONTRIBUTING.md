@@ -26,8 +26,7 @@ Mantieni le modifiche focalizzate — una PR per problema.
 
 ## Sviluppo
 
-Struttura del codice: vedi [Project layout](README.md#project-layout) nel README;
-le convenzioni di ogni modulo stanno nel suo docstring.
+Struttura del codice, convenzioni ed elenchi da tenere allineati: vedi [CLAUDE.md](CLAUDE.md).
 
 ```bash
 pip install pytest
