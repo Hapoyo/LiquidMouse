@@ -29,6 +29,13 @@ STATIC_ROUTES: dict[str, tuple[str, str]] = {
     "/xterm.js":   ("static/vendor/xterm.js",  "application/javascript; charset=utf-8"),
     "/xterm.css":  ("static/vendor/xterm.css", "text/css; charset=utf-8"),
     "/icon.ico":   ("static/icon.ico",   "image/x-icon"),
+    # Tema cyber: gli stessi TTF sono caricati anche da Tk (gui/effects.py).
+    "/fonts/SpaceGrotesk-Medium.ttf": ("static/fonts/SpaceGrotesk-Medium.ttf", "font/ttf"),
+    "/fonts/SpaceMono-Regular.ttf":   ("static/fonts/SpaceMono-Regular.ttf",   "font/ttf"),
+    "/fonts/SpaceMono-Bold.ttf":      ("static/fonts/SpaceMono-Bold.ttf",      "font/ttf"),
+    # La licenza OFL deve accompagnare i font ovunque vengano distribuiti.
+    "/fonts/OFL-SpaceGrotesk.txt": ("static/fonts/OFL-SpaceGrotesk.txt", "text/plain; charset=utf-8"),
+    "/fonts/OFL-SpaceMono.txt":    ("static/fonts/OFL-SpaceMono.txt",    "text/plain; charset=utf-8"),
 }
 
 

@@ -43,7 +43,7 @@ def _file_nel_datas() -> set[str]:
 def _file_in_check_files() -> set[str]:
     build = (ROOT / "build.py").read_text(encoding="utf-8")
     blocco = build[build.index("required = ["):build.index("]", build.index("required = ["))]
-    return set(re.findall(r'"([^"]+\.(?:html|css|js|ico))"', blocco))
+    return set(re.findall(r'"([^"]+\.(?:html|css|js|ico|ttf|txt))"', blocco))
 
 
 class TestElenchiAllineati:

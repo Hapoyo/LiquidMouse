@@ -11,15 +11,13 @@ from liquidmouse.net.static import (
 
 @pytest.fixture
 def sito(tmp_path):
-    static_dir = tmp_path / "static"
-    vendor_dir = static_dir / "vendor"
-    vendor_dir.mkdir(parents=True)
-    (static_dir / "index.html").write_bytes(b"<html>ciao</html>")
-    (static_dir / "app.css").write_bytes(b"body{}")
-    (static_dir / "app.js").write_bytes(b"// app")
-    (vendor_dir / "xterm.js").write_bytes(b"// xterm")
-    (vendor_dir / "xterm.css").write_bytes(b".x{}")
-    (static_dir / "icon.ico").write_bytes(b"\x00icon")
+    # Un file per ogni rotta, generato dalla whitelist stessa: aggiungere un
+    # asset (i font del tema) non deve richiedere di aggiornare il fixture.
+    for fname, _ in set(STATIC_ROUTES.values()):
+        percorso = tmp_path / fname
+        percorso.parent.mkdir(parents=True, exist_ok=True)
+        percorso.write_bytes(f"// {fname}".encode())
+    (tmp_path / "static" / "index.html").write_bytes(b"<html>ciao</html>")
     # Resta alla radice, fuori da static/: verifica che i sorgenti restino
     # irraggiungibili anche dopo la riorganizzazione.
     (tmp_path / "server.pyw").write_bytes(b"segreti")

@@ -1,4 +1,4 @@
-// LiquidMouse — logica del client.
+// Liquid Mouse — logica del client.
 // Estratto da index.html, dove era inline.
 //
 // Caricato come script classico e NON come modulo: il markup usa attributi
@@ -19,6 +19,13 @@
     const certLink = document.getElementById('cert-link');
     let ws = null;
     let pingInterval = null;   // a scope modulo: pulito da closeWS() (no leak)
+
+    // Colore della riga di stato: una classe CSS (ok / warn / err) invece di un
+    // colore scritto qui, così la palette resta solo in app.css.
+    function setStatus(text, kind) {
+        statusDiv.textContent = text;
+        statusDiv.className = kind || '';
+    }
 
     function loadPIN() { return localStorage.getItem('liquidMousePIN') || ''; }
     function savePIN(p) { if (p) localStorage.setItem('liquidMousePIN', p); }
@@ -120,7 +127,7 @@
             alert('Indirizzo non valido.'); return;
         }
         ip = _ip;
-        statusDiv.innerText = "CONNESSIONE... "; statusDiv.style.color = "#ffcc00";
+        setStatus('connessione...', 'warn');
         certHint.style.display = 'none';
         disconnectHandled = false;
         closeWS();
@@ -154,21 +161,21 @@
             const pin = pinInput.value.trim() || loadPIN();
             if (isRemote) {
                 if (!pin) {
-                    statusDiv.innerText = "PIN RICHIESTO"; statusDiv.style.color = "#ff6666";
+                    setStatus('pin richiesto', 'err');
                     ws.close();
                     configPanel.classList.remove('hidden');
                     pinInput.focus();
                     return;
                 }
                 ws.send(JSON.stringify({ type: 'auth', pin }));
-                statusDiv.innerText = "AUTENTICAZIONE..."; statusDiv.style.color = "#ffcc00";
+                setStatus('autenticazione...', 'warn');
                 return; // wait for auth_ok before marking connected
             }
             _onAuthenticated(ip);
         };
 
         function _onAuthenticated(ip) {
-            statusDiv.innerText = "CONNESSIONE STABILITA"; statusDiv.style.color = "#88ffcc";
+            setStatus('connessione stabilita', 'ok');
             configPanel.classList.add('hidden'); saveIP(ip.trim());
             savePIN(pinInput.value.trim());
             clearInterval(pingInterval);
@@ -204,19 +211,18 @@
                     return;
                 } else if (msg.type === 'auth_fail') {
                     const rem = msg.remaining > 0 ? ` (${msg.remaining} tentativi rimasti)` : '';
-                    statusDiv.innerText = `PIN ERRATO${rem}`; statusDiv.style.color = "#ff6666";
+                    setStatus(`pin errato${rem}`, 'err');
                     ws.close();
                     configPanel.classList.remove('hidden');
                     return;
                 } else if (msg.type === 'auth_blocked') {
-                    statusDiv.innerText = "BLOCCATO — riprova tra 30 min"; statusDiv.style.color = "#ff6666";
+                    setStatus('bloccato — riprova tra 30 min', 'err');
                     ws.close();
                     configPanel.classList.remove('hidden');
                     return;
                 } else if (msg.type === 'pong' && pingTimestamp > 0) {
                     const rtt = Date.now() - pingTimestamp;
-                    statusDiv.innerText = `${rtt}ms`;
-                    statusDiv.style.color = rtt < 50 ? "#88ffcc" : rtt < 150 ? "#ffcc00" : "#ff6666";
+                    setStatus(`connesso ${rtt}ms`, rtt < 50 ? 'ok' : rtt < 150 ? 'warn' : 'err');
                 } else if (msg.type === 'term_sessions') {
                     renderSessionPicker(msg.sessions);
                 } else if (msg.type === 'term_created') {
@@ -273,11 +279,10 @@
         if (reconnectAttempts < MAX_RECONNECTS) {
             reconnectAttempts++;
             const delay = Math.min(1500 * Math.pow(1.5, reconnectAttempts - 1), 15000);
-            statusDiv.innerText = `RICONNESSIONE (${reconnectAttempts}/${MAX_RECONNECTS})...`;
-            statusDiv.style.color = "#ffcc00";
+            setStatus(`riconnessione (${reconnectAttempts}/${MAX_RECONNECTS})...`, 'warn');
             setTimeout(() => connectServer(ip), delay);
         } else {
-            statusDiv.innerText = "DISCONNESSO"; statusDiv.style.color = "#ff6666";
+            setStatus('disconnesso', 'err');
             configPanel.classList.remove('hidden');
         }
     }
@@ -549,27 +554,27 @@
 
     addMenuTap('btn-esc', () => {
         send({ type: 'key', key: 'esc' });
-        updateTextDisplay("ESC"); closeMenu();
+        updateTextDisplay('esc'); closeMenu();
     });
 
     addMenuTap('btn-copy', () => {
         send({ type: 'hotkey', keys: ['ctrl', 'c'] });
-        updateTextDisplay("COPIA"); closeMenu();
+        updateTextDisplay('copia'); closeMenu();
     });
 
     addMenuTap('btn-paste', () => {
         send({ type: 'hotkey', keys: ['ctrl', 'v'] });
-        updateTextDisplay("INCOLLA"); closeMenu();
+        updateTextDisplay('incolla'); closeMenu();
     });
 
     addMenuTap('btn-select-all', () => {
         send({ type: 'hotkey', keys: ['ctrl', 'a'] });
-        updateTextDisplay("ALL"); closeMenu();
+        updateTextDisplay('seleziona tutto'); closeMenu();
     });
 
     addMenuTap('btn-win', () => {
         send({ type: 'key', key: 'win' });
-        updateTextDisplay("WIN"); closeMenu();
+        updateTextDisplay('win'); closeMenu();
     });
 
     addMenuTap('btn-media-play', () => {
@@ -579,7 +584,7 @@
 
     addMenuTap('btn-winv', () => {
         send({ type: 'hotkey', keys: ['win', 'v'] });
-        updateTextDisplay("WIN+V"); closeMenu();
+        updateTextDisplay('win+v'); closeMenu();
     });
 
     // --- SLIDER SENSIBILITA' ---
@@ -676,17 +681,20 @@
         if (xterm) return;
         xterm = new Terminal({
             cols: 80, rows: 24,
+            // Tema cyber (app.css :root). Verde, blu, magenta e ciano non
+            // esistono nella palette di PiDash: sono toni caldi e smorzati
+            // scelti per restare distinguibili sul fondo #1d1815.
             theme: {
-                background: '#0D0D0D',
-                foreground: '#E8E4E0',
-                cursor: '#C4C4C4',
-                cursorAccent: '#0D0D0D',
-                selectionBackground: 'rgba(196,196,196,0.3)',
-                black: '#0D0D0D', red: '#E55B5B', green: '#5BA878', yellow: '#C4C4C4',
-                blue: '#5A8FD8', magenta: '#B58FD8', cyan: '#5BBDA8', white: '#E8E4E0',
-                brightBlack: '#5A5868', brightRed: '#FF7B7B', brightGreen: '#7BC898',
-                brightYellow: '#FFB876', brightBlue: '#7AAFE8', brightMagenta: '#D5AFE8',
-                brightCyan: '#7BDDC8', brightWhite: '#FFFFFF',
+                background: '#1d1815',
+                foreground: '#eee4cd',
+                cursor: '#f2bb5b',
+                cursorAccent: '#1d1815',
+                selectionBackground: 'rgba(242,187,91,0.35)',
+                black: '#2a2320', red: '#ec5c66', green: '#a9c47f', yellow: '#f2bb5b',
+                blue: '#8fa9c9', magenta: '#d38fae', cyan: '#8cc5b7', white: '#eee4cd',
+                brightBlack: '#a59b8c', brightRed: '#f28a90', brightGreen: '#c3d9a0',
+                brightYellow: '#f6d08a', brightBlue: '#b1c5dd', brightMagenta: '#e3b2c8',
+                brightCyan: '#b0d9cf', brightWhite: '#f6efdf',
             },
             fontSize: termFontSz,
             fontFamily: TERM_FONT_FAMILY,
@@ -826,7 +834,7 @@
 
             const nameDiv = document.createElement('div');
             nameDiv.className = 'name';
-            nameDiv.textContent = `● ${s.cmd}`;
+            nameDiv.textContent = s.cmd;
 
             const metaDiv = document.createElement('div');
             metaDiv.className = 'meta';
@@ -838,7 +846,7 @@
             const resumeBtn = document.createElement('button');
             resumeBtn.className = 'session-card-btn btn-resume';
             resumeBtn.setAttribute('data-id', s.id);
-            resumeBtn.textContent = 'RIPRENDI';
+            resumeBtn.textContent = 'riprendi';
             resumeBtn.addEventListener('click', () => {
                 termSessionId = s.id;
                 attachSession(s.id);
@@ -853,11 +861,9 @@
         newCard.className = 'session-card new-session';
         newCard.innerHTML = `
             <div class="session-card-label">
-                <div class="name-new">Nuova sessione</div>
+                <div class="name-new">nuova sessione</div>
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button class="session-card-btn btn-new btn-cmd">CMD</button>
-            </div>`;
+            <button class="session-card-btn btn-new btn-cmd">cmd</button>`;
         newCard.querySelector('.btn-cmd').addEventListener('click', () => {
             ws.send(JSON.stringify({type: 'term_create', cmd: 'cmd.exe'}));
         });
