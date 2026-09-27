@@ -40,8 +40,10 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Avvio da sorgente (Windows): `py -3.13 -m pip install websockets pystray Pillow qrcode cryptography pywinpty miniupnpc` poi `py -3.13 server.pyw`
 - Smoke test (Windows, server avviato): `py -3.13 test_server.py`
 - Build locale: `py -3.13 build.py` (`--pre` archivia una candidate in pre-release/)
-- Rilascio: versione in `liquidmouse/version.py` + README, poi tag `vX.Y.Z` → build.yml
-  pubblica `LiquidMouse_vX.Y.Z.exe`. Il tag deve coincidere con VERSION.
+- Rilascio: versione in `liquidmouse/version.py` + README, unire in main, poi avviare
+  `build.yml` su main con `pubblica=true` (workflow_dispatch, anche via API GitHub): crea
+  tag e release `vX.Y.Z` con `LiquidMouse_vX.Y.Z.exe`. Da qui il push dei tag non passa.
+  In alternativa il push di un tag `vX.Y.Z` fa lo stesso (il tag deve coincidere con VERSION).
 
 ## 4. Modo di lavorare
 - L'utente lavora solo tramite Claude Code: nessun file locale, questo CLAUDE.md è l'unica
