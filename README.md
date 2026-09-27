@@ -1,9 +1,20 @@
 # Liquid Mouse
 
-**v2.6.2 «Cyber»**
+**v2.7.0 «Cyber»**
 
 Turn your smartphone into a wireless touchpad, keyboard and terminal for Windows.
 No app to install — the client runs entirely in the browser.
+
+## What's new in v2.7.0
+
+- **Remote access behind CGNAT** — when UPnP can't open a port (the ISP shares one public
+  IP among customers, common on FWA/4G/5G lines), the PC starts a free Cloudflare quick
+  tunnel instead: the remote QR points to `https://<words>.trycloudflare.com`. It works
+  without any port forwarding, the certificate is valid (no browser warning) and the PIN
+  is still required. The address changes at every start, so scan the QR again.
+  `cloudflared` (~55 MB) is downloaded once into `%APPDATA%\LiquidMouse\bin`.
+- **Shorter remote diagnosis** — the panel now tells `cgnat dell'operatore` apart from
+  `doppio nat` instead of cutting the message off.
 
 ## What's new in v2.6.2
 
@@ -82,7 +93,8 @@ No app to install — the client runs entirely in the browser.
 ## Requirements
 
 - Windows 10 / 11
-- Phone and PC on the same Wi-Fi network — **or** a router with UPnP enabled for remote use
+- Phone and PC on the same Wi-Fi network — **or**, for remote use, a router with UPnP
+  enabled; without it (or behind CGNAT) remote access goes through a Cloudflare tunnel
 
 ## Installation
 
@@ -101,7 +113,8 @@ py -3.13 server.pyw
 1. Start Liquid Mouse on the PC
 2. Scan the QR code shown in the window (or type the address in the phone browser)
    - **scan lan** QR → local network (`http://<lan-ip>:8000`)
-   - **remoto // upnp** QR → UPnP, works away from home (PIN included in the link)
+   - **remoto // upnp** or **remoto // tunnel** QR → works away from home (PIN included
+     in the link)
    - the **002 terminale** tab of the window lists the open terminal sessions
 3. To quit: tray icon → Esci
 
@@ -114,7 +127,7 @@ py -3.13 server.pyw
 - Quick menu: Copy, Paste, ESC, Ctrl/Shift lock, Select All, Win, Play/Pause
 - Adjustable cursor sensitivity, saved on the phone
 - Security: IP whitelist on LAN · PIN + SHA-256 + brute-force lockout for remote
-  connections · static assets served from an explicit whitelist on both paths
+  connections, tunnel included · static assets served from an explicit whitelist
 
 ## Project layout
 
@@ -149,13 +162,21 @@ git tag vX.Y.Z && git push origin vX.Y.Z   # publishes the release via GitHub Ac
 `8000` and `8765`. Some routers isolate Wi-Fi clients from each other ("AP isolation"):
 disable it in the router settings.
 
-**Remote shows "non disponibile"** — the panel shows the reason:
-- *nessun router UPnP/IGD trovato*: UPnP is disabled in the router settings — enable it.
+**Remote shows "non disponibile"** — when UPnP fails the PC falls back to the Cloudflare
+tunnel, so the panel usually shows the tunnel state:
+- *tunnel: download di cloudflared…* / *avvio del tunnel…*: wait a few seconds.
+- *tunnel: download di cloudflared fallito*: the PC can't reach github.com; check the
+  firewall/antivirus, or put `cloudflared.exe` in `%APPDATA%\LiquidMouse\bin` by hand.
+- *tunnel: quick tunnel provisioning failed…*: Cloudflare refused the tunnel (rate limit);
+  it retries by itself.
+
+The UPnP reasons, shown when the tunnel isn't running:
+- *nessun router UPnP/IGD trovato*: UPnP is disabled in the router settings.
 - *il router ha rifiutato la mappatura*: the router refused `8443` and every fallback port.
-  Look for an option such as "allow UPnP port mapping" / "UPnP security" in the router.
-- *doppio NAT o CGNAT*: your router sits behind the ISP modem (or the ISP shares one public
-  address among customers). Put the modem in bridge mode, or forward TCP `8443` on the
-  modem to your router; with CGNAT ask the ISP for a public IP.
+- *doppio nat, modem a monte*: your router sits behind the ISP modem. Put the modem in
+  bridge mode, or forward TCP `8443` on the modem to your router.
+- *cgnat dell'operatore*: the ISP shares one public address among customers; no port can
+  be opened from home. Use the tunnel, or ask the ISP for a public IP.
 
 **Stuck on "In attesa..."** — reload the page (old cached client). If it persists,
 run `py -3.13 test_server.py` and check the browser console.
