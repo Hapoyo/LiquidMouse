@@ -161,9 +161,7 @@
             const pin = pinInput.value.trim() || loadPIN();
             if (isRemote) {
                 if (!pin) {
-                    setStatus('pin richiesto', 'err');
-                    ws.close();
-                    configPanel.classList.remove('hidden');
+                    stopWithError('pin richiesto');
                     pinInput.focus();
                     return;
                 }
@@ -211,14 +209,10 @@
                     return;
                 } else if (msg.type === 'auth_fail') {
                     const rem = msg.remaining > 0 ? ` (${msg.remaining} tentativi rimasti)` : '';
-                    setStatus(`pin errato${rem}`, 'err');
-                    ws.close();
-                    configPanel.classList.remove('hidden');
+                    stopWithError(`pin errato${rem}`);
                     return;
                 } else if (msg.type === 'auth_blocked') {
-                    setStatus('bloccato — riprova tra 30 min', 'err');
-                    ws.close();
-                    configPanel.classList.remove('hidden');
+                    stopWithError('bloccato — riprova tra 30 min');
                     return;
                 } else if (msg.type === 'pong' && pingTimestamp > 0) {
                     const rtt = Date.now() - pingTimestamp;
@@ -272,6 +266,19 @@
                 handleDisconnect(ip);
             }
         };
+    }
+
+    // Errore di autenticazione: niente riconnessione automatica. Riprovare
+    // da solo manderebbe lo stesso PIN sbagliato fino a MAX_RECONNECTS volte,
+    // e al quinto fallimento il server blocca l'IP per 30 minuti: un solo
+    // errore di battitura bastava a chiudersi fuori.
+    function stopWithError(text) {
+        disconnectHandled = true;
+        clearTimeout(connectionTimeout);
+        closeWS();
+        resetLocks();
+        setStatus(text, 'err');
+        configPanel.classList.remove('hidden');
     }
 
     function handleDisconnect(ip) {
@@ -350,7 +357,11 @@
 
     // --- SENSIBILITA' CURSORE ---
     // Valore salvato in localStorage, applicato lato client prima dell'invio
-    let sensitivity = parseFloat(localStorage.getItem('lm_sensitivity') || '1.8');
+    // Valore da localStorage non fidato: vuoto, NaN o fuori scala (una versione
+    // vecchia, un salvataggio corrotto) lascerebbe il cursore fermo o impazzito.
+    const SENS_MIN = 0.5, SENS_MAX = 4.0, SENS_DEFAULT = 1.8;
+    let sensitivity = parseFloat(localStorage.getItem('lm_sensitivity'));
+    if (!(sensitivity >= SENS_MIN && sensitivity <= SENS_MAX)) sensitivity = SENS_DEFAULT;
 
     // --- MOVIMENTO CURSORE ---
     let moveX = 0, moveY = 0, isMoving = false;
@@ -494,6 +505,10 @@
 
     function resetLocks() {
         locks = { drag: false, ctrl: false, shift: false };
+        // Anche il bottone del menu: con trascina attivo resta ambra, e dopo
+        // una disconnessione segnalava un trascinamento che il server ha già
+        // rilasciato.
+        btnMenu.classList.remove('lock-active');
         updateLockUI('btn-drag', false);
         updateLockUI('btn-ctrl', false);
         updateLockUI('btn-shift', false);

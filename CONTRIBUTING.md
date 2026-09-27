@@ -1,4 +1,4 @@
-# Contribuire a LiquidMouse
+# Contribuire a Liquid Mouse
 
 Bug, idee o miglioramenti sono benvenuti. Apri un issue o una pull request.
 
@@ -26,7 +26,8 @@ Mantieni le modifiche focalizzate — una PR per problema.
 
 ## Sviluppo
 
-Struttura del codice e convenzioni: vedi [CLAUDE.md](CLAUDE.md).
+Struttura del codice: vedi [Project layout](README.md#project-layout) nel README;
+le convenzioni di ogni modulo stanno nel suo docstring.
 
 ```bash
 pip install pytest
@@ -45,4 +46,5 @@ sorgente in LAN.
 
 ## Licenza
 
-Contribuendo accetti che il tuo codice venga distribuito sotto licenza GPL v3.
+Contribuendo accetti che il tuo codice venga distribuito sotto licenza MIT
+(vedi [LICENSE](LICENSE)). I font in `static/fonts/` restano sotto SIL OFL 1.1.

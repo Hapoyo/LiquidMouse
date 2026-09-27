@@ -181,6 +181,17 @@ class SessionManager:
                     log_message(f"Terminal errore [{session.id}]: {e}", color=COLOR_ERROR)
                 break
         session.alive = False
+        # Uscita naturale (exit, processo chiuso): prima la sessione restava nel
+        # dizionario con PTY e ring buffer allocati per sempre, perché solo
+        # kill() li liberava e il client non lo chiama mai. close() è
+        # idempotente, quindi va bene anche dopo un kill().
+        try:
+            session.pty.close()
+        except Exception:
+            pass
+        with self._dict_lock:
+            if self._sessions.get(session.id) is session:
+                del self._sessions[session.id]
         log_message(f"Terminal: {session.cmd} terminato (exit {exit_code})", color=COLOR_ACCENT)
         await self._broadcast(session, {
             "type": "term_closed", "id": session.id, "exit_code": exit_code
