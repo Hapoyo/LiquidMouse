@@ -7,5 +7,5 @@ Questo file è letto anche fuori da Python (regex, senza importarlo):
 Non aggiungere logica qui: deve restare parsabile con una regex banale.
 """
 
-VERSION = "2.6.1"
-CODENAME = "Cyber"    # 2.6.1: chiusura delle sessioni dall'elenco
+VERSION = "2.6.2"
+CODENAME = "Cyber"    # 2.6.2: tastiera del telefono sul terminale, porte UPnP di riserva

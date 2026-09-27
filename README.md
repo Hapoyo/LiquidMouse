@@ -1,9 +1,20 @@
 # Liquid Mouse
 
-**v2.6.1 «Cyber»**
+**v2.6.2 «Cyber»**
 
 Turn your smartphone into a wireless touchpad, keyboard and terminal for Windows.
 No app to install — the client runs entirely in the browser.
+
+## What's new in v2.6.2
+
+- **Phone keyboard no longer hides the terminal** — the page now follows the visible area
+  above the keyboard: the prompt line and the shortcut keys stay on screen while typing.
+  With the keyboard open the tabs and the terminal header step aside to leave more rows.
+- **UPnP fallback ports** — many ISP modems keep `8443` for themselves and refuse the
+  mapping. The PC now tries `9443`, `10443`, `18443`, `28443` and `38443` as external
+  ports (all forwarded to `8443` on the PC) and the QR carries whichever one was granted.
+- **Clear double-NAT diagnosis** — if the UPnP router itself sits behind another modem or
+  the ISP's CGNAT, the remote panel says so instead of showing an unreachable QR.
 
 ## What's new in v2.6.1
 
@@ -138,9 +149,13 @@ git tag vX.Y.Z && git push origin vX.Y.Z   # publishes the release via GitHub Ac
 `8000` and `8765`. Some routers isolate Wi-Fi clients from each other ("AP isolation"):
 disable it in the router settings.
 
-**Remote shows "non disponibile"** — the router has no UPnP/IGD, it is disabled, or it
-filters ports. Enable UPnP in the router settings, or forward TCP `8443` manually to the
-PC's LAN address.
+**Remote shows "non disponibile"** — the panel shows the reason:
+- *nessun router UPnP/IGD trovato*: UPnP is disabled in the router settings — enable it.
+- *il router ha rifiutato la mappatura*: the router refused `8443` and every fallback port.
+  Look for an option such as "allow UPnP port mapping" / "UPnP security" in the router.
+- *doppio NAT o CGNAT*: your router sits behind the ISP modem (or the ISP shares one public
+  address among customers). Put the modem in bridge mode, or forward TCP `8443` on the
+  modem to your router; with CGNAT ask the ISP for a public IP.
 
 **Stuck on "In attesa..."** — reload the page (old cached client). If it persists,
 run `py -3.13 test_server.py` and check the browser console.
