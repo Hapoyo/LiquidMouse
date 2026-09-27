@@ -1,12 +1,12 @@
 # Liquid Mouse — CLAUDE.md
 
-Versione 2.6.2 · 2026-09-27
+Versione 2.7.0 · 2026-09-27
 
 ## 1. Scopo
 Il telefono diventa touchpad, tastiera e terminale per un PC Windows. Il server Python
 gira sul PC (finestra Tk + icona nella tray); il client è una pagina web servita dal PC,
 nessuna app da installare. In LAN su HTTP/WS, da remoto su HTTPS/WSS porta 8443 via UPnP
-con PIN. Unico stile: tema "cyber" di [PiDash](https://github.com/Hapoyo/PiDash).
+con PIN, o via tunnel Cloudflare quando UPnP non può (CGNAT). Unico stile: tema "cyber" di [PiDash](https://github.com/Hapoyo/PiDash).
 
 ## 2. Struttura
 ```
@@ -16,9 +16,10 @@ liquidmouse/
   theme.py               palette e font; stessi valori in static/app.css (:root)
   config.py              %APPDATA%/LiquidMouse/config.json, migra da LiquidControl
   events.py              log_message → sink registrati (la GUI è un sink)
-  paths.py, ports.py     percorsi degli asset (anche nel bundle), porte 8000/8765/8443/8766
+  paths.py, ports.py     percorsi degli asset (anche nel bundle), porte 8000/8765/8443/8766/8767
   net/                   server.py (servizi), protocol.py (messaggi), static.py (whitelist
-                         asset), frames.py (frame binari), upnp.py, addresses.py
+                         asset), frames.py (frame binari), upnp.py, tunnel.py
+                         (cloudflared), addresses.py
   input/                 keymap.py (nomi tasto → VK), win32.py (SendInput)
   terminal/              sessions.py, conpty.py (pywinpty o ConPTY ctypes), commands.py
                          (whitelist comandi), ringbuffer.py, launcher.py (finestra sul PC)
@@ -84,10 +85,18 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 | Tipi di messaggio | `@handles` in `net/protocol.py` · `ws.send` in app.js |
 
 ## 7. Decisioni
-- Accesso remoto solo UPnP (Tailscale rimosso in 2.4.0); porta unica 8443 per pagina e WSS.
+- Accesso remoto: UPnP se apre la porta, altrimenti tunnel Cloudflare (quick tunnel, senza
+  account; Tailscale rimosso in 2.4.0 perché voleva l'app sul telefono). Porta unica 8443
+  per pagina e WSS. Una sola decisione in `NetworkServices._refresh_remote` (avvio e
+  keepalive): UPnP riuscito ferma il tunnel.
+- Tunnel: cloudflared non è nel bundle (~55 MB), si usa quello nel PATH o si scarica in
+  `%APPDATA%/LiquidMouse/bin`. Origine su 127.0.0.1:8767 (TUNNEL_PORT): lì ogni client
+  arriva da loopback, quindi `via_tunnel` forza sempre il PIN, e l'anti brute force usa
+  `CF-Connecting-IP` (altrimenti chiunque bloccherebbe il proprietario). Indirizzo
+  `*.trycloudflare.com` diverso a ogni avvio.
   Se il modem rifiuta la 8443 esterna si provano le porte di `EXTERNAL_PORTS` (net/upnp.py),
   sempre verso la 8443 interna: il QR porta la porta esterna, il client usa quella della
-  pagina. IP esterno del router privato/CGNAT = errore esplicito (doppio NAT), niente QR.
+  pagina. IP esterno del router privato/CGNAT = errore esplicito, niente QR UPnP.
 - Tastiera del telefono: il body segue `visualViewport` (`--vv-h`, `--vv-top`) invece di
   100dvh; `kbd-open` sul body nasconde linguette e intestazione del terminale.
 - LAN senza PIN ma whitelist "primo arrivato" (reset dal menu tray); CGNAT 100.64/10 = remoto.
@@ -109,12 +118,14 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Certificato auto-firmato: al primo accesso remoto il browser mostra l'avviso.
 - Ancora da provare su Windows: font privati in Tk, ConPTY senza pywinpty, barra tasti del
   terminale, chiusura delle sessioni, EXE 2.6.x. Sul telefono: tastiera aperta nel
-  terminale (Safari e Chrome). Sul router dell'utente: porte UPnP di riserva.
+  terminale (Safari e Chrome). Tunnel Cloudflare reale (qui il proxy lo blocca con 403):
+  download di cloudflared, QR trycloudflare, PIN, niente finestra nera di cloudflared.
 
 ## 9. Glossario
 - **PTY / ConPTY**: pseudo-terminale; ConPTY è quello nativo di Windows.
 - **VT / CSI**: sequenze di escape del terminale (`ESC [ A` = freccia su; `CSI 1;5D` = ctrl+←).
 - **UPnP / IGD**: protocollo con cui il PC chiede al router di aprire la porta 8443.
-- **CGNAT**: NAT condiviso dell'operatore, range 100.64.0.0/10.
+- **CGNAT**: NAT condiviso dell'operatore, range 100.64.0.0/10 (la linea dell'utente è così).
+- **Quick tunnel**: tunnel Cloudflare senza account, indirizzo casuale `*.trycloudflare.com`.
 - **DWM**: compositore di Windows (angoli arrotondati, modalità scura della finestra).
 - **Schedario**: stile a linguette numerate (001, 002) preso da PiDash.

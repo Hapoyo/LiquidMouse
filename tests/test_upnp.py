@@ -146,14 +146,17 @@ class TestMotiviDiFallimento:
         _install_fake_miniupnpc(monkeypatch, fake)
         mapper = UpnpMapper()
         assert mapper.setup_sync("192.168.1.10") is None
-        assert "doppio NAT" in mapper.last_error
+        assert "doppio nat" in mapper.last_error
+        assert "192.168.1.254" in mapper.last_error
         assert fake.mapped == []
 
     def test_ip_esterno_cgnat(self, monkeypatch):
         _install_fake_miniupnpc(monkeypatch, _FakeUPnP(external_ip="100.72.1.9"))
         mapper = UpnpMapper()
         assert mapper.setup_sync("192.168.1.10") is None
-        assert "CGNAT" in mapper.last_error
+        assert "cgnat" in mapper.last_error
+        # Il pannello remoto tronca a 55 caratteri: la causa deve starci.
+        assert len(mapper.last_error) < 55
 
     def test_mapping_rifiutato_su_tutte_le_porte(self, monkeypatch):
         errore = RuntimeError("porta gia' in uso")

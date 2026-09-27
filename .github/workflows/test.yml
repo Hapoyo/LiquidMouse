@@ -57,6 +57,7 @@ jobs:
               "liquidmouse.net.protocol",
               "liquidmouse.net.server",
               "liquidmouse.net.upnp",
+              "liquidmouse.net.tunnel",
               "liquidmouse.net.static",
               "liquidmouse.security.auth",
               "liquidmouse.security.tls",

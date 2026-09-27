@@ -170,9 +170,7 @@ class TestModuloGui:
 
         class FinteServizi:
             remote_mode = "none"
-
-            class upnp:
-                last_error = "il router ha rifiutato la mappatura (" + "x" * 150 + ")"
+            remote_problem = "il router ha rifiutato la mappatura (" + "x" * 150 + ")"
 
         monkeypatch.setattr(gui_window, "_deps", gui_window.GuiDeps(
             config=_Qualunque(), sessions=_Qualunque(),
@@ -230,6 +228,34 @@ class TestModuloGui:
         assert "203.0.113.5:9443" in status_var.value
         assert status_label.fg == gui_window.COLOR_OK
 
+    def test_remote_endpoint_del_tunnel(self, gui_window, monkeypatch):
+        # Con CGNAT la strada è il tunnel: il QR deve puntare all'indirizzo
+        # trycloudflare con il PIN, senza porta (è la 443 di Cloudflare).
+        class FinteServizi:
+            remote_mode = "tunnel"
+            tunnel_url = "https://foo-bar-baz.trycloudflare.com"
+
+        monkeypatch.setattr(gui_window, "_deps", gui_window.GuiDeps(
+            config={"pin_plain": "abcd1234"}, sessions=_Qualunque(),
+            services=lambda: FinteServizi(), local_ip="192.168.1.10",
+            reset_trusted=lambda: None,
+        ))
+        etichetta, url = gui_window._remote_endpoint()
+        assert "foo-bar-baz.trycloudflare.com" in etichetta
+        assert url == "https://foo-bar-baz.trycloudflare.com/?pin=abcd1234"
+
+    def test_remote_endpoint_del_tunnel_senza_url_non_c_e(self, gui_window, monkeypatch):
+        class FinteServizi:
+            remote_mode = "tunnel"
+            tunnel_url = None
+
+        monkeypatch.setattr(gui_window, "_deps", gui_window.GuiDeps(
+            config={"pin_plain": "abcd1234"}, sessions=_Qualunque(),
+            services=lambda: FinteServizi(), local_ip="192.168.1.10",
+            reset_trusted=lambda: None,
+        ))
+        assert gui_window._remote_endpoint() is None
+
 
 class TestIsolamentoDelCore:
     """Il core non deve dipendere dalla GUI: è la regola che tiene i test
@@ -238,7 +264,7 @@ class TestIsolamentoDelCore:
     @pytest.mark.parametrize("modulo", [
         "liquidmouse.config", "liquidmouse.events", "liquidmouse.net.server",
         "liquidmouse.net.protocol", "liquidmouse.net.frames",
-        "liquidmouse.net.static", "liquidmouse.net.upnp",
+        "liquidmouse.net.static", "liquidmouse.net.upnp", "liquidmouse.net.tunnel",
         "liquidmouse.net.addresses", "liquidmouse.security.auth",
         "liquidmouse.security.tls", "liquidmouse.terminal.sessions",
         "liquidmouse.terminal.conpty", "liquidmouse.input.win32",
