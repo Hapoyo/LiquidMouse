@@ -2,7 +2,7 @@
 
 | File | Cosa |
 |---|---|
-| `LiquidControl.spec` (`datas`)        | il file finisce nel bundle |
+| `LiquidMouse.spec` (`datas`)        | il file finisce nel bundle |
 | `liquidmouse/net/static.py`           | l'URL è servito |
 | `build.py` (`check_files`)            | l'assenza è vista prima della build |
 
@@ -32,7 +32,7 @@ def _file_in_static_routes() -> set[str]:
 
 
 def _file_nel_datas() -> set[str]:
-    spec = (ROOT / "LiquidControl.spec").read_text(encoding="utf-8")
+    spec = (ROOT / "LiquidMouse.spec").read_text(encoding="utf-8")
     blocco = spec[spec.index("datas=["):spec.index("] + _winpty_data")]
     # La destinazione (secondo elemento) non è più sempre '.': da quando gli
     # asset vivono sotto static/, rispecchia il percorso sorgente. Qui conta
@@ -43,7 +43,7 @@ def _file_nel_datas() -> set[str]:
 def _file_in_check_files() -> set[str]:
     build = (ROOT / "build.py").read_text(encoding="utf-8")
     blocco = build[build.index("required = ["):build.index("]", build.index("required = ["))]
-    return set(re.findall(r'"([^"]+\.(?:html|css|js|ico))"', blocco))
+    return set(re.findall(r'"([^"]+\.(?:html|css|js|ico|ttf|txt))"', blocco))
 
 
 class TestElenchiAllineati:

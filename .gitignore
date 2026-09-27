@@ -38,9 +38,9 @@ _archive/
 docs/
 
 # ── Configurazione locale Claude ──────────────────
+# CLAUDE.md invece è tracciato: è la memoria del progetto per Claude Code.
 .claude/
 .superpowers/
-CLAUDE.md
 
 # ── File di sistema ───────────────────────────────
 .DS_Store

@@ -1,4 +1,4 @@
-// LiquidControl — logica del client.
+// Liquid Mouse — logica del client.
 // Estratto da index.html, dove era inline.
 //
 // Caricato come script classico e NON come modulo: il markup usa attributi
@@ -19,6 +19,13 @@
     const certLink = document.getElementById('cert-link');
     let ws = null;
     let pingInterval = null;   // a scope modulo: pulito da closeWS() (no leak)
+
+    // Colore della riga di stato: una classe CSS (ok / warn / err) invece di un
+    // colore scritto qui, così la palette resta solo in app.css.
+    function setStatus(text, kind) {
+        statusDiv.textContent = text;
+        statusDiv.className = kind || '';
+    }
 
     function loadPIN() { return localStorage.getItem('liquidMousePIN') || ''; }
     function savePIN(p) { if (p) localStorage.setItem('liquidMousePIN', p); }
@@ -120,7 +127,7 @@
             alert('Indirizzo non valido.'); return;
         }
         ip = _ip;
-        statusDiv.innerText = "CONNESSIONE... "; statusDiv.style.color = "#ffcc00";
+        setStatus('connessione...', 'warn');
         certHint.style.display = 'none';
         disconnectHandled = false;
         closeWS();
@@ -154,21 +161,19 @@
             const pin = pinInput.value.trim() || loadPIN();
             if (isRemote) {
                 if (!pin) {
-                    statusDiv.innerText = "PIN RICHIESTO"; statusDiv.style.color = "#ff6666";
-                    ws.close();
-                    configPanel.classList.remove('hidden');
+                    stopWithError('pin richiesto');
                     pinInput.focus();
                     return;
                 }
                 ws.send(JSON.stringify({ type: 'auth', pin }));
-                statusDiv.innerText = "AUTENTICAZIONE..."; statusDiv.style.color = "#ffcc00";
+                setStatus('autenticazione...', 'warn');
                 return; // wait for auth_ok before marking connected
             }
             _onAuthenticated(ip);
         };
 
         function _onAuthenticated(ip) {
-            statusDiv.innerText = "CONNESSIONE STABILITA"; statusDiv.style.color = "#88ffcc";
+            setStatus('connessione stabilita', 'ok');
             configPanel.classList.add('hidden'); saveIP(ip.trim());
             savePIN(pinInput.value.trim());
             clearInterval(pingInterval);
@@ -204,19 +209,14 @@
                     return;
                 } else if (msg.type === 'auth_fail') {
                     const rem = msg.remaining > 0 ? ` (${msg.remaining} tentativi rimasti)` : '';
-                    statusDiv.innerText = `PIN ERRATO${rem}`; statusDiv.style.color = "#ff6666";
-                    ws.close();
-                    configPanel.classList.remove('hidden');
+                    stopWithError(`pin errato${rem}`);
                     return;
                 } else if (msg.type === 'auth_blocked') {
-                    statusDiv.innerText = "BLOCCATO — riprova tra 30 min"; statusDiv.style.color = "#ff6666";
-                    ws.close();
-                    configPanel.classList.remove('hidden');
+                    stopWithError('bloccato — riprova tra 30 min');
                     return;
                 } else if (msg.type === 'pong' && pingTimestamp > 0) {
                     const rtt = Date.now() - pingTimestamp;
-                    statusDiv.innerText = `${rtt}ms`;
-                    statusDiv.style.color = rtt < 50 ? "#88ffcc" : rtt < 150 ? "#ffcc00" : "#ff6666";
+                    setStatus(`connesso ${rtt}ms`, rtt < 50 ? 'ok' : rtt < 150 ? 'warn' : 'err');
                 } else if (msg.type === 'term_sessions') {
                     renderSessionPicker(msg.sessions);
                 } else if (msg.type === 'term_created') {
@@ -227,7 +227,6 @@
                     // loop: un `break` è SyntaxError e uccide l'intero script della pagina
                     // (bug v2.2.x: client morto su "In attesa..." su tutti i browser)
                     if (msg.id && msg.id !== termSessionId) return;
-                    document.getElementById('session-dot-bar').classList.remove('alive');
                     document.getElementById('tab-terminal-dot').style.display = 'none';
                     document.getElementById('terminal-active').classList.remove('visible');
                     document.getElementById('session-picker').style.display = '';
@@ -268,16 +267,28 @@
         };
     }
 
+    // Errore di autenticazione: niente riconnessione automatica. Riprovare
+    // da solo manderebbe lo stesso PIN sbagliato fino a MAX_RECONNECTS volte,
+    // e al quinto fallimento il server blocca l'IP per 30 minuti: un solo
+    // errore di battitura bastava a chiudersi fuori.
+    function stopWithError(text) {
+        disconnectHandled = true;
+        clearTimeout(connectionTimeout);
+        closeWS();
+        resetLocks();
+        setStatus(text, 'err');
+        configPanel.classList.remove('hidden');
+    }
+
     function handleDisconnect(ip) {
         resetLocks();
         if (reconnectAttempts < MAX_RECONNECTS) {
             reconnectAttempts++;
             const delay = Math.min(1500 * Math.pow(1.5, reconnectAttempts - 1), 15000);
-            statusDiv.innerText = `RICONNESSIONE (${reconnectAttempts}/${MAX_RECONNECTS})...`;
-            statusDiv.style.color = "#ffcc00";
+            setStatus(`riconnessione (${reconnectAttempts}/${MAX_RECONNECTS})...`, 'warn');
             setTimeout(() => connectServer(ip), delay);
         } else {
-            statusDiv.innerText = "DISCONNESSO"; statusDiv.style.color = "#ff6666";
+            setStatus('disconnesso', 'err');
             configPanel.classList.remove('hidden');
         }
     }
@@ -345,7 +356,11 @@
 
     // --- SENSIBILITA' CURSORE ---
     // Valore salvato in localStorage, applicato lato client prima dell'invio
-    let sensitivity = parseFloat(localStorage.getItem('lm_sensitivity') || '1.8');
+    // Valore da localStorage non fidato: vuoto, NaN o fuori scala (una versione
+    // vecchia, un salvataggio corrotto) lascerebbe il cursore fermo o impazzito.
+    const SENS_MIN = 0.5, SENS_MAX = 4.0, SENS_DEFAULT = 1.8;
+    let sensitivity = parseFloat(localStorage.getItem('lm_sensitivity'));
+    if (!(sensitivity >= SENS_MIN && sensitivity <= SENS_MAX)) sensitivity = SENS_DEFAULT;
 
     // --- MOVIMENTO CURSORE ---
     let moveX = 0, moveY = 0, isMoving = false;
@@ -489,6 +504,10 @@
 
     function resetLocks() {
         locks = { drag: false, ctrl: false, shift: false };
+        // Anche il bottone del menu: con trascina attivo resta ambra, e dopo
+        // una disconnessione segnalava un trascinamento che il server ha già
+        // rilasciato.
+        btnMenu.classList.remove('lock-active');
         updateLockUI('btn-drag', false);
         updateLockUI('btn-ctrl', false);
         updateLockUI('btn-shift', false);
@@ -549,27 +568,27 @@
 
     addMenuTap('btn-esc', () => {
         send({ type: 'key', key: 'esc' });
-        updateTextDisplay("ESC"); closeMenu();
+        updateTextDisplay('esc'); closeMenu();
     });
 
     addMenuTap('btn-copy', () => {
         send({ type: 'hotkey', keys: ['ctrl', 'c'] });
-        updateTextDisplay("COPIA"); closeMenu();
+        updateTextDisplay('copia'); closeMenu();
     });
 
     addMenuTap('btn-paste', () => {
         send({ type: 'hotkey', keys: ['ctrl', 'v'] });
-        updateTextDisplay("INCOLLA"); closeMenu();
+        updateTextDisplay('incolla'); closeMenu();
     });
 
     addMenuTap('btn-select-all', () => {
         send({ type: 'hotkey', keys: ['ctrl', 'a'] });
-        updateTextDisplay("ALL"); closeMenu();
+        updateTextDisplay('seleziona tutto'); closeMenu();
     });
 
     addMenuTap('btn-win', () => {
         send({ type: 'key', key: 'win' });
-        updateTextDisplay("WIN"); closeMenu();
+        updateTextDisplay('win'); closeMenu();
     });
 
     addMenuTap('btn-media-play', () => {
@@ -579,7 +598,7 @@
 
     addMenuTap('btn-winv', () => {
         send({ type: 'hotkey', keys: ['win', 'v'] });
-        updateTextDisplay("WIN+V"); closeMenu();
+        updateTextDisplay('win+v'); closeMenu();
     });
 
     // --- SLIDER SENSIBILITA' ---
@@ -676,17 +695,20 @@
         if (xterm) return;
         xterm = new Terminal({
             cols: 80, rows: 24,
+            // Tema cyber (app.css :root). Verde, blu, magenta e ciano non
+            // esistono nella palette di PiDash: sono toni caldi e smorzati
+            // scelti per restare distinguibili sul fondo #1d1815.
             theme: {
-                background: '#0D0D0D',
-                foreground: '#E8E4E0',
-                cursor: '#C4C4C4',
-                cursorAccent: '#0D0D0D',
-                selectionBackground: 'rgba(196,196,196,0.3)',
-                black: '#0D0D0D', red: '#E55B5B', green: '#5BA878', yellow: '#C4C4C4',
-                blue: '#5A8FD8', magenta: '#B58FD8', cyan: '#5BBDA8', white: '#E8E4E0',
-                brightBlack: '#5A5868', brightRed: '#FF7B7B', brightGreen: '#7BC898',
-                brightYellow: '#FFB876', brightBlue: '#7AAFE8', brightMagenta: '#D5AFE8',
-                brightCyan: '#7BDDC8', brightWhite: '#FFFFFF',
+                background: '#1d1815',
+                foreground: '#eee4cd',
+                cursor: '#f2bb5b',
+                cursorAccent: '#1d1815',
+                selectionBackground: 'rgba(242,187,91,0.35)',
+                black: '#2a2320', red: '#ec5c66', green: '#a9c47f', yellow: '#f2bb5b',
+                blue: '#8fa9c9', magenta: '#d38fae', cyan: '#8cc5b7', white: '#eee4cd',
+                brightBlack: '#a59b8c', brightRed: '#f28a90', brightGreen: '#c3d9a0',
+                brightYellow: '#f6d08a', brightBlue: '#b1c5dd', brightMagenta: '#e3b2c8',
+                brightCyan: '#b0d9cf', brightWhite: '#f6efdf',
             },
             fontSize: termFontSz,
             fontFamily: TERM_FONT_FAMILY,
@@ -775,6 +797,97 @@
         setTimeout(() => banner.classList.remove('visible'), 5000);
     }
 
+    // --- TASTI DEL TERMINALE: contratto (tests/test_term_keys.py) ---
+    // Sequenze VT inviate al PTY come term_input: ConPTY e winpty le
+    // traducono nei tasti Windows corrispondenti, come fa Windows Terminal.
+    const TERM_KEYS = {
+        esc: '\x1b', tab: '\t', enter: '\r',
+        up: '\x1b[A', down: '\x1b[B', right: '\x1b[C', left: '\x1b[D',
+        home: '\x1b[H', end: '\x1b[F', pgup: '\x1b[5~', pgdn: '\x1b[6~',
+        'ctrl-c': '\x03', 'ctrl-d': '\x04', 'ctrl-z': '\x1a', 'ctrl-l': '\x0c',
+    };
+    // Tasti che con un modificatore diventano CSI 1;<mod><finale> (xterm):
+    // ctrl+← = parola precedente, ctrl+home = inizio del buffer.
+    const CSI_MOD_FINAL = { up: 'A', down: 'B', right: 'C', left: 'D', home: 'H', end: 'F' };
+
+    // Ctrl+carattere come lo produce una tastiera vera: lettere e @[\]^_ →
+    // codice di controllo (ctrl+c = 0x03), spazio → NUL. Il resto non cambia.
+    function ctrlChar(c) {
+        if (c === ' ') return '\x00';
+        const code = c.toUpperCase().charCodeAt(0);
+        return (code >= 64 && code <= 95) ? String.fromCharCode(code - 64) : c;
+    }
+
+    // Applica ctrl/alt a un tasto della barra (`name`) o a un carattere
+    // digitato (`name` null). Funzione pura: mods arriva da fuori.
+    function withMods(data, name, mods) {
+        if (!mods.ctrl && !mods.alt) return data;
+        if (name && CSI_MOD_FINAL[name]) {
+            const m = 1 + (mods.alt ? 2 : 0) + (mods.ctrl ? 4 : 0);
+            return `\x1b[1;${m}${CSI_MOD_FINAL[name]}`;
+        }
+        let out = data;
+        if (mods.ctrl && out.length === 1) out = ctrlChar(out);
+        if (mods.alt) out = '\x1b' + out;
+        return out;
+    }
+    // --- fine contratto ---
+
+    function termSend(data) {
+        if (ws && ws.readyState === WebSocket.OPEN && termSessionId) {
+            ws.send(JSON.stringify({type: 'term_input', id: termSessionId, data}));
+        }
+    }
+
+    // Ctrl e alt della barra valgono per il tasto successivo (barra o tastiera
+    // del telefono), poi si spengono: come sulle tastiere dei terminali mobili.
+    const termMods = { ctrl: false, alt: false };
+    function setTermMod(name, on) {
+        termMods[name] = on;
+        document.querySelector(`.tkey[data-key="${name}"]`).classList.toggle('lock-active', on);
+    }
+    function consumeTermMods() {
+        const mods = { ...termMods };
+        if (mods.ctrl) setTermMod('ctrl', false);
+        if (mods.alt) setTermMod('alt', false);
+        return mods;
+    }
+
+    function pressTermKey(name) {
+        if (name === 'ctrl' || name === 'alt') { setTermMod(name, !termMods[name]); return; }
+        const seq = TERM_KEYS[name];
+        if (seq !== undefined) termSend(withMods(seq, name, consumeTermMods()));
+    }
+
+    const TKEY_REPEAT_DELAY = 400, TKEY_REPEAT_EVERY = 70;
+    document.querySelectorAll('.tkey').forEach(el => {
+        let delay = null, every = null;
+        const stop = () => {
+            clearTimeout(delay); clearInterval(every); delay = every = null;
+            el.classList.remove('fluid-pressed');
+        };
+        el.addEventListener('touchstart', (e) => {
+            // preventDefault: il tocco non sposta il focus, così la tastiera
+            // del telefono resta aperta mentre si usano frecce e scorciatoie.
+            e.preventDefault();
+            el.classList.add('fluid-pressed');
+            pressTermKey(el.dataset.key);
+            // Tenere premuto ripete (frecce, pagine): scorrere la cronologia
+            // o spostare il cursore senza toccare venti volte.
+            if ('repeat' in el.dataset) {
+                delay = setTimeout(() => {
+                    every = setInterval(() => pressTermKey(el.dataset.key), TKEY_REPEAT_EVERY);
+                }, TKEY_REPEAT_DELAY);
+            }
+        }, { passive: false });
+        el.addEventListener('touchend', stop);
+        el.addEventListener('touchcancel', stop);
+        // Mouse (finestra del terminale sul PC): niente cambio di focus
+        // al mousedown, azione al click. Col tocco il click non arriva.
+        el.addEventListener('mousedown', (e) => e.preventDefault());
+        el.addEventListener('click', () => pressTermKey(el.dataset.key));
+    });
+
     // Tastiera mobile: hidden input, sync ad xterm. Il tap sul terminale
     // stesso porta il focus qui (niente più bottone dedicato) così la
     // tastiera di sistema si apre come su un vero terminale.
@@ -790,25 +903,27 @@
         const val = termKbdInput.value;
         if (val.length > termKbdPrev.length) {
             const added = val.substring(termKbdPrev.length);
-            ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: added}));
+            // Un solo carattere dopo ctrl/alt della barra: ctrl+r, alt+f...
+            // Un blocco più lungo (incolla, suggerimento) passa così com'è.
+            termSend(added.length === 1 ? withMods(added, null, consumeTermMods()) : added);
         } else if (val.length < termKbdPrev.length) {
-            const del = termKbdPrev.length - val.length;
-            ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\b'.repeat(del)}));
+            termSend('\b'.repeat(termKbdPrev.length - val.length));
         }
         termKbdPrev = val;
     });
     termKbdInput.addEventListener('keydown', e => {
         if (!ws || ws.readyState !== WebSocket.OPEN || !termSessionId) return;
+        const frecce = { ArrowUp: 'up', ArrowDown: 'down', ArrowRight: 'right', ArrowLeft: 'left' };
         if (e.key === 'Enter') {
             e.preventDefault();
-            ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\r'}));
+            termSend('\r');
             termKbdInput.value = ''; termKbdPrev = '';
         } else if (e.key === 'Backspace' && termKbdInput.value.length === 0) {
-            ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\b'}));
-        } else if (e.key === 'ArrowUp')    { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[A'})); }
-        else if (e.key === 'ArrowDown')  { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[B'})); }
-        else if (e.key === 'ArrowRight') { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[C'})); }
-        else if (e.key === 'ArrowLeft')  { e.preventDefault(); ws.send(JSON.stringify({type:'term_input', id: termSessionId, data: '\x1b[D'})); }
+            termSend('\b');
+        } else if (frecce[e.key]) {
+            e.preventDefault();
+            pressTermKey(frecce[e.key]);
+        }
     });
 
     function renderSessionPicker(sessions) {
@@ -826,7 +941,7 @@
 
             const nameDiv = document.createElement('div');
             nameDiv.className = 'name';
-            nameDiv.textContent = `● ${s.cmd}`;
+            nameDiv.textContent = s.cmd;
 
             const metaDiv = document.createElement('div');
             metaDiv.className = 'meta';
@@ -838,7 +953,7 @@
             const resumeBtn = document.createElement('button');
             resumeBtn.className = 'session-card-btn btn-resume';
             resumeBtn.setAttribute('data-id', s.id);
-            resumeBtn.textContent = 'RIPRENDI';
+            resumeBtn.textContent = 'riprendi';
             resumeBtn.addEventListener('click', () => {
                 termSessionId = s.id;
                 attachSession(s.id);
@@ -853,11 +968,9 @@
         newCard.className = 'session-card new-session';
         newCard.innerHTML = `
             <div class="session-card-label">
-                <div class="name-new">Nuova sessione</div>
+                <div class="name-new">nuova sessione</div>
             </div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button class="session-card-btn btn-new btn-cmd">CMD</button>
-            </div>`;
+            <button class="session-card-btn btn-new btn-cmd">cmd</button>`;
         newCard.querySelector('.btn-cmd').addEventListener('click', () => {
             ws.send(JSON.stringify({type: 'term_create', cmd: 'cmd.exe'}));
         });
@@ -867,7 +980,6 @@
     function attachSession(sid) {
         document.getElementById('session-picker').style.display = 'none';
         document.getElementById('terminal-active').classList.add('visible');
-        document.getElementById('session-dot-bar').classList.add('alive');
         document.getElementById('tab-terminal-dot').style.display = 'block';
         // Il server, su term_attach, re-invia l'intero ring buffer. Azzeriamo
         // xterm PRIMA del replay così lo schermo si ricostruisce senza

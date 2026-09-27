@@ -1,6 +1,6 @@
 """
-🧪 LiquidControl — smoke test del server
-Da eseguire con il server avviato (py -3.13 server.pyw oppure EXE/LiquidControl.exe):
+🧪 LiquidMouse — smoke test del server
+Da eseguire con il server avviato (py -3.13 server.pyw oppure EXE/LiquidMouse.exe):
 
     py -3.13 test_server.py
 
@@ -116,7 +116,7 @@ def test_version():
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("   🧪 LIQUIDCONTROL — SMOKE TEST SERVER")
+    print("   🧪 LIQUIDMOUSE — SMOKE TEST SERVER")
     print("=" * 50)
     test_ports()
     test_static()

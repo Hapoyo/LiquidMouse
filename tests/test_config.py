@@ -2,12 +2,12 @@
 
 import json
 
-from liquidmouse.config import Config
+from liquidmouse.config import Config, migrate_legacy
 from liquidmouse.security.auth import pin_matches
 
 
 def _config_at(tmp_path):
-    return Config(path=tmp_path / "LiquidControl" / "config.json")
+    return Config(path=tmp_path / "LiquidMouse" / "config.json")
 
 
 class TestFirstRun:
@@ -71,3 +71,41 @@ class TestSaveIsNonFatal:
         cfg.data = {"pin_plain": "x"}
         cfg.path.mkdir()  # una directory dove ci si aspetta un file
         cfg.save()  # non deve sollevare
+
+
+class TestMigrazioneDaLiquidControl:
+    """Fino alla 2.5.x la config stava in %APPDATA%/LiquidControl."""
+
+    def _vecchia(self, tmp_path, contenuto: dict):
+        vecchio = tmp_path / "LiquidControl" / "config.json"
+        vecchio.parent.mkdir()
+        vecchio.write_text(json.dumps(contenuto), encoding="utf-8")
+        return vecchio
+
+    def test_copia_la_config_vecchia(self, tmp_path):
+        self._vecchia(tmp_path, {"pin_plain": "abc", "pin_hash": "h"})
+        nuovo = tmp_path / "LiquidMouse" / "config.json"
+        assert migrate_legacy(nuovo, base=tmp_path)
+        assert json.loads(nuovo.read_text(encoding="utf-8"))["pin_plain"] == "abc"
+
+    def test_lascia_al_suo_posto_la_vecchia(self, tmp_path):
+        vecchio = self._vecchia(tmp_path, {"pin_plain": "abc"})
+        migrate_legacy(tmp_path / "LiquidMouse" / "config.json", base=tmp_path)
+        assert vecchio.exists()
+
+    def test_non_sovrascrive_una_config_nuova(self, tmp_path):
+        self._vecchia(tmp_path, {"pin_plain": "vecchio"})
+        nuovo = tmp_path / "LiquidMouse" / "config.json"
+        nuovo.parent.mkdir()
+        nuovo.write_text(json.dumps({"pin_plain": "nuovo"}), encoding="utf-8")
+        assert not migrate_legacy(nuovo, base=tmp_path)
+        assert json.loads(nuovo.read_text(encoding="utf-8"))["pin_plain"] == "nuovo"
+
+    def test_niente_da_migrare(self, tmp_path):
+        assert not migrate_legacy(tmp_path / "LiquidMouse" / "config.json", base=tmp_path)
+
+    def test_il_pin_sopravvive_al_cambio_di_nome(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("APPDATA", str(tmp_path))
+        vecchia = Config(path=tmp_path / "LiquidControl" / "config.json")
+        pin = vecchia.load()["pin_plain"]
+        assert Config().load()["pin_plain"] == pin

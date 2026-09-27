@@ -26,6 +26,11 @@ a = Analysis(
         ('static/app.js', 'static'), ('static/icon.ico', 'static'),
         ('static/vendor/xterm.js', 'static/vendor'),
         ('static/vendor/xterm.css', 'static/vendor'),
+        ('static/fonts/SpaceGrotesk-Medium.ttf', 'static/fonts'),
+        ('static/fonts/SpaceMono-Regular.ttf', 'static/fonts'),
+        ('static/fonts/SpaceMono-Bold.ttf', 'static/fonts'),
+        ('static/fonts/OFL-SpaceGrotesk.txt', 'static/fonts'),
+        ('static/fonts/OFL-SpaceMono.txt', 'static/fonts'),
     ] + _winpty_data,
     hiddenimports=[
         # server.pyw importa la GUI dentro un try/except per poter mostrare un
@@ -74,7 +79,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='LiquidControl',
+    name='LiquidMouse',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -1,25 +1,59 @@
-"""Configurazione persistente in %APPDATA%/LiquidControl/config.json.
+"""Configurazione persistente in %APPDATA%/LiquidMouse/config.json.
 
 Contiene il PIN remoto (in chiaro per mostrarlo nella GUI e nel QR, e in hash
 per il confronto) e il certificato TLS auto-firmato riusato tra un avvio e
 l'altro.
+
+Fino alla 2.5.x il programma si chiamava LiquidControl e la config stava in
+%APPDATA%/LiquidControl: al primo avvio viene copiata nella cartella nuova
+(vedi `migrate_legacy`), così il PIN salvato sui telefoni e il certificato
+già accettato restano validi.
 """
 
 import json
 import os
 import pathlib
 import secrets
+import shutil
 
 from liquidmouse.events import log_message
 from liquidmouse.security.auth import hash_pin
 from liquidmouse.theme import COLOR_ERROR
 
 PIN_BYTES = 8  # secrets.token_urlsafe(8) → ~11 caratteri
+APP_DIR = "LiquidMouse"
+LEGACY_APP_DIRS = ("LiquidControl",)  # nomi precedenti, dal più recente
+
+
+def _appdata() -> pathlib.Path:
+    return pathlib.Path(os.environ.get("APPDATA", str(pathlib.Path.home())))
 
 
 def get_config_path() -> pathlib.Path:
-    appdata = os.environ.get("APPDATA", str(pathlib.Path.home()))
-    return pathlib.Path(appdata) / "LiquidControl" / "config.json"
+    return _appdata() / APP_DIR / "config.json"
+
+
+def migrate_legacy(path: pathlib.Path, base: pathlib.Path | None = None) -> bool:
+    """Copia la config di un nome precedente in `path`, se `path` non esiste.
+
+    Copia e non sposta: tornando a una versione vecchia la config è ancora al
+    suo posto. Ritorna True se ha copiato qualcosa. Non solleva.
+    """
+    if path.exists():
+        return False
+    base = base if base is not None else _appdata()
+    for nome in LEGACY_APP_DIRS:
+        vecchio = base / nome / path.name
+        if not vecchio.is_file():
+            continue
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(vecchio, path)
+        except OSError as e:
+            log_message(f"Migrazione config da {nome} fallita: {e}", color=COLOR_ERROR)
+            return False
+        return True
+    return False
 
 
 class Config:
@@ -31,11 +65,16 @@ class Config:
     """
 
     def __init__(self, path: pathlib.Path | None = None) -> None:
+        # La migrazione vale solo per il percorso di default: una config con
+        # percorso esplicito (i test) non deve andare a leggere %APPDATA%.
+        self._migra = path is None
         self.path = path or get_config_path()
         self.data: dict = {}
 
     def load(self) -> dict:
         """Carica la config, generando il PIN se assente. Ritorna `self.data`."""
+        if self._migra:
+            migrate_legacy(self.path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         loaded = False
         if self.path.exists():

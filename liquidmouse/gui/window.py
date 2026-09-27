@@ -1,7 +1,14 @@
-"""Finestra principale, tray e pannello sessioni.
+"""Finestra principale, tray e pannello sessioni — tema cyber di PiDash.
 
-Unico modulo che disegna: raccoglie lo stato dei widget, l'icona nella tray e il
-pannello delle sessioni terminale.
+Unico modulo che disegna. La finestra è una cartella di uno schedario: la
+linguetta aperta "001 liquid mouse" con il pannello sotto, la linguetta chiusa
+"002 terminale" che apre il pannello delle sessioni. Dentro, pannelli
+arrotondati pieni: indirizzo LAN e QR, accesso remoto, PIN, stato.
+
+Tutto è disegnato sul canvas (testi compresi): il testo di un canvas non ha
+sfondo proprio e sta sopra i pannelli colorati senza rettangoli di contorno.
+Le misure sono in pixel a 96 dpi e passano da `_px`, così su uno schermo HiDPI
+finestra e font crescono insieme invece di sovrapporsi.
 
 Le dipendenze verso il core arrivano da `GuiDeps`, riempito da `build()`. Non
 sono import diretti dell'entrypoint perche' sarebbe una dipendenza circolare:
@@ -18,16 +25,17 @@ import qrcode
 from PIL import Image, ImageDraw, ImageTk
 
 from liquidmouse.events import log_message
-from liquidmouse.gui.effects import apply_dwm_style
-from liquidmouse.paths import ICON_PATH
+from liquidmouse.gui.effects import apply_dwm_style, load_private_fonts
+from liquidmouse.paths import BASE_DIR, ICON_PATH
 from liquidmouse.ports import HTTP_PORT, HTTPS_PORT
 from liquidmouse.terminal.launcher import open_pc_terminal
 from liquidmouse.theme import (
-    COLOR_ACCENT, COLOR_BG, COLOR_BORDER, COLOR_ERROR,
-    COLOR_GLASS, COLOR_MUTED, COLOR_OK, COLOR_SURFACE, COLOR_TEXT,
-    COLOR_TRANSPARENT,
+    COLOR_ACCENT, COLOR_AMBER, COLOR_BG, COLOR_BORDER, COLOR_CREAM,
+    COLOR_ERROR, COLOR_INK, COLOR_MUTED, COLOR_OK, COLOR_ORANGE, COLOR_PANEL,
+    COLOR_TEXT, FONT_FILES, FONT_LABEL, FONT_LABEL_FALLBACK, FONT_NUM,
+    FONT_NUM_FALLBACK,
 )
-from liquidmouse.version import VERSION
+from liquidmouse.version import CODENAME, VERSION
 
 
 class GuiDeps:
@@ -45,6 +53,31 @@ class GuiDeps:
         self.reset_trusted = reset_trusted
 
 
+class _CanvasText:
+    """Testo del canvas con l'interfaccia di StringVar + Label usata qui.
+
+    `set` come una StringVar, `config(text=, fg=)` come un Label: così il sink
+    di log, l'animazione di avvio e il pannello remoto non devono sapere che
+    sotto c'è un elemento del canvas.
+    """
+
+    def __init__(self, canvas, item) -> None:
+        self._canvas = canvas
+        self._item = item
+
+    def set(self, text: str) -> None:
+        self._canvas.itemconfig(self._item, text=text)
+
+    def config(self, text: str | None = None, fg: str | None = None) -> None:
+        opts = {}
+        if text is not None:
+            opts["text"] = text
+        if fg is not None:
+            opts["fill"] = fg
+        if opts:
+            self._canvas.itemconfig(self._item, **opts)
+
+
 _deps: GuiDeps | None = None
 
 
@@ -56,19 +89,43 @@ ip_label_var        = None
 status_var          = None
 status_label        = None
 _main_canvas        = None
+_status_dot         = None
 _remote_status_var  = None
 _remote_status_label = None
-_remote_qr_label    = None
+_remote_qr_item     = None
+_remote_qr_box      = None   # (x, y, lato) dell'area del QR remoto
 _sessions_win       = None
+
+# Scala del disegno rispetto a 96 dpi e famiglie di font effettive (quelle del
+# tema se caricate, altrimenti i ripieghi). Fissate in build().
+_scale = 1.0
+_font_num = FONT_NUM_FALLBACK
+_font_label = FONT_LABEL_FALLBACK
+
+
+def _px(n: float) -> int:
+    """Misura in pixel a 96 dpi → pixel reali."""
+    return max(1, round(n * _scale))
+
+
+def _f_label(size: int = 12, bold: bool = False) -> tuple:
+    # Dimensione negativa = pixel: il layout è in pixel, i font devono seguire
+    # la stessa unità (in punti crescerebbero da soli con i dpi).
+    return (_font_label, -_px(size), "bold") if bold else (_font_label, -_px(size))
+
+
+def _f_num(size: int) -> tuple:
+    return (_font_num, -_px(size))
+
 
 def create_tray_icon():
     if os.path.exists(ICON_PATH):
         try: return Image.open(ICON_PATH)
         except Exception: pass
-    image = Image.new('RGB', (64, 64), "#1A1A1A")
+    image = Image.new('RGB', (64, 64), COLOR_BG)
     dc = ImageDraw.Draw(image)
-    dc.rounded_rectangle((4, 4, 60, 60), radius=12, fill="#1A1A1A", outline=COLOR_ACCENT, width=2)
-    dc.ellipse((22, 22, 42, 42), fill=COLOR_ACCENT)
+    dc.rounded_rectangle((4, 4, 60, 60), radius=12, fill=COLOR_PANEL, outline=COLOR_CREAM, width=2)
+    dc.ellipse((22, 22, 42, 42), fill=COLOR_ORANGE)
     return image
 
 def minimize_to_tray():
@@ -108,10 +165,9 @@ def _get_remote_tray_label():
     return f'Remoto: {endpoint[0]}' if endpoint else 'Remoto: non disponibile'
 
 
-# Il pannello "ACCESSO REMOTO" ha uno spazio verticale fisso fino alla sezione
-# PIN sottostante: un motivo di errore lungo (es. il testo di un'eccezione dal
-# mapping UPnP) andrebbe su piu' righe e la sovrapporrebbe. Il log tiene il
-# messaggio integrale; qui va troncato.
+# Il pannello "remoto" ha un'altezza fissa: un motivo di errore lungo (es. il
+# testo di un'eccezione dal mapping UPnP) andrebbe su troppe righe e uscirebbe
+# dal pannello. Il log tiene il messaggio integrale; qui va troncato.
 REMOTE_LABEL_MAX = 55
 
 
@@ -137,6 +193,9 @@ def update_remote_ui():
         # di attesa normale (il keepalive riprova ogni 10 minuti), non un
         # guasto da segnalare in rosso.
         root.after(0, lambda et=etichetta: _set_remote_label(et, COLOR_MUTED))
+        # Un QR rimasto da un mapping perso manderebbe il telefono su una
+        # porta ormai chiusa.
+        root.after(0, _clear_remote_qr)
         return
     etichetta, url = endpoint
     root.after(0, lambda et=etichetta: _set_remote_label(et, COLOR_OK))
@@ -144,35 +203,48 @@ def update_remote_ui():
 
 
 def _set_remote_label(testo: str, colore: str) -> None:
-    """Aggiorna testo e colore del pannello remoto (eseguire sul thread Tk).
-
-    Prima il colore era fisso a COLOR_ACCENT: uno stato di attesa e uno
-    attivo erano visivamente identici.
-    """
+    """Aggiorna testo e colore del pannello remoto (eseguire sul thread Tk)."""
     _remote_status_var.set(testo)
     if _remote_status_label is not None:
         _remote_status_label.config(fg=colore)
 
 
+def _qr_image(url: str, lato: int, fill: str, back: str):
+    """QR di `url` grande al massimo `lato` pixel, moduli interi (nitido).
+
+    Bordo di un solo modulo: il QR sta su un pannello dello stesso colore del
+    fondo del codice, che fa già da zona di rispetto.
+    """
+    qr = qrcode.QRCode(border=1)
+    qr.add_data(url)
+    qr.make(fit=True)
+    moduli = qr.modules_count + 2
+    qr.box_size = max(1, lato // moduli)
+    return qr.make_image(fill_color=fill, back_color=back).convert("RGB")
+
+
 def _set_remote_qr(url: str) -> None:
     """Crea/aggiorna il QR per l'accesso remoto (eseguire sul thread Tk)."""
-    global _remote_qr_label
+    global _remote_qr_item
+    if _main_canvas is None or _remote_qr_box is None:
+        return
     try:
-        qr = qrcode.QRCode(version=1, box_size=2, border=2)
-        qr.add_data(url)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color=COLOR_TEXT, back_color=COLOR_SURFACE).convert("RGBA")
-        photo = ImageTk.PhotoImage(img)
+        x, y, lato = _remote_qr_box
+        photo = ImageTk.PhotoImage(_qr_image(url, lato, COLOR_INK, COLOR_CREAM))
         root._remote_qr_photo = photo  # tiene il riferimento (evita GC)
-        if _remote_qr_label is None:
-            _remote_qr_label = tk.Label(root, image=photo, bg=COLOR_TRANSPARENT, bd=0)
-            _remote_qr_label.place(x=438, y=232)
-            tk.Label(root, text="SCAN REMOTO", font=("Consolas", 7),
-                     bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=446, y=232 + 92)
+        if _remote_qr_item is None:
+            _remote_qr_item = _main_canvas.create_image(
+                x + lato // 2, y + lato // 2, image=photo)
         else:
-            _remote_qr_label.config(image=photo)
+            _main_canvas.itemconfig(_remote_qr_item, image=photo, state="normal")
     except Exception as e:
         log_message(f"QR remoto error: {e}", color=COLOR_ERROR)
+
+
+def _clear_remote_qr() -> None:
+    if _main_canvas is not None and _remote_qr_item is not None:
+        _main_canvas.itemconfig(_remote_qr_item, state="hidden")
+
 
 def _open_sessions_panel(*_):
     """Pannello GUI sul PC con le sessioni terminal attive (auto-refresh 2s).
@@ -185,18 +257,23 @@ def _open_sessions_panel(*_):
         except Exception:
             pass
     win = tk.Toplevel(root)
-    win.title("Sessioni terminal")
-    win.configure(bg=COLOR_GLASS)
-    win.geometry("470x320")
+    win.title("Liquid Mouse — sessioni terminale")
+    win.configure(bg=COLOR_BG)
+    win.geometry(f"{_px(500)}x{_px(320)}")
     try: win.iconbitmap(ICON_PATH)
     except Exception: pass
-    tk.Label(win, text="SESSIONI TERMINAL ATTIVE", font=("Consolas", 9, "bold"),
-             bg=COLOR_GLASS, fg=COLOR_ACCENT).pack(anchor="w", padx=14, pady=(12, 2))
-    tk.Label(win, text="doppio click su una sessione = aprila sul PC",
-             font=("Consolas", 8), bg=COLOR_GLASS, fg=COLOR_MUTED).pack(anchor="w", padx=14, pady=(0, 6))
-    txt = tk.Text(win, bg=COLOR_GLASS, fg=COLOR_TEXT, font=("Consolas", 9),
-                  bd=0, highlightthickness=0, padx=10, pady=8, wrap="none", cursor="hand2")
-    txt.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+    tk.Label(win, text="002  sessioni terminale", font=_f_label(12, bold=True),
+             bg=COLOR_BG, fg=COLOR_TEXT).pack(anchor="w", padx=_px(14), pady=(_px(12), _px(2)))
+    tk.Label(win, text="doppio click su una sessione = aprila sul pc",
+             font=_f_label(11), bg=COLOR_BG, fg=COLOR_MUTED).pack(anchor="w", padx=_px(14), pady=(0, _px(8)))
+    txt = tk.Text(win, bg=COLOR_PANEL, fg=COLOR_TEXT, font=_f_label(12),
+                  bd=0, highlightthickness=1, highlightbackground=COLOR_BORDER,
+                  highlightcolor=COLOR_BORDER, padx=_px(10), pady=_px(8),
+                  wrap="none", cursor="hand2", selectbackground=COLOR_AMBER,
+                  selectforeground=COLOR_INK)
+    txt.pack(fill="both", expand=True, padx=_px(12), pady=(0, _px(12)))
+    txt.tag_configure("attiva", foreground=COLOR_OK)
+    txt.tag_configure("chiusa", foreground=COLOR_MUTED)
     txt.config(state="disabled")
     _sessions_win = win
     _state = {"sessions": []}
@@ -215,14 +292,17 @@ def _open_sessions_panel(*_):
             txt.config(state="normal")
             txt.delete("1.0", "end")
             if not sessions:
-                txt.insert("end", "(nessuna sessione attiva)\n")
+                txt.insert("end", "nessuna sessione attiva\n", "chiusa")
             else:
                 now = time.time()
                 for s in sessions:
                     age = int((now - s['created_at']) / 60)
-                    state = "● attiva" if s['alive'] else "○ chiusa"
+                    if s['alive']:
+                        txt.insert("end", "● attiva  ", "attiva")
+                    else:
+                        txt.insert("end", "○ chiusa  ", "chiusa")
                     txt.insert("end",
-                        f"{state}   {s['cmd']:<16} id {s['id']}   {age}m   {s['viewers']} viewer\n")
+                        f"{s['cmd']:<16} id {s['id']}   {age}m   {s['viewers']} viewer\n")
             txt.config(state="disabled")
         except Exception:
             pass
@@ -257,59 +337,141 @@ def run_tray_service():
         pystray.Menu.SEPARATOR,
         pystray.MenuItem('Esci', terminate_application),
     )
-    pystray.Icon("LiquidControl", create_tray_icon(), "Liquid Control", menu).run()
+    pystray.Icon("LiquidMouse", create_tray_icon(), "Liquid Mouse", menu).run()
+
+
+# --- DISEGNO ---
+
+def _smooth_poly(c, corners, radii, **kw):
+    """Poligono con angoli arrotondati (raggio per angolo, 0 = spigolo vivo).
+
+    Tk non ha rettangoli arrotondati: con smooth=True i vertici diventano punti
+    di controllo di una spline, e un punto ripetuto obbliga la curva a passarci.
+    Per ogni angolo si mettono due punti doppi a distanza r lungo i lati e
+    l'angolo stesso una volta sola: lati dritti, angoli raccordati.
+    """
+    pts = []
+    n = len(corners)
+    for i, (x, y) in enumerate(corners):
+        r = radii[i]
+        if r <= 0:
+            pts += [x, y, x, y, x, y]
+            continue
+        px_, py_ = corners[i - 1]
+        nx, ny = corners[(i + 1) % n]
+
+        def verso(ax, ay, r=r, x=x, y=y):
+            dx, dy = ax - x, ay - y
+            lung = max(1e-6, (dx * dx + dy * dy) ** 0.5)
+            return x + dx / lung * r, y + dy / lung * r
+
+        a = verso(px_, py_)
+        b = verso(nx, ny)
+        pts += [*a, *a, x, y, *b, *b]
+    return c.create_polygon(pts, smooth=True, **kw)
+
+
+def _panel(c, x1, y1, x2, y2, fill, outline=None, r=10):
+    r = _px(r)
+    return _smooth_poly(c, [(x1, y1), (x2, y1), (x2, y2), (x1, y2)], [r] * 4,
+                        fill=fill, outline=outline or fill, width=_px(1))
+
+
+def _text(c, x, y, text="", font=None, fill=COLOR_TEXT, anchor="nw", **kw) -> _CanvasText:
+    item = c.create_text(x, y, text=text, font=font or _f_label(), fill=fill,
+                         anchor=anchor, **kw)
+    return _CanvasText(c, item)
+
+
+def _fit_num(text: str, max_w: int, max_px: int, min_px: int = 12) -> tuple:
+    """Font numerico più grande (in pixel a 96 dpi) con cui `text` sta in max_w."""
+    for size in range(max_px, min_px - 1, -1):
+        font = _f_num(size)
+        if int(root.tk.call("font", "measure", font, text)) <= max_w:
+            return font
+    return _f_num(min_px)
+
+
+def _scegli_font() -> None:
+    """Famiglie effettive: quelle del tema se Tk le vede, altrimenti ripiego."""
+    global _font_num, _font_label
+    try:
+        famiglie = set(root.tk.call("font", "families"))
+    except Exception:
+        famiglie = set()
+    _font_num = FONT_NUM if FONT_NUM in famiglie else FONT_NUM_FALLBACK
+    _font_label = FONT_LABEL if FONT_LABEL in famiglie else FONT_LABEL_FALLBACK
+
 
 def setup_gui():
-    global ip_label_var, status_var, status_label, _main_canvas
-    global _remote_status_var, _remote_status_label
+    global ip_label_var, status_var, status_label, _main_canvas, _status_dot
+    global _remote_status_var, _remote_status_label, _remote_qr_box, _scale
 
-    root.title("Liquid Control")
-    w, h = 560, 460
+    root.title("Liquid Mouse")
+    try:
+        _scale = max(1.0, float(root.winfo_fpixels("1i")) / 96.0)
+    except Exception:
+        _scale = 1.0
+    _scegli_font()
+    P = _px
+
+    w, h = P(560), P(460)
     sx = (root.winfo_screenwidth()  - w) // 2
     sy = (root.winfo_screenheight() - h) // 2
     root.geometry(f'{w}x{h}+{sx}+{sy}')
 
     root.overrideredirect(True)
     root.attributes('-alpha', 0.0)
-    # Niente "-transparentcolor": finestra opaca, angoli arrotondati da DWM
-    # (vedi apply_dwm_style). La trasparenza keyed lasciava puntini bianchi
-    # sui bordi e "bucava" gli angoli.
-    root.configure(bg=COLOR_TRANSPARENT)
+    # Finestra opaca, angoli arrotondati da DWM (vedi apply_dwm_style). La
+    # vecchia trasparenza keyed lasciava puntini bianchi sui bordi.
+    root.configure(bg=COLOR_BG)
 
     try: root.iconbitmap(ICON_PATH)
     except Exception: pass
 
-    canvas = tk.Canvas(root, bg=COLOR_TRANSPARENT, highlightthickness=0)
-    canvas.pack(fill="both", expand=True)
-    _main_canvas = canvas
+    c = tk.Canvas(root, bg=COLOR_BG, highlightthickness=0, width=w, height=h)
+    c.pack(fill="both", expand=True)
+    _main_canvas = c
 
-    # --- Forma finestra: rettangolo arrotondato ---
-    def rounded_rect(c, x1, y1, x2, y2, r, **kw):
-        pts = (x1+r, y1, x1+r, y1, x2-r, y1, x2-r, y1, x2, y1, x2, y1+r,
-               x2, y1+r, x2, y2-r, x2, y2-r, x2, y2, x2-r, y2, x2-r, y2,
-               x1+r, y2, x1+r, y2, x1, y2, x1, y2-r, x1, y2-r, x1, y1+r,
-               x1, y1+r, x1, y1)
-        return c.create_polygon(pts, smooth=True, **kw)
+    # --- Schedario: linguetta aperta + cartella ---
+    M = P(8)                 # bordo della finestra
+    TAB_H = P(24)            # altezza delle linguette
+    top = M + TAB_H          # bordo superiore della cartella
+    tab_r = P(270)           # fine della linguetta aperta
+    _smooth_poly(c, [(M, M), (tab_r, M), (tab_r, top), (w - M, top),
+                     (w - M, h - M), (M, h - M)],
+                 [P(8), P(8), P(4), P(10), P(10), P(10)],
+                 fill=COLOR_PANEL, outline=COLOR_CREAM, width=P(1))
+    tab_mid = M + TAB_H // 2
+    tab_num = _text(c, M + P(10), tab_mid, "", _f_label(12), COLOR_TEXT, "w")
+    tab_title = _text(c, tab_r - P(12), tab_mid, "", _f_label(12, bold=True), COLOR_TEXT, "e")
 
-    PAD = 8
-    # Angoli smussati quanto i pannelli del terminale web (8-10px), non i 22px
-    # da "card glass": stesso linguaggio visivo, non un blob arrotondato.
-    CORNER_R = 10
-    # Card piatta: bordo netto invece del bordo glow, niente riflesso.
-    rounded_rect(canvas, PAD, PAD, w-PAD, h-PAD, CORNER_R,
-                 fill=COLOR_GLASS, outline=COLOR_BORDER, width=1)
+    # Linguetta chiusa "002 terminale": crema, testo scuro, apre le sessioni.
+    t2_l, t2_r = tab_r + P(6), w - P(44)
+    tab2 = _smooth_poly(c, [(t2_l, M), (t2_r, M), (t2_r, top - P(3)), (t2_l, top - P(3))],
+                        [P(8), P(8), 0, 0], fill=COLOR_CREAM, outline=COLOR_CREAM, width=P(1))
+    tab2_num = c.create_text(t2_l + P(10), tab_mid - P(1), text="002", anchor="w",
+                             font=_f_label(12), fill=COLOR_INK)
+    tab2_txt = c.create_text(t2_r - P(10), tab_mid - P(1), text="terminale", anchor="e",
+                             font=_f_label(12), fill=COLOR_INK)
 
-    # Linea separatore dopo titolo
-    sep_y = 70
-    canvas.create_line(PAD+30, sep_y,        w-PAD-30, sep_y,        fill=COLOR_BORDER, width=1)
+    def _tab2_hover(on):
+        colore = COLOR_AMBER if on else COLOR_CREAM
+        c.itemconfig(tab2, fill=colore, outline=colore)
+        c.config(cursor="hand2" if on else "")
+    for item in (tab2, tab2_num, tab2_txt):
+        c.tag_bind(item, "<Button-1>", lambda e: _open_sessions_panel())
+        c.tag_bind(item, "<Enter>", lambda e: _tab2_hover(True))
+        c.tag_bind(item, "<Leave>", lambda e: _tab2_hover(False))
 
-    # Linea separatore prima sezione remota
-    sep_y_remote = 215
-    canvas.create_line(PAD+30, sep_y_remote, w-PAD-30, sep_y_remote, fill=COLOR_BORDER, width=1)
-
-    # Linea separatore sopra lo status
-    sep_y2 = h - 75
-    canvas.create_line(PAD+30, sep_y2,       w-PAD-30, sep_y2,       fill=COLOR_BORDER, width=1)
+    # Chiudi (riduce nella tray)
+    close = c.create_text(w - P(22), tab_mid, text="×", font=_f_label(18), fill=COLOR_MUTED)
+    def _close_hover(on):
+        c.itemconfig(close, fill=COLOR_ERROR if on else COLOR_MUTED)
+        c.config(cursor="hand2" if on else "")
+    c.tag_bind(close, "<Button-1>", lambda e: minimize_to_tray())
+    c.tag_bind(close, "<Enter>", lambda e: _close_hover(True))
+    c.tag_bind(close, "<Leave>", lambda e: _close_hover(False))
 
     # --- Dragging finestra ---
     def get_pos(e):
@@ -317,121 +479,97 @@ def setup_gui():
         root.y_offset = e.y
     def move_window(e):
         root.geometry(f'+{e.x_root - root.x_offset}+{e.y_root - root.y_offset}')
-    canvas.bind("<Button-1>", get_pos)
-    canvas.bind("<B1-Motion>", move_window)
+    c.bind("<Button-1>", get_pos)
+    c.bind("<B1-Motion>", move_window)
 
-    # --- Titolo con accento colorato ---
-    title_prefix = tk.Label(root, text="", font=("Consolas", 15, "bold"), bg=COLOR_TRANSPARENT, fg=COLOR_ACCENT)
-    title_prefix.place(x=36, y=32)
-    title_main = tk.Label(root, text="", font=("Consolas", 15, "bold"), bg=COLOR_TRANSPARENT, fg=COLOR_TEXT)
-    title_main.place(x=66, y=32)
+    L, R = P(24), w - P(24)          # margini interni della cartella
+    GAP = P(10)
 
-    # Badge versione (angolo in alto a destra, prima del close button)
-    tk.Label(root, text=f"v{VERSION}", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=w-100, y=38)
+    # --- Host LAN: etichetta, indirizzo grande, QR su pannello crema ---
+    y0 = top + P(14)
+    lbl_host = _text(c, L, y0, "", _f_label(12), COLOR_MUTED)
+    _text(c, R - P(130), y0, f"v{VERSION} «{CODENAME.lower()}»", _f_label(11), COLOR_MUTED, "ne")
 
-    # --- Bottone chiudi: stile minimale con hover ---
-    cx, cy = w - 36, 36
-    close_bg = canvas.create_text(cx, cy, text="\u2715", font=("Consolas", 12), fill=COLOR_MUTED)
-    def _close_enter(e):
-        canvas.itemconfig(close_bg, fill=COLOR_ERROR)
-        canvas.config(cursor="hand2")
-    def _close_leave(e):
-        canvas.itemconfig(close_bg, fill=COLOR_MUTED)
-        canvas.config(cursor="")
-    canvas.tag_bind(close_bg, "<Button-1>", lambda e: minimize_to_tray())
-    canvas.tag_bind(close_bg, "<Enter>", _close_enter)
-    canvas.tag_bind(close_bg, "<Leave>", _close_leave)
-
-    # --- Sezione IP ---
-    lbl_ip_header = tk.Label(root, text="", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED)
-    lbl_ip_header.place(x=36, y=88)
-
-    ip_label_var = tk.StringVar(value="")
-    tk.Label(root, textvariable=ip_label_var, font=("Consolas", 18), bg=COLOR_TRANSPARENT, fg=COLOR_TEXT).place(x=36, y=112)
-
-    # --- QR Code con sfondo arrotondato ---
+    qr_side = P(116)
+    qx1, qy1 = R - qr_side, y0 + P(24)
+    _panel(c, qx1, qy1, R, qy1 + qr_side + P(16), COLOR_CREAM)
     qr_url = f"http://{_deps.local_ip}:{HTTP_PORT}/?v={int(time.time())}"
     try:
-        qr = qrcode.QRCode(version=1, box_size=3, border=2)
-        qr.add_data(qr_url)
-        qr.make(fit=True)
-        qr_raw = qr.make_image(fill_color=COLOR_TEXT, back_color=COLOR_BG).convert("RGBA")
-        # Sfondo arrotondato per il QR
-        qr_w, qr_h = qr_raw.size
-        pad_qr = 8
-        bg_img = Image.new("RGBA", (qr_w + pad_qr*2, qr_h + pad_qr*2), COLOR_GLASS)
-        mask = Image.new("L", bg_img.size, 0)
-        ImageDraw.Draw(mask).rounded_rectangle((0, 0, bg_img.size[0], bg_img.size[1]), radius=10, fill=255)
-        bg_img.putalpha(mask)
-        bg_img.paste(qr_raw, (pad_qr, pad_qr), qr_raw.split()[3])
-        root.qr_photo = ImageTk.PhotoImage(bg_img)
-        tk.Label(root, image=root.qr_photo, bg=COLOR_TRANSPARENT, bd=0).place(x=w-150, y=85)
+        lato = qr_side - P(16)
+        root.qr_photo = ImageTk.PhotoImage(_qr_image(qr_url, lato, COLOR_INK, COLOR_CREAM))
+        c.create_image(qx1 + qr_side // 2, qy1 + P(8) + lato // 2, image=root.qr_photo)
     except Exception as e:
         log_message(f"QR Error: {e}", color=COLOR_ERROR)
+    c.create_text(qx1 + qr_side // 2, qy1 + qr_side + P(6), text="scan lan",
+                  font=_f_label(11), fill=COLOR_INK)
 
-    # Etichetta sotto QR
-    tk.Label(root, text="SCANSIONA", font=("Consolas", 7), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=w-138, y=195)
+    ip_testo = f"{_deps.local_ip}:{HTTP_PORT}"
+    ip_label_var = _text(c, L - P(2), y0 + P(78), "",
+                         _fit_num(ip_testo, qx1 - L - GAP * 2, 44, 20), COLOR_TEXT, "sw")
+    _text(c, L, y0 + P(90), "apri dal telefono sulla stessa wi-fi",
+          _f_label(11), COLOR_MUTED)
+    # Barra arancio come la barra della giornata di PiDash: separa l'host
+    # dalla fila dei pannelli.
+    bar_y = y0 + P(122)
+    _panel(c, L, bar_y, qx1 - GAP * 2, bar_y + P(6), COLOR_ORANGE, r=3)
 
-    # --- Sezione Accesso Remoto ---
-    tk.Label(root, text="ACCESSO REMOTO", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=36, y=225)
-    _remote_status_var = tk.StringVar(value="Inizializzazione...")
-    _remote_status_label = tk.Label(
-        root, textvariable=_remote_status_var,
-        font=("Consolas", 9), bg=COLOR_TRANSPARENT, fg=COLOR_ACCENT,
-        wraplength=380, justify="left")
-    _remote_status_label.place(x=36, y=245)
+    # --- Fila dei pannelli: remoto (scuro) e PIN (arancio) ---
+    ry1 = qy1 + qr_side + P(16) + GAP * 2
+    ry2 = ry1 + P(128)
+    pin_l = R - P(150)
+    _panel(c, L, ry1, pin_l - GAP, ry2, COLOR_BG, COLOR_BORDER)
+    _text(c, L + P(12), ry1 + P(10), "remoto // upnp", _f_label(12), COLOR_MUTED)
+    rqr = P(88)
+    _remote_qr_box = (pin_l - GAP - P(12) - rqr, ry1 + (ry2 - ry1 - rqr) // 2, rqr)
+    # Crema come il QR LAN; finché UPnP non risponde mostra "qr in attesa".
+    _panel(c, _remote_qr_box[0] - P(6), _remote_qr_box[1] - P(6),
+           _remote_qr_box[0] + rqr + P(6), _remote_qr_box[1] + rqr + P(6),
+           COLOR_CREAM, r=8)
+    c.create_text(_remote_qr_box[0] + rqr // 2, _remote_qr_box[1] + rqr // 2,
+                  text="qr\nin attesa", justify="center", font=_f_label(11), fill=COLOR_INK)
+    _remote_status_var = _text(
+        c, L + P(12), ry1 + P(34), "Inizializzazione...", _f_label(12), COLOR_MUTED,
+        width=_remote_qr_box[0] - L - P(30))
+    _remote_status_label = _remote_status_var
 
-    tk.Label(root, text="PIN", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED).place(x=36, y=318)
+    _panel(c, pin_l, ry1, R, ry2, COLOR_ORANGE)
+    _text(c, pin_l + P(12), ry1 + P(10), "pin", _f_label(12), COLOR_INK)
     pin_val = _deps.config.get('pin_plain', '—')
-    tk.Label(root, text=pin_val, font=("Consolas", 14, "bold"),
-             bg=COLOR_TRANSPARENT, fg=COLOR_TEXT).place(x=36, y=334)
+    _text(c, pin_l + P(10), ry1 + P(78), pin_val,
+          _fit_num(pin_val, R - pin_l - P(22), 30, 12), COLOR_INK, "sw")
+    _text(c, pin_l + P(12), ry2 - P(10), "nel qr remoto", _f_label(11), COLOR_INK, "sw")
 
-    # --- Sezione stato ---
-    lbl_status_header = tk.Label(root, text="", font=("Consolas", 8), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED)
-    lbl_status_header.place(x=36, y=h-65)
+    # --- Stato ---
+    sy1, sy2 = ry2 + GAP, h - M - P(16)
+    _panel(c, L, sy1, R, sy2, COLOR_BG, COLOR_BORDER)
+    lbl_status_header = _text(c, L + P(12), sy1 + P(10), "", _f_label(12), COLOR_MUTED)
+    dot_y = sy1 + P(42)
+    _status_dot = c.create_oval(L + P(12), dot_y - P(5), L + P(22), dot_y + P(5),
+                                fill=COLOR_MUTED, outline="")
+    status_var = _text(c, L + P(32), dot_y, "", _f_label(12), COLOR_MUTED, "w",
+                       width=R - L - P(48))
+    status_label = status_var
 
-    # Indicatore pallino stato
-    root._status_dot = canvas.create_oval(36, h-42, 44, h-34, fill=COLOR_MUTED, outline="")
-
-    status_var = tk.StringVar(value="")
-    status_label = tk.Label(root, textvariable=status_var, font=("Consolas", 9), bg=COLOR_TRANSPARENT, fg=COLOR_MUTED)
-    status_label.place(x=52, y=h-46)
-
-    # Bottone "Sessioni terminal" (apre il pannello GUI con le sessioni attive)
-    sess_btn = canvas.create_text(w-118, h-42, text="▤ SESSIONI", anchor="w",
-                                  font=("Consolas", 8), fill=COLOR_MUTED)
-    def _sess_enter(e):
-        canvas.itemconfig(sess_btn, fill=COLOR_ACCENT); canvas.config(cursor="hand2")
-    def _sess_leave(e):
-        canvas.itemconfig(sess_btn, fill=COLOR_MUTED); canvas.config(cursor="")
-    canvas.tag_bind(sess_btn, "<Button-1>", lambda e: _open_sessions_panel())
-    canvas.tag_bind(sess_btn, "<Enter>", _sess_enter)
-    canvas.tag_bind(sess_btn, "<Leave>", _sess_leave)
-
-    # --- Animazione typewriter ---
+    # --- Animazione typewriter con cursore a blocco (come il client web) ---
     def type_sequence(widgets_data, idx=0):
         if idx >= len(widgets_data): return
         target, text, speed = widgets_data[idx]
         def _type(ci=0):
-            cursor = "\u2588" if ci < len(text) else ""
-            display = text[:ci] + cursor
-            if isinstance(target, tk.StringVar): target.set(display)
-            else: target.config(text=display)
             if ci < len(text):
+                target.set(text[:ci] + "█")
                 root.after(speed, lambda: _type(ci + 1))
             else:
-                if isinstance(target, tk.StringVar): target.set(text)
-                else: target.config(text=text)
+                target.set(text)
                 root.after(80, lambda: type_sequence(widgets_data, idx + 1))
         _type()
 
     anim_data = [
-        (title_prefix,      ">_",                      40),
-        (title_main,        " Liquid Control",           25),
-        (lbl_ip_header,     "HOST",                     15),
-        (ip_label_var,      f"{_deps.local_ip}:{HTTP_PORT}",  18),
-        (lbl_status_header, "STATO",                    15),
-        (status_var,        "Inizializzazione...",      18),
+        (tab_num,           "001",                           40),
+        (tab_title,         "liquid mouse",                  25),
+        (lbl_host,          "host // lan",                   15),
+        (ip_label_var,      ip_testo,                        18),
+        (lbl_status_header, "stato",                         15),
+        (status_var,        "Inizializzazione...",           18),
     ]
     root.after(400, lambda: type_sequence(anim_data))
 
@@ -464,7 +602,7 @@ def setup_gui():
 _DOT_MAP = {COLOR_OK: COLOR_OK, COLOR_ACCENT: COLOR_OK, COLOR_ERROR: COLOR_ERROR}
 
 def gui_log_sink(message, color=None):
-    """Sink Tk per liquidmouse.events: mostra il messaggio nella status bar.
+    """Sink Tk per liquidmouse.events: mostra il messaggio nella riga di stato.
 
     Registrato in main(). Il core non conosce questa funzione, pubblica e basta;
     prima invece scriveva sui widget direttamente e legava a Tk anche i moduli
@@ -480,12 +618,8 @@ def gui_log_sink(message, color=None):
         if status_var:
             status_var.set(message)
             if status_label: status_label.config(fg=color)
-        dot_color = _DOT_MAP.get(color, COLOR_MUTED)
-        if _main_canvas and hasattr(root, '_status_dot'):
-            try:
-                _main_canvas.itemconfig(root._status_dot, fill=dot_color)
-            except AttributeError:
-                pass
+        if _main_canvas is not None and _status_dot is not None:
+            _main_canvas.itemconfig(_status_dot, fill=_DOT_MAP.get(color, COLOR_MUTED))
     root.after(0, _update)
 
 
@@ -493,6 +627,8 @@ def build(deps: GuiDeps):
     """Crea la finestra e registra il sink di log. Ritorna `root`."""
     global _deps, root
     _deps = deps
+    # Prima di tk.Tk(): Tk elenca i font di sistema alla prima richiesta.
+    load_private_fonts([os.path.join(BASE_DIR, f) for f in FONT_FILES])
     root = tk.Tk()
     setup_gui()
     return root

@@ -1,8 +1,8 @@
 """
-🔨 Liquid Control Deployment Suite
+🔨 Liquid Mouse Deployment Suite
 Utility per la generazione dell'eseguibile standalone (EXE) per sistemi Windows.
 
-Output: EXE/LiquidControl.exe (ultima build).
+Output: EXE/LiquidMouse.exe (ultima build).
 Con --pre: copia anche una candidate versionata in pre-release/.
 Le release finali versionate vanno in release/ (gestite da release.py).
 """
@@ -29,13 +29,13 @@ def _can_import(mod: str) -> bool:
 def check_files():
     """Verifica l'integrità dei componenti essenziali del progetto.
 
-    Ogni asset elencato nel `datas` di LiquidControl.spec va elencato anche qui:
+    Ogni asset elencato nel `datas` di LiquidMouse.spec va elencato anche qui:
     un file mancante dal bundle non fa fallire la build, produce un EXE che
     risponde 404 solo a runtime — e solo sul percorso remoto.
     """
     # Stringhe letterali con "/" e non os.path.join: tests/test_assets_consistency.py
     # estrae questi percorsi con una regex sulle stringhe quotate, la stessa
-    # che legge il `datas` di LiquidControl.spec — deve trovare lo stesso
+    # che legge il `datas` di LiquidMouse.spec — deve trovare lo stesso
     # testo letterale nei due file per poterli confrontare.
     required = [
         "server.pyw",
@@ -45,6 +45,11 @@ def check_files():
         "static/vendor/xterm.js",
         "static/vendor/xterm.css",
         "static/icon.ico",
+        "static/fonts/SpaceGrotesk-Medium.ttf",
+        "static/fonts/SpaceMono-Regular.ttf",
+        "static/fonts/SpaceMono-Bold.ttf",
+        "static/fonts/OFL-SpaceGrotesk.txt",
+        "static/fonts/OFL-SpaceMono.txt",
         os.path.join("liquidmouse", "version.py"),
         os.path.join("liquidmouse", "__init__.py"),
         os.path.join("liquidmouse", "gui", "window.py"),
@@ -58,7 +63,7 @@ def check_files():
 
 def build():
     print("="*50)
-    print("   🖱️  LIQUID CONTROL - DEPLOYMENT UTILITY")
+    print("   🖱️  LIQUID MOUSE - DEPLOYMENT UTILITY")
     print("="*50)
 
     # Assicura che la cwd sia sempre la directory del progetto,
@@ -106,7 +111,7 @@ def build():
     if not check_files():
         return
 
-    spec_file = os.path.join(SCRIPT_DIR, "LiquidControl.spec")
+    spec_file = os.path.join(SCRIPT_DIR, "LiquidMouse.spec")
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--clean",
@@ -117,7 +122,7 @@ def build():
 
     # Rimozione preventiva: se il file è bloccato (app in esecuzione), fallisce qui
     # con messaggio chiaro invece di attendere l'errore criptico di PyInstaller
-    exe_out = os.path.join("EXE", "LiquidControl.exe")
+    exe_out = os.path.join("EXE", "LiquidMouse.exe")
     try:
         os.remove(exe_out)
         print("   🗑️  Versione precedente rimossa.")
@@ -131,7 +136,7 @@ def build():
     print("\n🚀 Avvio del processo di build (la procedura potrebbe richiedere alcuni minuti)...")
     try:
         subprocess.check_call(cmd, cwd=SCRIPT_DIR)
-        exe_path = os.path.abspath(os.path.join("EXE", "LiquidControl.exe"))
+        exe_path = os.path.abspath(os.path.join("EXE", "LiquidMouse.exe"))
         # Validazione post-build: EXE deve esistere e avere dimensione minima ragionevole
         if not os.path.exists(exe_path):
             print("\n❌ PyInstaller terminato con successo ma l'EXE non è stato generato.")
@@ -152,7 +157,7 @@ def build():
             stamp = datetime.now().strftime("%Y%m%d-%H%M")
             pre_dir = os.path.join(SCRIPT_DIR, "pre-release")
             os.makedirs(pre_dir, exist_ok=True)
-            pre_path = os.path.join(pre_dir, f"LiquidControl_v{ver}_pre_{stamp}.exe")
+            pre_path = os.path.join(pre_dir, f"LiquidMouse_v{ver}_pre_{stamp}.exe")
             shutil.copy2(exe_path, pre_path)
             print(f"📦 Candidate pre-release:\n   {pre_path}")
 

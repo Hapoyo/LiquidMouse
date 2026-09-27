@@ -78,7 +78,7 @@ class UpnpMapper:
             fallite = []
             for port in self._ports_wanted:
                 try:
-                    u.addportmapping(port, 'TCP', local_ip, port, 'LiquidControl', '')
+                    u.addportmapping(port, 'TCP', local_ip, port, 'LiquidMouse', '')
                     mapped.append(port)
                 except Exception as e:
                     # "ConflictInMappingEntry" (errore UPnP 718): la porta e'
@@ -88,7 +88,7 @@ class UpnpMapper:
                     # rimappare una volta sola, prima di arrendersi.
                     try:
                         u.deleteportmapping(port, 'TCP')
-                        u.addportmapping(port, 'TCP', local_ip, port, 'LiquidControl', '')
+                        u.addportmapping(port, 'TCP', local_ip, port, 'LiquidMouse', '')
                         mapped.append(port)
                         continue
                     except Exception:

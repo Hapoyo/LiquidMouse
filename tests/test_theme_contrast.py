@@ -1,4 +1,4 @@
-"""Contrasto WCAG della palette: COLOR_MUTED era il colore reale usato per
+"""Contrasto WCAG della palette (tema cyber da v2.6.0): COLOR_MUTED era il colore reale usato per
 contenuto leggibile (riga di stato, messaggi UPnP nel pannello remoto), non
 solo per etichette decorative — a #6B6880 stava sotto la soglia AA (4.5:1 per
 testo normale) contro entrambi gli sfondi scuri dell'app. Questo test impedisce
@@ -8,11 +8,17 @@ pixel su schermo.
 
 from liquidmouse.theme import (
     COLOR_ACCENT,
+    COLOR_AMBER,
     COLOR_BG,
+    COLOR_CREAM,
     COLOR_ERROR,
-    COLOR_GLASS,
+    COLOR_INK,
     COLOR_MUTED,
     COLOR_OK,
+    COLOR_ORANGE,
+    COLOR_PANEL,
+    COLOR_PINK,
+    COLOR_TAN,
     COLOR_TEXT,
 )
 
@@ -28,9 +34,18 @@ TEXT_COLORS = {
     "COLOR_OK": COLOR_OK,
 }
 
-# I due sfondi reali dietro il testo: la finestra (bg dei Label) e la card
-# glass disegnata sul canvas dietro di loro.
-BACKGROUNDS = {"COLOR_BG": COLOR_BG, "COLOR_GLASS": COLOR_GLASS}
+# I due sfondi scuri reali dietro il testo: il fondo e il pannello scuro.
+BACKGROUNDS = {"COLOR_BG": COLOR_BG, "COLOR_PANEL": COLOR_PANEL}
+
+# Stile PiDash: pannelli pieni colorati con il testo in inchiostro scuro sopra
+# (bottoni, PIN, sessioni). Anche quel testo deve reggere la soglia AA.
+PANNELLI_PIENI = {
+    "COLOR_CREAM": COLOR_CREAM,
+    "COLOR_ORANGE": COLOR_ORANGE,
+    "COLOR_AMBER": COLOR_AMBER,
+    "COLOR_PINK": COLOR_PINK,
+    "COLOR_TAN": COLOR_TAN,
+}
 
 
 def _linearizza(canale: int) -> float:
@@ -77,4 +92,32 @@ class TestPaletteRispettaAA:
         # Il caso che ha causato il bug: non basta che sia "leggibile a
         # occhio" in un caso, deve reggere su entrambi gli sfondi reali.
         assert contrasto(COLOR_MUTED, COLOR_BG) >= WCAG_AA_NORMAL_TEXT
-        assert contrasto(COLOR_MUTED, COLOR_GLASS) >= WCAG_AA_NORMAL_TEXT
+        assert contrasto(COLOR_MUTED, COLOR_PANEL) >= WCAG_AA_NORMAL_TEXT
+
+    def test_inchiostro_sui_pannelli_pieni(self):
+        insufficienti = [
+            f"COLOR_INK su {nome}: {contrasto(COLOR_INK, bg):.2f}:1"
+            for nome, bg in PANNELLI_PIENI.items()
+            if contrasto(COLOR_INK, bg) < WCAG_AA_NORMAL_TEXT
+        ]
+        assert not insufficienti, "\n".join(insufficienti)
+
+
+class TestCssAllineatoAlTema:
+    """app.css ripete la palette in `:root`: i due elenchi devono coincidere,
+    altrimenti telefono e finestra desktop tornano a due grigi diversi."""
+
+    def test_variabili_css_uguali_alla_palette(self):
+        import re
+        from pathlib import Path
+
+        css = (Path(__file__).resolve().parent.parent / "static" / "app.css").read_text(encoding="utf-8")
+        attese = {
+            "--bg": COLOR_BG, "--panel": COLOR_PANEL, "--cream": COLOR_CREAM,
+            "--tan": COLOR_TAN, "--orange": COLOR_ORANGE, "--amber": COLOR_AMBER,
+            "--pink": COLOR_PINK, "--ink": COLOR_INK,
+        }
+        for var, valore in attese.items():
+            m = re.search(rf"{var}:\s*(#[0-9a-fA-F]{{6}})", css)
+            assert m, f"{var} non definita in app.css"
+            assert m.group(1).lower() == valore.lower(), f"{var}: {m.group(1)} != {valore}"
