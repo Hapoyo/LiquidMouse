@@ -1,6 +1,6 @@
 # Liquid Mouse — CLAUDE.md
 
-Versione 2.6.0 · 2026-09-27
+Versione 2.6.1 · 2026-09-27
 
 ## 1. Scopo
 Il telefono diventa touchpad, tastiera e terminale per un PC Windows. Il server Python
@@ -103,7 +103,7 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - ConPTY via ctypes richiede Windows 10 1809+; pywinpty è il backend preferito.
 - Certificato auto-firmato: al primo accesso remoto il browser mostra l'avviso.
 - Ancora da provare su Windows: font privati in Tk, ConPTY senza pywinpty, barra tasti del
-  terminale, EXE 2.6.0 (pubblicato, non ancora provato).
+  terminale, chiusura delle sessioni, EXE 2.6.x.
 
 ## 9. Glossario
 - **PTY / ConPTY**: pseudo-terminale; ConPTY è quello nativo di Windows.
