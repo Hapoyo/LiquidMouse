@@ -13,6 +13,7 @@ import ctypes
 import ctypes.wintypes as _wt
 import subprocess
 import sys
+import threading
 
 from liquidmouse.events import log_message
 from liquidmouse.theme import COLOR_MUTED
@@ -71,16 +72,32 @@ _EXTENDED_STARTUPINFO_PRESENT        = 0x00080000
 _CREATE_NO_WINDOW                    = 0x08000000
 _PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016
 _STILL_ACTIVE = 259
+_INFINITE = 0xFFFFFFFF
+_DUPLICATE_SAME_ACCESS = 0x00000002
+# Pseudo-handle restituito da GetCurrentProcess(): costante, non va chiuso.
+_CURRENT_PROCESS = _wt.HANDLE(-1)
 
 READ_SIZE = 4096
 
 
 class ConPTY:
-    """ConPTY diretto via ctypes — nessuna dipendenza esterna."""
+    """ConPTY diretto via ctypes — nessuna dipendenza esterna.
+
+    Quando il processo figlio termina (es. `exit` in cmd.exe) conhost tiene
+    aperto il lato di scrittura della pipe di output: `ReadFile` non riceve EOF
+    finché qualcuno non chiama `ClosePseudoConsole`. Senza, il read loop della
+    sessione restava bloccato per sempre, con la sessione ancora "attiva" e un
+    thread dell'executor occupato. Per questo un thread di attesa chiude la
+    pseudo-console appena il processo esce (`_wait_exit`).
+    """
 
     def __init__(self, argv: list, cwd: str, cols: int = 120, rows: int = 40):
         if _k32 is None:
             raise OSError("ConPTY richiede Windows")
+        # Protegge gli handle condivisi fra il thread di attesa e _cleanup():
+        # ognuno va chiuso una volta sola, da chi lo toglie per primo.
+        self._close_lock = threading.Lock()
+        self._waiter: threading.Thread | None = None
         self._hproc = self._hpc = self._stdin_w = self._stdout_r = None
         # Buffer di lettura riusato: _read_loop chiama read() in continuazione e
         # allocarne uno nuovo da 4 KB a ogni giro era spreco puro.
@@ -130,6 +147,53 @@ class ConPTY:
             _k32.DeleteProcThreadAttributeList(attr_ptr)
         self._hproc = pi.hProcess
         _k32.CloseHandle(pi.hThread)
+        self._start_exit_waiter()
+
+    def _start_exit_waiter(self) -> None:
+        """Avvia il thread che chiude la pseudo-console all'uscita del processo.
+
+        Il thread aspetta su un **duplicato** dell'handle del processo, suo e
+        chiuso da lui: `_cleanup()` può così chiudere `self._hproc` in qualsiasi
+        momento senza chiudere un handle su cui un altro thread sta aspettando.
+        """
+        dup = _wt.HANDLE()
+        if not _k32.DuplicateHandle(_CURRENT_PROCESS, _wt.HANDLE(self._hproc),
+                                    _CURRENT_PROCESS, ctypes.byref(dup),
+                                    _wt.DWORD(0), False, _wt.DWORD(_DUPLICATE_SAME_ACCESS)):
+            # Senza thread si torna al comportamento precedente: la sessione si
+            # chiude solo con un kill esplicito. Da dire, non da far fallire.
+            log_message(f"ConPTY: DuplicateHandle err {_k32.GetLastError()}, "
+                        "uscita del processo non rilevata", color=COLOR_MUTED)
+            return
+        self._waiter = threading.Thread(target=self._wait_exit, args=(dup,),
+                                        name="conpty-exit", daemon=True)
+        self._waiter.start()
+
+    def _wait_exit(self, hproc) -> None:
+        """Corpo del thread di attesa: processo uscito → pseudo-console chiusa."""
+        try:
+            _k32.WaitForSingleObject(hproc, _wt.DWORD(_INFINITE))
+        finally:
+            _k32.CloseHandle(hproc)
+        # Chiudere la pseudo-console fa ricevere EOF alla ReadFile in corso nel
+        # read loop, che chiude la sessione e avvisa i viewer (term_closed).
+        self._close_pseudoconsole()
+
+    def _close_pseudoconsole(self) -> None:
+        """Chiude la pseudo-console una volta sola, chiunque arrivi per primo.
+
+        La chiamata avviene fuori dal lock: sulle build di Windows che
+        aspettano lo svuotamento dell'output, ClosePseudoConsole può bloccare
+        finché il read loop non ha letto tutto, e non deve tenere fermo chi
+        chiama _cleanup() nel frattempo.
+        """
+        with self._close_lock:
+            hpc, self._hpc = self._hpc, None
+        if hpc:
+            try:
+                _k32.ClosePseudoConsole(hpc)
+            except Exception:
+                pass
 
     def read(self, size: int = READ_SIZE) -> bytes:
         buf = self._read_buf if size == READ_SIZE else (ctypes.c_char * size)()
@@ -161,9 +225,10 @@ class ConPTY:
         return 0 if ec.value == _STILL_ACTIVE else ec.value
 
     def set_size(self, rows: int, cols: int) -> None:
-        if self._hpc:
+        hpc = self._hpc  # il thread di attesa può azzerarlo in qualsiasi momento
+        if hpc:
             try:
-                _k32.ResizePseudoConsole(self._hpc, _COORD(cols, rows))
+                _k32.ResizePseudoConsole(hpc, _COORD(cols, rows))
             except Exception:
                 pass
 
@@ -175,19 +240,19 @@ class ConPTY:
                 pass
         self._cleanup()
 
-    def _cleanup(self):
-        if self._hpc:
-            try:
-                _k32.ClosePseudoConsole(self._hpc)
-            except Exception:
-                pass
-        for h in [self._stdin_w, self._stdout_r, self._hproc]:
+    def _cleanup(self) -> None:
+        """Chiude pseudo-console e handle. Idempotente e sicura rispetto al
+        thread di attesa: gli handle si prendono e si azzerano sotto lock."""
+        self._close_pseudoconsole()
+        with self._close_lock:
+            handles = [self._stdin_w, self._stdout_r, self._hproc]
+            self._hproc = self._stdin_w = self._stdout_r = None
+        for h in handles:
             if h:
                 try:
                     _k32.CloseHandle(h)
                 except Exception:
                     pass
-        self._hproc = self._hpc = self._stdin_w = self._stdout_r = None
 
 
 class PyWinPTY:

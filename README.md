@@ -20,7 +20,9 @@ No app to install — the client runs entirely in the browser.
   the same wrong PIN until the server blocked the IP for 30 minutes. It now stops and
   asks again.
 - **Terminal sessions that exit are released** — a session closed with `exit` used to
-  keep its PTY and buffer allocated until the program was closed.
+  keep its PTY and buffer allocated until the program was closed. With the built-in
+  ConPTY backend (used when pywinpty is missing) it even stayed "active" forever: the
+  pseudo console is now closed as soon as the process exits.
 
 ## What's new in v2.5.0
 
