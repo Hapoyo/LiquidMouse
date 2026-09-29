@@ -19,7 +19,8 @@ liquidmouse/
   paths.py, ports.py     percorsi degli asset (anche nel bundle), porte 8000/8765/8443/8766/8767
   net/                   server.py (servizi), protocol.py (messaggi), static.py (whitelist
                          asset), frames.py (frame binari), upnp.py, tunnel.py
-                         (cloudflared), addresses.py
+                         (cloudflared), addresses.py, sftp.py (file manager: profili, paramiko,
+                         DPAPI), transfers.py (biglietti monouso per /sftp/dl e /sftp/up)
   input/                 keymap.py (nomi tasto → VK), win32.py (SendInput)
   terminal/              sessions.py, conpty.py (pywinpty o ConPTY ctypes), commands.py
                          (whitelist comandi), ringbuffer.py, launcher.py (finestra sul PC)
@@ -45,7 +46,7 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 ## 3. Comandi
 - Test: `pip install pytest websockets && python -m pytest` (node serve ai test dei contratti JS)
 - Core senza GUI: i moduli elencati in `.github/workflows/test.yml` devono importarsi su Linux
-- Avvio da sorgente (Windows): `py -3.13 -m pip install websockets pystray Pillow qrcode cryptography pywinpty miniupnpc` poi `py -3.13 server.pyw`
+- Avvio da sorgente (Windows): `py -3.13 -m pip install websockets pystray Pillow qrcode cryptography pywinpty miniupnpc paramiko` poi `py -3.13 server.pyw`
 - Smoke test (Windows, server avviato): `py -3.13 test_server.py`
 - Anteprime del README: `xvfb-run -s "-screen 0 1920x1080x24 -dpi 192" python tools/anteprime.py`
   (servono playwright, Pillow, qrcode e tkinter; qui tkinter c'è solo in `/usr/bin/python3.12`
@@ -94,6 +95,7 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 | Frame binari del terminale | `net/frames.py` · `handleBinaryFrame` in app.js |
 | Tasti del terminale | `TERM_KEYS` in app.js · `.tkey[data-key]` in index.html |
 | Tipi di messaggio | `@handles` in `net/protocol.py` · `ws.send` in app.js |
+| Funzioni pure del file manager | blocco `// --- FILE: contratto` in app.js · `join_path` in `net/sftp.py` (test_files_client_contract.py) |
 
 ## 7. Decisioni
 - Accesso remoto: UPnP se apre la porta, altrimenti tunnel Cloudflare (quick tunnel, senza
@@ -121,13 +123,22 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   `esc` va alla shell, non chiude. "‹ sessioni" torna all'elenco lasciando la sessione viva.
 - Errore di autenticazione nel client = niente riconnessione automatica (evita il blocco IP).
 - Nome: LiquidControl fino alla 2.5.x, Liquid Mouse dalla 2.6.0 (config migrata copiando).
+- File manager (scheda 003): il PC è client SFTP (paramiko, import pigro) verso un host SSH
+  scelto da un profilo in `config.json` (`sftp_profiles`; di norma l'OpenSSH del PC stesso,
+  127.0.0.1:22). Password cifrata con DPAPI, mai rimandata al client; dove DPAPI manca non si
+  salva nessuna password. Host key TOFU: impronta salvata alla prima connessione, se cambia
+  la connessione è rifiutata prima di inviare la password. Le operazioni bloccanti girano in
+  executor (il dispatch è sequenziale). I file passano da HTTP con un biglietto monouso
+  (60 s) chiesto via WS (`sftp_ticket`): sulla 8000 in streaming; da remoto (8443/tunnel) il
+  download è letto in memoria con tetto 64 MB e l'upload non c'è (websockets non riceve il
+  corpo di un POST). Nomi con `/`, `\`, `..` rifiutati (`validate_name`).
 - Font TTF e non woff2: gli stessi file servono al browser e a Tk (AddFontResourceEx privato).
 
 ## 8. Vincoli noti
 - Python 3.14 non supportato (miniupnpc senza wheel).
 - ConPTY via ctypes richiede Windows 10 1809+; pywinpty è il backend preferito.
 - Certificato auto-firmato: al primo accesso remoto il browser mostra l'avviso.
-- Ancora da provare su Windows: font privati in Tk, ConPTY senza pywinpty, barra tasti del
+- Ancora da provare su Windows: file manager (OpenSSH locale, download/upload di file grandi, DPAPI, paramiko nell'EXE), font privati in Tk, ConPTY senza pywinpty, barra tasti del
   terminale, chiusura delle sessioni, EXE 2.6.x. Sul telefono: tastiera aperta nel
   terminale (Safari e Chrome). Tunnel Cloudflare reale (qui il proxy lo blocca con 403):
   download di cloudflared, QR trycloudflare, PIN, niente finestra nera di cloudflared.

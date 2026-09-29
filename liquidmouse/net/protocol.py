@@ -8,6 +8,7 @@ Tutti i valori in arrivo sono esterni e non fidati, quindi ogni handler passa da
 `clamp_int` invece di fidarsi del JSON.
 """
 
+import asyncio
 import json
 import time
 from collections.abc import Awaitable, Callable
@@ -17,6 +18,8 @@ from liquidmouse.input.win32 import (
     hotkey, key_down, key_press, key_text, key_up,
     mouse_button, mouse_click, mouse_move, mouse_scroll,
 )
+from liquidmouse.net.sftp import SftpError, join_path, validate_name
+from liquidmouse.net.transfers import DOWNLOAD, REMOTE_DOWNLOAD_MAX, UPLOAD
 from liquidmouse.theme import COLOR_ERROR, COLOR_MUTED
 
 # --- limiti del protocollo ---------------------------------------------------
@@ -27,6 +30,7 @@ SCROLL_CLAMP = 100
 TERM_INPUT_MAX = 8192
 TERM_COLS_MIN, TERM_COLS_MAX = 20, 240
 TERM_ROWS_MIN, TERM_ROWS_MAX = 5, 60
+SFTP_TEXT_MAX = 1024
 
 # Il client ripete il backspace a raffica quando il tasto resta premuto: senza
 # freno, una pressione lunga cancella l'intera riga in pochi millisecondi.
@@ -82,11 +86,18 @@ class ClientConnection:
     Ctrl giù, quel modificatore resterebbe premuto sul PC per sempre.
     """
 
-    def __init__(self, websocket, client_ip: str, sessions, on_session_created=None):
+    def __init__(self, websocket, client_ip: str, sessions, on_session_created=None,
+                 sftp=None, transfers=None, remote: bool = False):
         self.ws = websocket
         self.client_ip = client_ip
         self.sessions = sessions
         self.on_session_created = on_session_created
+        self.sftp = sftp
+        self.transfers = transfers
+        # Client arrivato da 8443/tunnel: i trasferimenti hanno limiti propri.
+        self.remote = remote
+        # Chiave dei biglietti e delle connessioni SFTP di questo client.
+        self.owner = id(websocket)
         self.held_keys: set[str] = set()
         self._last_backspace = 0.0
         self._last_ping = 0.0
@@ -110,6 +121,10 @@ class ClientConnection:
             key_up(key)
         self.held_keys.clear()
         self.sessions.detach_ws(self.ws)
+        if self.sftp is not None:
+            self.sftp.close_owner(self.owner)
+        if self.transfers is not None:
+            self.transfers.revoke_owner(self.owner)
 
 
 # --- input -------------------------------------------------------------------
@@ -256,6 +271,139 @@ async def _term_kill(ctx: ClientConnection, data: dict) -> None:
     # solo la chiusura, e le sessioni restavano aperte per sempre.
     ctx.sessions.kill(data.get('id', ''))
     await ctx.send_session_list()
+
+
+# --- file manager (SFTP) -----------------------------------------------------
+
+def _text(data: dict, key: str) -> str:
+    """Campo testuale del messaggio, mai un non-stringa e con lunghezza limitata."""
+    v = data.get(key, '')
+    return v[:SFTP_TEXT_MAX] if isinstance(v, str) else ''
+
+
+async def _sftp(ctx: ClientConnection, fn, *args):
+    """Esegue `fn` (bloccante) fuori dall'event loop. Su errore avvisa il client
+    e ritorna None: un elenco lento o un host giù non deve fermare il resto."""
+    if ctx.sftp is None:
+        await ctx.send_json({"type": "sftp_error", "msg": "file manager non disponibile"})
+        return None
+    try:
+        return await asyncio.get_running_loop().run_in_executor(None, fn, *args)
+    except SftpError as e:
+        await ctx.send_json({"type": "sftp_error", "msg": str(e), "code": e.code})
+    return None
+
+
+async def _send_profiles(ctx: ClientConnection) -> None:
+    await ctx.send_json({"type": "sftp_profiles",
+                         "profiles": ctx.sftp.list_profiles() if ctx.sftp else []})
+
+
+@handles('sftp_profiles')
+async def _sftp_profiles(ctx: ClientConnection, data: dict) -> None:
+    await _send_profiles(ctx)
+
+
+@handles('sftp_profile_save')
+async def _sftp_profile_save(ctx: ClientConnection, data: dict) -> None:
+    if await _sftp(ctx, lambda: ctx.sftp.save_profile(
+            _text(data, 'name'), _text(data, 'host'),
+            clamp_int(data.get('port'), 1, 65535, 22),
+            _text(data, 'user'), _text(data, 'password')) or True):
+        await _send_profiles(ctx)
+
+
+@handles('sftp_profile_delete')
+async def _sftp_profile_delete(ctx: ClientConnection, data: dict) -> None:
+    if await _sftp(ctx, lambda: ctx.sftp.delete_profile(_text(data, 'name')) or True):
+        await _send_profiles(ctx)
+
+
+@handles('sftp_connect')
+async def _sftp_connect(ctx: ClientConnection, data: dict) -> None:
+    name = _text(data, 'name')
+    path = await _sftp(ctx, ctx.sftp.connect if ctx.sftp else None, ctx.owner, name)
+    if path is not None:
+        await ctx.send_json({"type": "sftp_connected", "name": name, "path": path})
+
+
+@handles('sftp_disconnect')
+async def _sftp_disconnect(ctx: ClientConnection, data: dict) -> None:
+    if ctx.sftp is not None:
+        ctx.sftp.close_owner(ctx.owner)
+    await ctx.send_json({"type": "sftp_disconnected"})
+
+
+@handles('sftp_list')
+async def _sftp_list(ctx: ClientConnection, data: dict) -> None:
+    listing = await _sftp(ctx, ctx.sftp.list_dir if ctx.sftp else None,
+                          ctx.owner, _text(data, 'path'))
+    if listing is not None:
+        await ctx.send_json({"type": "sftp_listing", **listing})
+
+
+async def _sftp_done(ctx: ClientConnection, op: str, path: str, fn, *args) -> None:
+    """Esegue un'operazione che modifica la cartella e conferma con `sftp_ok`
+    (il client ricarica l'elenco)."""
+    if await _sftp(ctx, lambda: fn(*args) or True):
+        await ctx.send_json({"type": "sftp_ok", "op": op, "path": path})
+
+
+@handles('sftp_mkdir')
+async def _sftp_mkdir(ctx: ClientConnection, data: dict) -> None:
+    if ctx.sftp:
+        await _sftp_done(ctx, 'mkdir', _text(data, 'path'), ctx.sftp.mkdir,
+                         ctx.owner, _text(data, 'path'), _text(data, 'name'))
+
+
+@handles('sftp_rename')
+async def _sftp_rename(ctx: ClientConnection, data: dict) -> None:
+    if ctx.sftp:
+        await _sftp_done(ctx, 'rename', _text(data, 'path'), ctx.sftp.rename,
+                         ctx.owner, _text(data, 'path'), _text(data, 'old'), _text(data, 'new'))
+
+
+@handles('sftp_delete')
+async def _sftp_delete(ctx: ClientConnection, data: dict) -> None:
+    if ctx.sftp:
+        await _sftp_done(ctx, 'delete', _text(data, 'path'), ctx.sftp.delete,
+                         ctx.owner, _text(data, 'path'), _text(data, 'name'),
+                         data.get('dir') is True)
+
+
+def _issue_ticket(ctx: ClientConnection, data: dict) -> dict:
+    """Prepara un biglietto di trasferimento (bloccante: interroga l'host)."""
+    direction = data.get('direction')
+    if ctx.transfers is None or direction not in (DOWNLOAD, UPLOAD):
+        raise SftpError("trasferimento non disponibile")
+    if direction == DOWNLOAD:
+        path = join_path(_text(data, 'path'), _text(data, 'name'))
+        size = ctx.sftp.file_size(ctx.owner, path)
+        if ctx.remote and size > REMOTE_DOWNLOAD_MAX:
+            raise SftpError(
+                f"da remoto il download è limitato a {REMOTE_DOWNLOAD_MAX >> 20} MB", code="too_big")
+    else:
+        if ctx.remote:
+            raise SftpError("l'upload non è disponibile da remoto: usa la rete locale",
+                            code="remote_upload")
+        path = join_path(_text(data, 'path'), _text(data, 'name'))
+        size = 0
+        if data.get('overwrite') is not True and ctx.sftp.exists(ctx.owner, path):
+            raise SftpError("esiste già un file con quel nome", code="exists")
+    ctx.sftp._get(ctx.owner)  # senza connessione il biglietto non servirebbe
+    try:
+        token = ctx.transfers.issue(ctx.owner, direction, path)
+    except RuntimeError as e:
+        raise SftpError(str(e)) from e
+    return {"type": "sftp_ticket", "direction": direction, "token": token,
+            "name": validate_name(_text(data, 'name')), "size": size}
+
+
+@handles('sftp_ticket')
+async def _sftp_ticket(ctx: ClientConnection, data: dict) -> None:
+    reply = await _sftp(ctx, _issue_ticket, ctx, data)
+    if reply is not None:
+        await ctx.send_json(reply)
 
 
 # --- dispatch ----------------------------------------------------------------

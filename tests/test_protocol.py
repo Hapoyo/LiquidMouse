@@ -146,6 +146,9 @@ class TestDispatchRobustezza:
             'move', 'scroll', 'click', 'drag', 'text', 'key', 'key_toggle',
             'hotkey', 'ping', 'term_list', 'term_create', 'term_attach',
             'term_detach', 'term_input', 'term_resize', 'term_kill',
+            'sftp_profiles', 'sftp_profile_save', 'sftp_profile_delete',
+            'sftp_connect', 'sftp_disconnect', 'sftp_list', 'sftp_mkdir',
+            'sftp_rename', 'sftp_delete', 'sftp_ticket',
         }
         assert attesi <= known_types()
 

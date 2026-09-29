@@ -42,6 +42,9 @@ a = Analysis(
         'liquidmouse.gui.effects',
         'winpty',
         'winpty.ptyprocess',
+        # Importato solo al primo collegamento SFTP (liquidmouse/net/sftp.py):
+        # dichiararlo evita un EXE che parte ma non apre il file manager.
+        'paramiko',
         'websockets',
         'websockets.server',
         'websockets.client',

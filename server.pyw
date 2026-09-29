@@ -15,7 +15,9 @@ from liquidmouse.config import Config, get_config_path
 from liquidmouse.events import log_message
 from liquidmouse.net.addresses import TrustedPeer, get_local_ip, is_loopback
 from liquidmouse.net.server import NetworkServices
+from liquidmouse.net.sftp import SftpManager, default_protector
 from liquidmouse.net.static import StaticFiles
+from liquidmouse.net.transfers import TransferRegistry
 from liquidmouse.net.tunnel import CloudflareTunnel
 from liquidmouse.net.upnp import UpnpMapper
 from liquidmouse.paths import BASE_DIR
@@ -50,6 +52,9 @@ _auth_guard = AuthGuard()
 _trusted_peer = TrustedPeer()
 _session_manager = SessionManager()
 _static = StaticFiles(BASE_DIR)
+# File manager: profili SSH nella config, password cifrate con DPAPI.
+_sftp = SftpManager(_config, protector=default_protector())
+_transfers = TransferRegistry()
 _tls = SelfSignedCert(_config)
 _upnp = UpnpMapper()
 # Strada remota quando UPnP non può funzionare (CGNAT): cloudflared scaricato
@@ -114,6 +119,8 @@ def _build_services() -> NetworkServices:
         local_ip=LOCAL_IP,
         on_remote_change=window.update_remote_ui,
         on_session_created=_on_session_created,
+        sftp=_sftp,
+        transfers=_transfers,
     )
 
 
