@@ -87,6 +87,7 @@ def build():
         ("PIL",          "Pillow"),
         ("qrcode",       "qrcode"),
         ("cryptography", "cryptography"),
+        ("paramiko",     "paramiko"),      # file manager SFTP
     ]
     optional_deps = [
         ("miniupnpc", "miniupnpc"),  # UPnP: richiede C compiler; disabilitato se assente

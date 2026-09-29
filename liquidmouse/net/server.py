@@ -16,6 +16,7 @@ import ipaddress
 import json
 import threading
 from http import HTTPStatus
+from urllib.parse import parse_qs, quote, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import websockets
@@ -25,7 +26,9 @@ from websockets.http11 import Response
 from liquidmouse.events import log_message
 from liquidmouse.net.addresses import is_loopback, is_private_ip
 from liquidmouse.net.protocol import ClientConnection, dispatch
+from liquidmouse.net.sftp import CHUNK, SftpError
 from liquidmouse.net.static import etag_matches
+from liquidmouse.net.transfers import DOWNLOAD, REMOTE_DOWNLOAD_MAX, UPLOAD
 from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, TUNNEL_PORT, WSS_PORT
 from liquidmouse.security.auth import AUTH_MAX_FAILS, pin_matches
 from liquidmouse.theme import COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_OK
@@ -58,19 +61,130 @@ def tunnel_client_ip(headers) -> str:
         return TUNNEL_GUARD_KEY
 
 
-def make_http_handler(static):
+SFTP_DOWNLOAD_PATH = "/sftp/dl"
+SFTP_UPLOAD_PATH = "/sftp/up"
+
+
+def ticket_token(raw_path: str) -> tuple[str, str]:
+    """(percorso, token) da un URL di trasferimento; token vuoto se manca."""
+    parts = urlsplit(raw_path)
+    return parts.path, (parse_qs(parts.query).get("t") or [""])[0]
+
+
+def download_headers(name: str, size: int) -> list[tuple[str, str]]:
+    """Intestazioni di un download. Il nome va percent-encoded (RFC 5987): un
+    nome con virgolette o a capo spezzerebbe l'header."""
+    return [
+        ("Content-Type", "application/octet-stream"),
+        ("Content-Length", str(size)),
+        ("Content-Disposition", f"attachment; filename*=UTF-8''{quote(name, safe='')}"),
+        ("Cache-Control", "no-store"),
+    ]
+
+
+def make_http_handler(static, sftp=None, transfers=None):
     """Handler HTTP che serve `static` dalla cache in memoria.
 
     Sostituisce SimpleHTTPRequestHandler(directory=BASE_DIR), che serviva
     l'intera directory: chiunque sulla LAN poteva scaricare server.pyw e la
     config col PIN. Qui vale la whitelist di `static`.
+
+    Con `sftp` e `transfers` gestisce anche i trasferimenti (`/sftp/dl`,
+    `/sftp/up`), ognuno con un biglietto monouso: vedi net/transfers.py.
     """
 
     class _StaticHTTPHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
         def do_GET(self):
+            if urlsplit(self.path).path == SFTP_DOWNLOAD_PATH:
+                self._sftp_download()
+                return
             self._serve(con_corpo=True)
+
+        def do_POST(self):
+            if urlsplit(self.path).path == SFTP_UPLOAD_PATH:
+                self._sftp_upload()
+                return
+            self.send_error(HTTPStatus.NOT_FOUND, "Not found")
+
+        def _ticket(self, direction: str):
+            """Biglietto valido o None (e in quel caso ha già risposto 403)."""
+            ticket = None
+            if sftp is not None and transfers is not None:
+                ticket = transfers.redeem(ticket_token(self.path)[1], direction)
+            if ticket is None:
+                self.send_error(HTTPStatus.FORBIDDEN, "Forbidden")
+            return ticket
+
+        def _sftp_download(self):
+            ticket = self._ticket(DOWNLOAD)
+            if ticket is None:
+                return
+            try:
+                fh, size = sftp.open_read(ticket.owner, ticket.path)
+            except SftpError as e:
+                self.send_error(HTTPStatus.GONE, str(e))
+                return
+            try:
+                self.send_response(HTTPStatus.OK)
+                for k, v in download_headers(ticket.path.rsplit("/", 1)[-1], size):
+                    self.send_header(k, v)
+                self.end_headers()
+                # A blocchi: un file da 2 GB non deve stare in memoria.
+                rimasti = size
+                while rimasti > 0:
+                    blocco = fh.read(min(CHUNK, rimasti))
+                    if not blocco:
+                        break
+                    self.wfile.write(blocco)
+                    rimasti -= len(blocco)
+                if rimasti > 0:
+                    # File accorciato durante il download: chiudere, altrimenti
+                    # il browser aspetta byte che non arriveranno.
+                    self.close_connection = True
+            except (OSError, ConnectionError):
+                self.close_connection = True   # il telefono ha annullato
+            finally:
+                fh.close()
+
+        def _sftp_upload(self):
+            ticket = self._ticket(UPLOAD)
+            if ticket is None:
+                return
+            try:
+                totale = int(self.headers.get("Content-Length", ""))
+                if totale < 0:
+                    raise ValueError
+            except ValueError:
+                self.close_connection = True
+                self.send_error(HTTPStatus.LENGTH_REQUIRED, "Content-Length required")
+                return
+            try:
+                fh = sftp.open_write(ticket.owner, ticket.path)
+            except SftpError as e:
+                self.close_connection = True
+                self.send_error(HTTPStatus.GONE, str(e))
+                return
+            try:
+                rimasti = totale
+                while rimasti > 0:
+                    blocco = self.rfile.read(min(CHUNK, rimasti))
+                    if not blocco:
+                        raise ConnectionError("upload interrotto")
+                    fh.write(blocco)
+                    rimasti -= len(blocco)
+            except (OSError, ConnectionError):
+                self.close_connection = True
+                return
+            finally:
+                fh.close()
+            corpo = b'{"ok":true}'
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(corpo)))
+            self.end_headers()
+            self.wfile.write(corpo)
 
         def do_HEAD(self):
             self._serve(con_corpo=False)
@@ -105,7 +219,8 @@ def make_http_handler(static):
 class NetworkServices:
     def __init__(self, *, config, auth_guard, trusted_peer, sessions, static,
                  tls, upnp, local_ip: str, tunnel=None,
-                 on_remote_change=None, on_session_created=None) -> None:
+                 on_remote_change=None, on_session_created=None,
+                 sftp=None, transfers=None) -> None:
         self.config = config
         self.auth_guard = auth_guard
         self.trusted_peer = trusted_peer
@@ -119,6 +234,8 @@ class NetworkServices:
         self.local_ip = local_ip
         self.on_remote_change = on_remote_change
         self.on_session_created = on_session_created
+        self.sftp = sftp
+        self.transfers = transfers
         self.remote_mode = "none"   # "upnp" | "tunnel" | "none"
         self._ssl_ctx = None
 
@@ -227,7 +344,9 @@ class NetworkServices:
             return
 
         ctx = ClientConnection(websocket, client_ip, self.sessions,
-                               on_session_created=self.on_session_created)
+                               on_session_created=self.on_session_created,
+                               sftp=self.sftp, transfers=self.transfers,
+                               remote=via_tunnel or not is_private_ip(client_ip))
         try:
             async for message in websocket:
                 await dispatch(ctx, message)
@@ -246,22 +365,52 @@ class NetworkServices:
             # ThreadingHTTPServer: con quello sequenziale una richiesta lenta
             # bloccava tutte le altre, e la pagina carica quattro asset.
             httpd = ThreadingHTTPServer(("0.0.0.0", HTTP_PORT),
-                                        make_http_handler(self.static))
+                                        make_http_handler(self.static, self.sftp,
+                                                          self.transfers))
             httpd.serve_forever()
         except OSError:
             log_message(f"Errore: Porta {HTTP_PORT} occupata!", color=COLOR_ERROR)
         except Exception as e:
             log_message(f"HTTP Server crash: {e}", color=COLOR_ERROR)
 
-    def https_process_request(self, connection, request):
+    def _read_download(self, ticket) -> tuple[bytes, str]:
+        """Legge un file intero per la strada remota (bloccante, tetto di
+        REMOTE_DOWNLOAD_MAX: la risposta di websockets sta tutta in memoria)."""
+        fh, size = self.sftp.open_read(ticket.owner, ticket.path)
+        try:
+            if size > REMOTE_DOWNLOAD_MAX:
+                raise SftpError("file troppo grande per il download remoto")
+            return fh.read(size), ticket.path.rsplit("/", 1)[-1]
+        finally:
+            fh.close()
+
+    async def _remote_download(self, connection, request):
+        percorso, token = ticket_token(request.path)
+        ticket = None
+        if self.sftp is not None and self.transfers is not None:
+            ticket = self.transfers.redeem(token, DOWNLOAD)
+        if percorso != SFTP_DOWNLOAD_PATH or ticket is None:
+            return connection.respond(HTTPStatus.FORBIDDEN, "Forbidden\n")
+        try:
+            corpo, nome = await asyncio.get_running_loop().run_in_executor(
+                None, self._read_download, ticket)
+        except SftpError as e:
+            return connection.respond(HTTPStatus.GONE, f"{e}\n")
+        headers = download_headers(nome, len(corpo)) + [("Connection", "close")]
+        return Response(200, "OK", Headers(headers), corpo)
+
+    async def https_process_request(self, connection, request):
         """Le richieste senza Upgrade (browser che chiede la pagina) ricevono i
         file statici; quelle WebSocket proseguono con l'handshake (return None).
 
         Legge dalla cache in memoria: qui siamo dentro l'event loop asyncio, e
-        una lettura da disco bloccherebbe tutti i WebSocket attivi.
+        una lettura da disco bloccherebbe tutti i WebSocket attivi. I download
+        SFTP fanno eccezione ma girano in un executor.
         """
         if request.headers.get("Upgrade", ""):
             return None
+        if request.path.startswith(SFTP_DOWNLOAD_PATH):
+            return await self._remote_download(connection, request)
         asset = self.static.get(request.path)
         if asset is None:
             return connection.respond(HTTPStatus.NOT_FOUND, "Not found\n")

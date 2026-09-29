@@ -56,6 +56,8 @@ jobs:
               "liquidmouse.net.frames",
               "liquidmouse.net.protocol",
               "liquidmouse.net.server",
+              "liquidmouse.net.sftp",
+              "liquidmouse.net.transfers",
               "liquidmouse.net.upnp",
               "liquidmouse.net.tunnel",
               "liquidmouse.net.static",

@@ -5,6 +5,14 @@ published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its
 
 ## Unreleased
 
+- **File manager (tab 003)** — browse, download and upload files over SSH/SFTP from the phone,
+  FileZilla style. The PC is the SFTP client (default profile: the Windows OpenSSH server on
+  `127.0.0.1:22`), so credentials never leave it: profiles are stored in the config with the
+  password encrypted by Windows (DPAPI). The host key is pinned on first use and a changed key
+  is refused before the password is sent. Rename, delete (second tap to confirm), new folder,
+  multi-file upload with progress. Files travel over HTTP with one-time, 60-second tickets
+  requested through the authenticated WebSocket. Over the remote route (8443 / tunnel)
+  downloads are capped at 64 MB and uploads are not available yet. New dependency: `paramiko`.
 - **README rewritten** in the style of [PiDash](https://github.com/Hapoyo/PiDash): cover image,
   animated demo, screenshots of the phone client and of the desktop window, requirements,
   connection modes, gestures, security, architecture and credits in numbered sections.

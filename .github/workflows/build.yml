@@ -31,7 +31,7 @@ jobs:
           python-version: '3.12'
 
       - name: Installa dipendenze
-        run: pip install websockets pystray Pillow qrcode pyinstaller cryptography pywinpty miniupnpc
+        run: pip install websockets pystray Pillow qrcode pyinstaller cryptography pywinpty miniupnpc paramiko
 
       - name: Estrai versione
         id: version

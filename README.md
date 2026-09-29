@@ -103,7 +103,7 @@ allow it, otherwise the phone can't reach the PC.
 ```bash
 git clone https://github.com/Hapoyo/LiquidMouse.git
 cd LiquidMouse
-py -3.13 -m pip install websockets pystray Pillow qrcode cryptography pywinpty miniupnpc
+py -3.13 -m pip install websockets pystray Pillow qrcode cryptography pywinpty miniupnpc paramiko
 py -3.13 server.pyw
 ```
 
@@ -172,7 +172,7 @@ stubs.
 
 ```bash
 pip install pytest websockets
-python -m pytest                 # 377 tests, the same ones CI runs on every push
+python -m pytest                 # 482 tests, the same ones CI runs on every push
 py -3.13 server.pyw              # run from source (Windows)
 py -3.13 test_server.py          # smoke test against the running server (Windows)
 py -3.13 build.py                # build EXE/LiquidMouse.exe  (--pre: archive a candidate)
@@ -184,7 +184,7 @@ py -3.13 build.py                # build EXE/LiquidMouse.exe  (--pre: archive a 
 server.pyw          entrypoint: builds the dependencies and wires them, no logic
 liquidmouse/
   net/              HTTP/WS servers, message protocol, static whitelist, binary frames,
-                    UPnP, Cloudflare tunnel
+                    UPnP, Cloudflare tunnel, SFTP file manager
   input/            key names → virtual keys, SendInput
   terminal/         sessions, ConPTY (pywinpty or ctypes), command whitelist, ring buffer
   security/         PIN and brute-force lockout, self-signed certificate

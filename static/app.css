@@ -411,6 +411,115 @@ button { font-family: inherit; }
     cursor: pointer;
 }
 
+/* --- FILE MANAGER --- */
+#content-files { padding: 0; gap: 0; }
+#files-banner {
+    display: none;
+    margin: 8px;
+    padding: 10px 14px;
+    background: var(--pink);
+    color: var(--ink);
+    border-radius: 8px;
+    font-size: 11px;
+}
+#files-banner.visible { display: block; }
+#files-profiles {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+    gap: 10px;
+    overflow-y: auto;
+}
+#files-profile-list, #files-profile-form {
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap);
+}
+/* 16px: sotto, iOS ingrandisce la pagina al focus. */
+.files-input {
+    background: var(--bg);
+    color: var(--cream);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 16px;
+}
+#files-browser {
+    flex: 1;
+    min-height: 0;
+    display: none;
+    flex-direction: column;
+}
+#files-browser.visible { display: flex; }
+#files-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: var(--tan);
+}
+#files-back {
+    flex: 0 0 auto;
+    background: transparent;
+    color: var(--amber);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+#files-path {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#files-toolbar {
+    display: flex;
+    gap: 6px;
+    padding: 0 10px 8px;
+    flex-wrap: wrap;
+}
+.fbtn {
+    height: 36px;
+    min-width: 40px;
+    padding: 0 12px;
+    background: var(--bg);
+    color: var(--cream);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+.fbtn:active { background: var(--line); border-color: var(--cream); }
+#files-progress {
+    padding: 0 12px;
+    font-size: 11px;
+    color: var(--amber);
+    min-height: 0;
+}
+#files-progress:not(:empty) { padding-bottom: 8px; }
+#files-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 10px 10px;
+}
+.file-row { padding: 10px 12px; cursor: pointer; }
+.file-row .name { font-size: 15px; }
+.file-empty { color: var(--tan); font-size: 11px; padding: 12px 2px; }
+
 /* --- TERMINALE --- */
 #content-terminal { padding: 0; gap: 0; }
 #session-picker {

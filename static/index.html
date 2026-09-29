@@ -30,6 +30,9 @@
             <span class="tab-num">002</span><span class="tab-name">terminale</span>
             <span class="tab-dot" id="tab-terminal-dot" style="display:none"></span>
         </button>
+        <button class="tab-btn" id="tab-files" onclick="switchTab('files')">
+            <span class="tab-num">003</span><span class="tab-name">file</span>
+        </button>
     </div>
 
     <div id="content-touchpad" class="tab-content active">
@@ -194,6 +197,42 @@
             <input type="text" id="term-kbd-input" autocomplete="off" autocorrect="off" autocapitalize="off">
         </div>
     </div><!-- #content-terminal -->
+
+    <div id="content-files" class="tab-content">
+        <div id="files-banner"></div>
+
+        <!-- Profili SSH: salvati sul PC, la password non arriva mai qui. -->
+        <div id="files-profiles">
+            <div class="picker-title">profili // ssh</div>
+            <div id="files-profile-list"></div>
+            <form id="files-profile-form" autocomplete="off">
+                <div class="picker-title">nuovo profilo</div>
+                <input class="files-input" id="pf-name" placeholder="nome" maxlength="64" required>
+                <input class="files-input" id="pf-host" placeholder="host" value="127.0.0.1" maxlength="255" required>
+                <input class="files-input" id="pf-port" placeholder="porta" value="22" inputmode="numeric" maxlength="5">
+                <input class="files-input" id="pf-user" placeholder="utente" maxlength="64" required
+                       autocapitalize="off" autocorrect="off">
+                <input class="files-input" id="pf-pass" type="password" placeholder="password" maxlength="255">
+                <button type="submit" class="session-card-btn btn-new">salva profilo</button>
+            </form>
+        </div>
+
+        <div id="files-browser">
+            <div id="files-head">
+                <button type="button" id="files-back">‹ profili</button>
+                <span id="files-path"></span>
+            </div>
+            <div id="files-toolbar">
+                <button type="button" class="fbtn" id="files-up" aria-label="cartella superiore">↑</button>
+                <button type="button" class="fbtn" id="files-refresh" aria-label="aggiorna">↻</button>
+                <button type="button" class="fbtn" id="files-mkdir">+ cartella</button>
+                <button type="button" class="fbtn" id="files-upload">carica</button>
+                <input type="file" id="files-input" multiple hidden>
+            </div>
+            <div id="files-progress"></div>
+            <div id="files-list"></div>
+        </div>
+    </div><!-- #content-files -->
 
 </body>
 
