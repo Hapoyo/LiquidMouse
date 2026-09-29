@@ -3,7 +3,7 @@
 All notable changes to Liquid Mouse. Versions follow `liquidmouse/version.py`; each one is
 published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its executable.
 
-## Unreleased
+## 2.8.0 — 2026-09-29
 
 - **File manager (tab 003)** — browse, download and upload files over SSH/SFTP from the phone,
   FileZilla style. The PC is the SFTP client (default profile: the Windows OpenSSH server on
