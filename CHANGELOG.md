@@ -46,6 +46,14 @@ Security and robustness pass from a full code review, plus follow-ups.
   and the certificate the browser accepted stays valid. Where DPAPI is missing (Linux, tests)
   nothing changes; if a secret cannot be decrypted (config copied to another user or PC) the
   PIN or certificate is regenerated instead of failing to start.
+- **Terminal back-pressure** — every viewer of a terminal session now has its own bounded send
+  queue and sender task: a slow phone no longer stalls the PTY read loop or the other viewers,
+  and a viewer that falls more than 1 MB behind is disconnected (the client reconnects and
+  re-attaches from the ring buffer). Input is written to the PTY in a dedicated thread, in
+  order and with a bounded backlog, and the ConPTY backend now completes partial `WriteFile`
+  calls and reports write errors. PTY reads, PTY writes, SFTP and UPnP each run on their own
+  thread pool instead of the shared default one, and the idle poll of the pywinpty backend backs
+  off from 10 to 50 ms while the shell is silent.
 
 ## 2.9.0 — 2026-10-04
 

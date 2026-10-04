@@ -16,6 +16,7 @@ liquidmouse/
   theme.py               palette e font; stessi valori in static/app.css (:root)
   config.py              %APPDATA%/LiquidMouse/config.json, migra da LiquidControl
   events.py              log_message → sink registrati (la GUI è un sink)
+  executors.py           pool di thread dedicati (read/write PTY, SFTP, rete): mai run_in_executor(None)
   paths.py, ports.py     percorsi degli asset (anche nel bundle), porte 8000/8765/8443/8766/8767
   net/                   server.py (servizi), protocol.py (messaggi), static.py (whitelist
                          asset), frames.py (frame binari), upnp.py, tunnel.py
@@ -128,6 +129,12 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - LAN senza PIN ma whitelist "primo arrivato" (reset dal menu tray); CGNAT 100.64/10 = remoto.
 - Asset serviti da cache in memoria con ETag; qualunque path fuori whitelist → 404.
 - Output del terminale in frame binari, non base64 in JSON.
+- Terminale: il read loop del PTY accoda soltanto; ogni viewer ha una coda limitata
+  (`MAX_QUEUED_BYTES`, 1 MB) e un task di invio (`_Pump` in terminal/sessions.py). Chi supera
+  la soglia è tolto e la sua connessione chiusa (1013): il client riconnette e si riaggancia
+  dal ring buffer. L'attach resta senza race (snapshot+offset, `catching_up`). Le scritture nel
+  PTY passano da una coda per sessione e dall'executor `PTY_WRITE` (ordine garantito, tetto
+  `MAX_PENDING_WRITE`); ConPTY completa le `WriteFile` parziali.
 - Sessioni terminale sopravvivono alla disconnessione (ring buffer 64 KB); quelle uscite
   vengono chiuse e rimosse. ConPTY: un thread chiude la pseudo-console all'uscita del
   processo, altrimenti ReadFile non riceve mai EOF.
