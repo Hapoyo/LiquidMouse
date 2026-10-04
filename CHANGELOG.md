@@ -77,6 +77,14 @@ Security and robustness pass from a full code review, plus follow-ups.
   found on the PC. The list comes from the server (`shells` in `term_sessions`, same source as
   the command whitelist, which stays the authority), so the client never offers or sends
   anything the server would refuse; the last choice is remembered on the phone.
+- **Optional PIN on the LAN** — new config option `lan_require_pin` (default off, so nothing
+  changes unless you ask): when on, a LAN client must send the PIN like a remote one, with the
+  same brute-force lockout, and the first-come whitelist is not used. A tray menu item
+  ("PIN anche dalla LAN") toggles it without a restart, the window hint changes and the LAN QR
+  code carries `?pin=`. The server announces it with an `auth_required` message the client
+  answers; loopback (the PC's own terminal window) stays trusted. Binding the first-come
+  whitelist to a per-device token instead of the IP is **not done**: the current client has no
+  LAN handshake to carry a token, so it needs a protocol change and is left as a next step.
 
 ## 2.9.0 — 2026-10-04
 

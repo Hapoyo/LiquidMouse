@@ -158,6 +158,11 @@ double-click a row to open that session in a window on the PC.
 
 - **LAN** — the first device that connects is trusted; others are refused until you reset
   it from the tray menu. The CGNAT range `100.64.0.0/10` counts as remote, not LAN.
+  Optional: tick **PIN anche dalla LAN** in the tray menu (`lan_require_pin` in the config,
+  off by default) and the LAN asks for the PIN like the remote does, with the same lockout;
+  any device that knows it can connect, the first-come slot is not used, and the LAN QR code
+  carries the PIN. It applies to new connections. The LAN is plain HTTP/WS, so this keeps
+  strangers out of your Wi-Fi but does not hide the PIN from someone sniffing it.
 - **Remote** — a random PIN (`secrets.token_urlsafe`) generated on first start, checked as a
   SHA-256 hash; 5 wrong attempts block the address for 30 minutes. Behind the tunnel every
   client arrives from loopback, so the PIN is always required and the lockout uses the real

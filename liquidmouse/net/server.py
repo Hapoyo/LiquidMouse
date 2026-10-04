@@ -51,6 +51,10 @@ UPNP_KEEPALIVE_SECS = 600
 # DHCP rinnovato con un altro indirizzo): costa una connect UDP senza traffico,
 # quindi si può fare molto più spesso del rinnovo UPnP.
 IP_CHECK_SECS = 30
+# Messaggi tollerati prima dell'auth in una connessione LAN che richiede il PIN:
+# il client non sa in anticipo che serve (all'apertura manda già le sue richieste)
+# e li scarta il server. Oltre, non è un client vero.
+LAN_PREAUTH_MAX = 50
 # Chiave anti brute force per chi arriva dal tunnel senza l'header di
 # Cloudflare (in pratica solo un processo locale).
 TUNNEL_GUARD_KEY = "tunnel"
@@ -305,7 +309,8 @@ class NetworkServices:
 
         Tre percorsi: remoto → PIN obbligatorio; loopback → sempre fidato (serve
         alla finestra terminale aperta sul PC stesso); LAN → whitelist primo
-        arrivato.
+        arrivato, oppure il PIN come dal remoto se la config ha `lan_require_pin`
+        (opzione letta a ogni connessione, di default spenta).
 
         Nota: `is_private_ip` esclude il range CGNAT 100.64/10, quindi un client
         dietro il NAT condiviso dell'ISP conta come remoto e deve dare il PIN.
@@ -320,6 +325,10 @@ class NetworkServices:
             if is_loopback(client_ip):
                 log_message(f"Sessione locale: {client_ip}", color=COLOR_ACCENT)
                 return True
+            if self.config.get('lan_require_pin'):
+                # Il PIN prende il posto della whitelist: più dispositivi possono
+                # entrare, ma solo chi lo conosce. Stesso anti brute force del remoto.
+                return await self._authorize_remote(websocket, client_ip, lan=True)
             if not self.trusted_peer.claim(client_ip):
                 log_message(f"Rifiutato: {client_ip}", color=COLOR_ERROR)
                 await websocket.close()
@@ -329,7 +338,7 @@ class NetworkServices:
 
         return await self._authorize_remote(websocket, client_ip)
 
-    async def _authorize_remote(self, websocket, client_ip: str) -> bool:
+    async def _authorize_remote(self, websocket, client_ip: str, *, lan: bool = False) -> bool:
         guard = self.auth_guard
         # begin() impedisce N handshake paralleli dallo stesso IP, che
         # proverebbero N PIN prima che il contatore raggiunga la soglia.
@@ -340,7 +349,12 @@ class NetworkServices:
             return False
         try:
             try:
-                raw = await asyncio.wait_for(websocket.recv(), timeout=AUTH_TIMEOUT_SECS)
+                if lan:
+                    # Il client LAN non manda il PIN di sua iniziativa (di default
+                    # la LAN non lo chiede): glielo si chiede, e quel che manda
+                    # nel frattempo si scarta.
+                    await websocket.send(json.dumps({"type": "auth_required"}))
+                raw = await self._recv_auth(websocket, lan)
                 data = json.loads(raw)
             except Exception:
                 await websocket.close()
@@ -374,8 +388,33 @@ class NetworkServices:
 
         guard.clear(client_ip)
         await websocket.send(json.dumps({"type": "auth_ok"}))
-        log_message(f"Connessione remota autorizzata: {client_ip}", color=COLOR_ACCENT)
+        origine = "LAN con PIN" if lan else "remota"
+        log_message(f"Connessione {origine} autorizzata: {client_ip}", color=COLOR_ACCENT)
         return True
+
+    @staticmethod
+    async def _recv_auth(websocket, lan: bool):
+        """Prossimo messaggio atteso come auth, entro AUTH_TIMEOUT_SECS in tutto.
+
+        Per il remoto è il primo messaggio; per la LAN con PIN si scartano fino
+        a LAN_PREAUTH_MAX messaggi che non sono `auth` (richieste che il client
+        manda all'apertura prima di aver letto `auth_required`)."""
+        fine = asyncio.get_running_loop().time() + AUTH_TIMEOUT_SECS
+        scartati = 0
+        while True:
+            raw = await asyncio.wait_for(
+                websocket.recv(), timeout=max(0.0, fine - asyncio.get_running_loop().time()))
+            if not lan:
+                return raw
+            try:
+                tipo = json.loads(raw).get('type')
+            except Exception:
+                tipo = None
+            if tipo == 'auth':
+                return raw
+            scartati += 1
+            if scartati > LAN_PREAUTH_MAX:
+                raise ValueError("troppi messaggi prima dell'auth")
 
     # --- WebSocket --------------------------------------------------------
 

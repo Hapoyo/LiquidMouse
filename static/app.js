@@ -318,7 +318,19 @@
             if (typeof e.data !== 'string') { handleBinaryFrame(e.data); return; }
             try {
                 const msg = JSON.parse(e.data);
-                if (msg.type === 'auth_ok') {
+                if (msg.type === 'auth_required') {
+                    // LAN con `lan_require_pin` acceso sul PC: il server chiede il PIN
+                    // come per il remoto. Di default non arriva mai.
+                    const pin = pinInput.value.trim() || loadPIN();
+                    if (!pin) {
+                        stopWithError('pin richiesto');
+                        pinInput.focus();
+                        return;
+                    }
+                    ws.send(JSON.stringify({ type: 'auth', pin }));
+                    setStatus('autenticazione...', 'warn');
+                    return;
+                } else if (msg.type === 'auth_ok') {
                     _onAuthenticated(ip);
                     return;
                 } else if (msg.type === 'auth_fail') {
