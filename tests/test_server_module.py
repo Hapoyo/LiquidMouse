@@ -86,7 +86,7 @@ class TestEntrypoint:
     @pytest.mark.parametrize("nome", [
         "main", "init_process", "load_config", "reset_trusted_ip",
         "_on_session_created", "_build_services", "_build_gui_deps",
-        "start_background_services",
+        "start_background_services", "_on_local_ip_change",
     ])
     def test_i_simboli_attesi_esistono(self, server_module, nome):
         assert hasattr(server_module, nome), f"{nome} non definito"
@@ -96,6 +96,18 @@ class TestEntrypoint:
         # aprire socket né finestre.
         assert server_module._services is None
         assert server_module._root is None
+
+    def test_i_servizi_ricevono_il_controllo_dell_ip_e_il_sink_della_gui(self, server_module):
+        servizi = server_module._build_services()
+        assert servizi._ip_provider is server_module.get_local_ip
+        assert servizi.on_local_ip_change is server_module._on_local_ip_change
+
+    def test_cambio_ip_aggiorna_la_finestra(self, server_module, monkeypatch):
+        visti = []
+        monkeypatch.setattr(server_module.window, "update_lan_ui", visti.append)
+        server_module._on_local_ip_change("10.0.0.7")
+        assert visti == ["10.0.0.7"]
+        assert server_module.LOCAL_IP == "10.0.0.7"
 
     def test_le_dipendenze_gui_sono_complete(self, server_module):
         deps = server_module._build_gui_deps()
@@ -111,6 +123,7 @@ class TestModuloGui:
         "run_tray_service", "create_tray_icon", "_open_sessions_panel",
         "_remote_endpoint", "_get_remote_tray_label", "_set_remote_qr",
         "minimize_to_tray", "restore_window", "terminate_application",
+        "update_lan_ui",
     ])
     def test_i_simboli_attesi_esistono(self, gui_window, nome):
         assert hasattr(gui_window, nome), f"{nome} non definito"

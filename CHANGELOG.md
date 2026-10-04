@@ -64,6 +64,14 @@ Security and robustness pass from a full code review, plus follow-ups.
   into `app.js`, so `script-src` is just `'self'`. `style-src` still allows `'unsafe-inline'`
   (xterm.js injects `<style>` elements and a few `style=""` attributes remain): moving to nonces
   or hashes is a follow-up. `motion.js` was already `defer` (non-blocking), so it is unchanged.
+- **Network change while running** — the keepalive now re-evaluates the PC's LAN address every
+  30 s. If it changes (other Wi-Fi, new DHCP lease) the UPnP mapping is redone towards the new
+  address right away, the TLS certificate is regenerated with the new SAN and reloaded into the
+  running HTTPS/WSS servers, and the LAN QR code and address in the window are redrawn. A loss
+  of network (loopback) is ignored until a real address returns.
+- **LAN touchpad is available sooner** — the LAN WebSocket (and the tunnel origin) now open
+  first; the RSA key generation (first start only), the UPnP discovery and the remote servers
+  follow, so the phone no longer waits on "connecting" for those few seconds.
 
 ## 2.9.0 — 2026-10-04
 
