@@ -106,9 +106,17 @@ def _on_session_created(sid: str, client_ip: str) -> None:
         open_pc_terminal(sid)
 
 
+def _on_local_ip_change(ip: str) -> None:
+    """La rete ha cambiato indirizzo LAN (chiamata dal thread dei servizi):
+    QR e indirizzo in finestra vanno rifatti."""
+    global LOCAL_IP
+    LOCAL_IP = ip
+    window.update_lan_ui(ip)
+
+
 def _build_services() -> NetworkServices:
-    """Gli unici due punti di contatto fra rete e GUI sono l'aggiornamento del
-    pannello remoto e l'apertura della finestra terminale."""
+    """I punti di contatto fra rete e GUI sono l'aggiornamento del pannello
+    remoto, quello dell'indirizzo LAN e l'apertura della finestra terminale."""
     return NetworkServices(
         config=_config,
         auth_guard=_auth_guard,
@@ -121,6 +129,8 @@ def _build_services() -> NetworkServices:
         local_ip=LOCAL_IP,
         on_remote_change=window.update_remote_ui,
         on_session_created=_on_session_created,
+        ip_provider=get_local_ip,
+        on_local_ip_change=_on_local_ip_change,
         sftp=_sftp,
         transfers=_transfers,
     )

@@ -68,6 +68,9 @@ class _CanvasText:
     def set(self, text: str) -> None:
         self._canvas.itemconfig(self._item, text=text)
 
+    def set_font(self, font) -> None:
+        self._canvas.itemconfig(self._item, font=font)
+
     def config(self, text: str | None = None, fg: str | None = None) -> None:
         opts = {}
         if text is not None:
@@ -95,6 +98,9 @@ _remote_status_label = None
 _remote_title_var   = None   # "remoto // upnp" o "remoto // tunnel"
 _remote_qr_item     = None
 _remote_qr_box      = None   # (x, y, lato) dell'area del QR remoto
+_lan_qr_item        = None   # immagine del QR LAN, rifatta se cambia l'IP
+_lan_qr_box         = None   # (x, y, lato) dell'immagine del QR LAN
+_lan_ip_max_w       = 0      # larghezza massima dell'indirizzo LAN, per il font
 _sessions_win       = None
 
 # Scala del disegno rispetto a 96 dpi e famiglie di font effettive (quelle del
@@ -213,6 +219,44 @@ def update_remote_ui():
     etichetta, url = endpoint
     root.after(0, lambda et=etichetta: _set_remote_label(et, COLOR_OK))
     root.after(0, lambda: _set_remote_qr(url))
+
+
+def update_lan_ui(ip: str) -> None:
+    """L'IP LAN è cambiato: aggiorna indirizzo e QR della finestra.
+
+    Chiamata dal thread dei servizi di rete (sink di NetworkServices), quindi il
+    disegno passa da root.after. Prima il QR LAN era calcolato una volta sola
+    in setup_gui e dopo un cambio di rete puntava a un indirizzo che non c'era più.
+    """
+    if _deps is not None:
+        _deps.local_ip = ip
+    if root is None or ip_label_var is None:
+        return
+    root.after(0, lambda: _set_lan_ui(ip))
+
+
+def _set_lan_ui(ip: str) -> None:
+    """Ridisegna indirizzo e QR LAN (eseguire sul thread Tk)."""
+    ip_testo = f"{ip}:{HTTP_PORT}"
+    try:
+        ip_label_var.set(ip_testo)
+        ip_label_var.set_font(_fit_num(ip_testo, _lan_ip_max_w, 44, 20))
+    except Exception as e:
+        log_message(f"Indirizzo LAN non aggiornato: {e}", color=COLOR_ERROR)
+    if _main_canvas is None or _lan_qr_item is None or _lan_qr_box is None:
+        return
+    try:
+        x, y, lato = _lan_qr_box
+        photo = ImageTk.PhotoImage(_qr_image(_lan_qr_url(ip), lato, COLOR_INK, COLOR_CREAM))
+        root.qr_photo = photo   # tiene il riferimento (evita GC)
+        _main_canvas.itemconfig(_lan_qr_item, image=photo)
+    except Exception as e:
+        log_message(f"QR Error: {e}", color=COLOR_ERROR)
+
+
+def _lan_qr_url(ip: str) -> str:
+    # Il parametro v cambia a ogni disegno: il telefono non riusa una pagina in cache.
+    return f"http://{ip}:{HTTP_PORT}/?v={int(time.time())}"
 
 
 def _set_remote_label(testo: str, colore: str) -> None:
@@ -418,6 +462,7 @@ def _scegli_font() -> None:
 
 def setup_gui():
     global ip_label_var, status_var, status_label, _main_canvas, _status_dot
+    global _lan_qr_item, _lan_qr_box, _lan_ip_max_w
     global _remote_status_var, _remote_status_label, _remote_title_var, _remote_qr_box, _scale
 
     root.title("Liquid Mouse")
@@ -506,19 +551,22 @@ def setup_gui():
     qr_side = P(116)
     qx1, qy1 = R - qr_side, y0 + P(24)
     _panel(c, qx1, qy1, R, qy1 + qr_side + P(16), COLOR_CREAM)
-    qr_url = f"http://{_deps.local_ip}:{HTTP_PORT}/?v={int(time.time())}"
+    qr_url = _lan_qr_url(_deps.local_ip)
     try:
         lato = qr_side - P(16)
         root.qr_photo = ImageTk.PhotoImage(_qr_image(qr_url, lato, COLOR_INK, COLOR_CREAM))
-        c.create_image(qx1 + qr_side // 2, qy1 + P(8) + lato // 2, image=root.qr_photo)
+        _lan_qr_item = c.create_image(qx1 + qr_side // 2, qy1 + P(8) + lato // 2,
+                                      image=root.qr_photo)
+        _lan_qr_box = (qx1 + P(8), qy1 + P(8), lato)
     except Exception as e:
         log_message(f"QR Error: {e}", color=COLOR_ERROR)
     c.create_text(qx1 + qr_side // 2, qy1 + qr_side + P(6), text="scan lan",
                   font=_f_label(11), fill=COLOR_INK)
 
     ip_testo = f"{_deps.local_ip}:{HTTP_PORT}"
+    _lan_ip_max_w = qx1 - L - GAP * 2
     ip_label_var = _text(c, L - P(2), y0 + P(78), "",
-                         _fit_num(ip_testo, qx1 - L - GAP * 2, 44, 20), COLOR_TEXT, "sw")
+                         _fit_num(ip_testo, _lan_ip_max_w, 44, 20), COLOR_TEXT, "sw")
     _text(c, L, y0 + P(90), "apri dal telefono sulla stessa wi-fi",
           _f_label(11), COLOR_MUTED)
     # Barra arancio come la barra della giornata di PiDash: separa l'host

@@ -116,6 +116,12 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   account; Tailscale rimosso in 2.4.0 perché voleva l'app sul telefono). Porta unica 8443
   per pagina e WSS. Una sola decisione in `NetworkServices._refresh_remote` (avvio e
   keepalive): UPnP riuscito ferma il tunnel.
+  Ordine d'avvio (`start_websocket_server`): prima 8765 (LAN) e origine del tunnel, poi il
+  certificato (executor, la RSA può durare secondi) e 8443/8766, infine `_refresh_remote`.
+  Il keepalive (ogni 30 s, `IP_CHECK_SECS`) rivaluta `get_local_ip()` tramite `ip_provider`:
+  se cambia rifà il mapping UPnP, ricarica il certificato (stesso `SSLContext`, i server lo
+  tengono) e chiama `on_local_ip_change` (la GUI ridisegna QR e indirizzo con
+  `window.update_lan_ui`). 127.0.0.1 = rete assente, ignorato.
 - Tunnel: cloudflared non è nel bundle (~55 MB): si usa quello in `%APPDATA%/LiquidMouse/bin`,
   poi quello nel PATH, altrimenti si scarica lì verificando lo SHA-256 dell'API della release. Origine su 127.0.0.1:8767 (TUNNEL_PORT): lì ogni client
   arriva da loopback, quindi `via_tunnel` forza sempre il PIN, e l'anti brute force usa
