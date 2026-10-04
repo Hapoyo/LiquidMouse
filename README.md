@@ -32,7 +32,8 @@ and the browser does the rest — on the same Wi-Fi or from anywhere.
 - **Keyboard** — the phone's own keyboard, Unicode included; what you type is echoed on
   screen. A quick menu adds `esc`, copy, paste, select all, `win`, `win+v`, play/pause and
   `ctrl`/`shift` locks.
-- **Real terminal** — `cmd.exe` running on the PC, shown with xterm.js. Sessions survive
+- **Real terminal** — `cmd.exe`, PowerShell, `pwsh`, WSL, `bash` or `claude` (whichever is
+  installed) running on the PC, shown with xterm.js. Sessions survive
   disconnections (64 KB of scrollback is replayed on return), several phones can watch the
   same session, and a session started from the phone also opens in a window on the PC.
   A two-row key bar provides arrows, `esc`, `tab`, one-shot `ctrl`/`alt`, `home`/`end`,
@@ -148,7 +149,8 @@ the tunnel. The mapping is renewed every 10 minutes and survives router reboots.
 ### 5.3 Terminal
 
 **002 terminale** lists the sessions running on the PC: **riprendi** re-attaches one,
-**cmd** starts a new `cmd.exe`, `×` (twice, to confirm) ends it. **‹ sessioni** goes back to
+the **nuova sessione** card starts a new one in the shell picked from its drop-down (only the
+shells installed on the PC are offered; the choice is remembered), `×` (twice, to confirm) ends it. **‹ sessioni** goes back to
 the list without closing anything. The PC's **002 terminale** tab shows the same list;
 double-click a row to open that session in a window on the PC.
 

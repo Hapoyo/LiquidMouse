@@ -108,6 +108,7 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 | Palette | `theme.py` · `static/app.css` `:root` |
 | Frame binari del terminale | `net/frames.py` · `handleBinaryFrame` in app.js |
 | Tasti del terminale | `TERM_KEYS` in app.js · `.tkey[data-key]` in index.html |
+| Shell del terminale | `SHELLS` in `terminal/commands.py` (da cui `TERM_ALLOWED_CMDS`) · `shells` in `term_sessions` (protocol.py) · blocco `// --- SHELL: contratto` in app.js (test_shells_client_contract.py) |
 | Tipi di messaggio | `@handles` in `net/protocol.py` · `ws.send` in app.js |
 | Funzioni pure del file manager | blocco `// --- FILE: contratto` in app.js · `join_path` in `net/sftp.py` (test_files_client_contract.py) |
 
@@ -143,6 +144,9 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   linguette si legano in app.js con `data-tab`; lo controlla test_assets_consistency);
   `style-src` ha ancora `'unsafe-inline'` per xterm.js: passare a nonce/hash è un passo futuro.
 - Output del terminale in frame binari, non base64 in JSON.
+- Shell del terminale: il server manda in `term_sessions` l'elenco di quelle ammesse e installate
+  (`available_shells`); il client non ne nomina nessuna e invia solo un `cmd` di quell'elenco.
+  La whitelist (`resolve_argv`) resta l'autorità e ricontrolla ogni `term_create`.
 - Terminale: il read loop del PTY accoda soltanto; ogni viewer ha una coda limitata
   (`MAX_QUEUED_BYTES`, 1 MB) e un task di invio (`_Pump` in terminal/sessions.py). Chi supera
   la soglia è tolto e la sua connessione chiusa (1013): il client riconnette e si riaggancia

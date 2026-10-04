@@ -320,12 +320,23 @@ class TestPing:
 
 
 class TestTerminale:
-    def test_term_list(self, ctx, ws, sessions):
+    def test_term_list(self, ctx, ws, sessions, monkeypatch):
+        shells = [{"cmd": "cmd.exe", "label": "cmd"}]
+        monkeypatch.setattr(protocol, "available_shells", lambda: shells)
         sessions.sessions_list = [{"id": "a", "cmd": "cmd.exe"}]
         send(ctx, type="term_list")
         assert ws.json_sent() == [
-            {"type": "term_sessions", "sessions": [{"id": "a", "cmd": "cmd.exe"}]}
+            {"type": "term_sessions", "sessions": [{"id": "a", "cmd": "cmd.exe"}],
+             "shells": shells}
         ]
+
+    def test_term_list_offre_solo_shell_ammesse_dal_server(self, ctx, ws, sessions):
+        # Ciò che il client può scegliere deve poter passare da term_create.
+        from liquidmouse.terminal.commands import TERM_ALLOWED_CMDS
+        send(ctx, type="term_list")
+        shells = ws.json_sent()[0]["shells"]
+        assert shells and shells[0] == {"cmd": "cmd.exe", "label": "cmd"}
+        assert {s["cmd"] for s in shells} <= TERM_ALLOWED_CMDS
 
     def test_term_create_riporta_l_id(self, ctx, ws, sessions):
         send(ctx, type="term_create", cmd="cmd.exe")
