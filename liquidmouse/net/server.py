@@ -503,7 +503,13 @@ class NetworkServices:
     async def _remote_keepalive(self) -> None:
         while True:
             await asyncio.sleep(UPNP_KEEPALIVE_SECS)
-            await self._refresh_remote()
+            # Un'eccezione qui (router che risponde male, tunnel che non parte)
+            # ucciderebbe il task in silenzio e il remoto non si ripareriebbe
+            # più fino al riavvio: si registra e si riprova al giro dopo.
+            try:
+                await self._refresh_remote()
+            except Exception as e:
+                log_message(f"Rinnovo accesso remoto fallito: {e}", color=COLOR_ERROR)
 
     async def _tunnel_handler(self, websocket):
         await self.handler(websocket, via_tunnel=True)
@@ -513,49 +519,60 @@ class NetworkServices:
         ssl_ctx = self.tls.context_for(self.local_ip)
         self._ssl_ctx = ssl_ctx
 
-        await self._refresh_remote(primo=True)
+        # Un errore nella scelta della strada remota non deve impedire l'avvio
+        # dei server locali: il telefono in LAN funziona comunque.
+        try:
+            await self._refresh_remote(primo=True)
+        except Exception as e:
+            log_message(f"Accesso remoto non avviato: {e}", color=COLOR_ERROR)
         asyncio.get_running_loop().create_task(self._remote_keepalive())
 
         servers = [
-            websockets.serve(self.handler, "0.0.0.0", PORT,
-                             ping_interval=WS_PING_INTERVAL,
-                             ping_timeout=WS_PING_TIMEOUT,
-                             origins=ALLOWED_ORIGINS),
+            (PORT, websockets.serve(self.handler, "0.0.0.0", PORT,
+                                    ping_interval=WS_PING_INTERVAL,
+                                    ping_timeout=WS_PING_TIMEOUT,
+                                    origins=ALLOWED_ORIGINS)),
         ]
         if ssl_ctx:
             # Porta unica remota: pagina + WSS su HTTPS_PORT.
-            servers.append(
+            servers.append((HTTPS_PORT,
                 websockets.serve(self.handler, "0.0.0.0", HTTPS_PORT, ssl=ssl_ctx,
                                  ping_interval=WS_PING_INTERVAL,
                                  ping_timeout=WS_PING_TIMEOUT,
                                  origins=ALLOWED_ORIGINS,
-                                 process_request=self.https_process_request)
-            )
+                                 process_request=self.https_process_request)))
             # Legacy: WSS dedicato per client pre-porta-unica ancora in giro.
-            servers.append(
+            servers.append((WSS_PORT,
                 websockets.serve(self.handler, "0.0.0.0", WSS_PORT, ssl=ssl_ctx,
                                  ping_interval=WS_PING_INTERVAL,
                                  ping_timeout=WS_PING_TIMEOUT,
-                                 origins=ALLOWED_ORIGINS)
-            )
+                                 origins=ALLOWED_ORIGINS)))
         if self.tunnel is not None:
             # Origine del tunnel: solo loopback, pagina + WS insieme come la
             # 8443. Il TLS lo termina Cloudflare, qui arriva in chiaro.
-            servers.append(
+            servers.append((TUNNEL_PORT,
                 websockets.serve(self._tunnel_handler, "127.0.0.1", TUNNEL_PORT,
                                  ping_interval=WS_PING_INTERVAL,
                                  ping_timeout=WS_PING_TIMEOUT,
                                  origins=ALLOWED_ORIGINS,
-                                 process_request=self.https_process_request)
-            )
+                                 process_request=self.https_process_request)))
 
         try:
             async with contextlib.AsyncExitStack() as stack:
-                for srv in servers:
-                    await stack.enter_async_context(srv)
-                await asyncio.Future()
-        except OSError:
-            log_message(f"ERRORE CRITICO: Porta {PORT} occupata!", color=COLOR_ERROR)
+                avviati = 0
+                for porta, srv in servers:
+                    # Una porta occupata ferma solo il suo server: prima
+                    # l'OSError smontava anche quelli già avviati e il log
+                    # accusava sempre la 8765.
+                    try:
+                        await stack.enter_async_context(srv)
+                    except OSError as e:
+                        log_message(f"ERRORE CRITICO: Porta {porta} occupata! ({e})",
+                                    color=COLOR_ERROR)
+                        continue
+                    avviati += 1
+                if avviati:
+                    await asyncio.Future()
         except Exception as e:
             log_message(f"WebSocket Server crash: {e}", color=COLOR_ERROR)
         finally:

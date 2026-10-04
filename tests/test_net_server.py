@@ -308,3 +308,111 @@ class TestOriginDeiWebSocket:
     ])
     def test_origin_rifiutati_con_403(self, origin):
         assert asyncio.run(self._tenta(origin)) == 403
+
+
+# --- robustezza dell'avvio e del keepalive ---------------------------------
+
+from liquidmouse.ports import HTTPS_PORT, PORT
+
+
+class _ServeTracciato:
+    """Finto websockets.serve: l'ingresso fallisce con OSError per le porte
+    indicate; registra chi è entrato e chi è uscito."""
+
+    def __init__(self, porte_occupate=()):
+        self.occupate = set(porte_occupate)
+        self.entrati = []
+        self.usciti = []
+
+    def __call__(self, handler, host, porta, **k):
+        outer = self
+
+        class _Ctx:
+            async def __aenter__(self):
+                if porta in outer.occupate:
+                    raise OSError(98, "address already in use")
+                outer.entrati.append(porta)
+                return self
+
+            async def __aexit__(self, *a):
+                outer.usciti.append(porta)
+                return False
+        return _Ctx()
+
+
+@pytest.fixture
+def messaggi(monkeypatch):
+    righe = []
+    monkeypatch.setattr(server_mod, "log_message", lambda msg, color=None: righe.append(msg))
+    return righe
+
+
+class TestAvvioServer:
+    def test_porta_occupata_e_riportata_con_il_suo_numero(self, monkeypatch, messaggi):
+        serve = _ServeTracciato(porte_occupate={HTTPS_PORT})
+        monkeypatch.setattr(server_mod.websockets, "serve", serve)
+        services = NetworkServices(
+            config={}, auth_guard=None, trusted_peer=None, sessions=None,
+            static=None, tls=_FakeTls(object()), upnp=_FakeUpnp(None),
+            local_ip="192.168.1.10")
+        asyncio.run(_avvia_e_ferma(services))
+        errori = [m for m in messaggi if "occupata" in m]
+        assert any(str(HTTPS_PORT) in m for m in errori), errori
+        assert not any(str(PORT) in m for m in errori), "la 8765 non c'entra"
+
+    def test_una_porta_occupata_non_smonta_gli_altri_server(self, monkeypatch, messaggi):
+        serve = _ServeTracciato(porte_occupate={HTTPS_PORT})
+        monkeypatch.setattr(server_mod.websockets, "serve", serve)
+        services = NetworkServices(
+            config={}, auth_guard=None, trusted_peer=None, sessions=None,
+            static=None, tls=_FakeTls(object()), upnp=_FakeUpnp(None),
+            local_ip="192.168.1.10")
+        asyncio.run(_avvia_e_ferma(services))
+        # La 8765 (LAN) e la 8766 (WSS legacy) restano attive.
+        assert PORT in serve.entrati
+        assert len(serve.entrati) == 2
+        # Nessuna è stata chiusa prima dello stop: solo allo scadere del test.
+        assert sorted(serve.usciti) == sorted(serve.entrati)
+
+    def test_primo_refresh_fallito_non_impedisce_l_avvio(self, monkeypatch, messaggi):
+        serve = _ServeTracciato()
+        monkeypatch.setattr(server_mod.websockets, "serve", serve)
+
+        class _UpnpRotto(_FakeUpnp):
+            async def setup(self, local_ip):
+                raise RuntimeError("router muto")
+
+        services = NetworkServices(
+            config={}, auth_guard=None, trusted_peer=None, sessions=None,
+            static=None, tls=_FakeTls(None), upnp=_UpnpRotto(None),
+            local_ip="192.168.1.10")
+        asyncio.run(_avvia_e_ferma(services))
+        assert PORT in serve.entrati
+        assert any("router muto" in m for m in messaggi), messaggi
+
+
+class TestKeepalive:
+    def test_un_errore_non_ferma_il_ciclo(self, monkeypatch, messaggi):
+        monkeypatch.setattr(server_mod, "UPNP_KEEPALIVE_SECS", 0.01)
+        chiamate = []
+
+        class _UpnpInstabile(_FakeUpnp):
+            async def setup(self, local_ip):
+                chiamate.append(1)
+                if len(chiamate) == 1:
+                    raise OSError("rete assente")
+                return None
+
+        services = NetworkServices(
+            config={}, auth_guard=None, trusted_peer=None, sessions=None,
+            static=None, tls=None, upnp=_UpnpInstabile(None), local_ip="192.168.1.10")
+
+        async def prova():
+            try:
+                await asyncio.wait_for(services._remote_keepalive(), timeout=0.2)
+            except asyncio.TimeoutError:
+                pass
+
+        asyncio.run(prova())
+        assert len(chiamate) >= 3, "il ciclo si è fermato al primo errore"
+        assert any("rete assente" in m for m in messaggi), messaggi
