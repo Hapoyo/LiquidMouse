@@ -3,6 +3,36 @@
 All notable changes to Liquid Mouse. Versions follow `liquidmouse/version.py`; each one is
 published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its executable.
 
+## Unreleased
+
+Security and robustness pass from a full code review. No new features.
+
+- **WebSocket Origin check** — the four WebSocket servers now refuse browser handshakes whose
+  `Origin` is not localhost, a numeric LAN/WAN IP or `*.trycloudflare.com`. A web page open on
+  the PC or on the phone can no longer drive the loopback session (terminal, keyboard, SFTP),
+  and DNS rebinding with an arbitrary hostname is rejected. Clients without an `Origin`
+  (smoke test, desktop terminal window) are unaffected.
+- **SFTP password no longer follows a changed host** — saving a profile with a different host,
+  port or user and an empty password now drops the stored password instead of keeping it, so a
+  client could not make the PC send it to another server.
+- **A wrong PIN is not retried on wake-up** — the phone page no longer reconnects when it
+  returns to the foreground after an authentication error (five wake-ups used to lock the IP).
+- **Remote keepalive and start-up survive errors** — an exception in the UPnP/tunnel refresh no
+  longer stops the keepalive or the servers, and a busy port is reported with its real number
+  without tearing down the ones already running.
+- **Limits** — at most 8 terminal sessions, bounded text and hotkey length, and a timeout on the
+  HTTP handler (slow connections no longer hold a thread forever).
+- **Terminal re-attach no longer drops output** — output produced while the snapshot was being
+  sent is now delivered right after it, and a slow client no longer blocks other attaches.
+- **Emoji and autocorrect** — characters outside the BMP are typed as UTF-16 surrogate pairs
+  instead of a wrong private-use character, and the phone keyboard diff uses the common prefix,
+  so autocorrect and predictive text replace words correctly.
+- **Malformed PIN handshake** — a non-object JSON or a non-string PIN counts as a failed attempt
+  instead of dropping the connection with a traceback.
+- **Atomic writes** — uploads go to `name.part` and are renamed when complete (an interrupted
+  upload keeps the original file); `config.json` is written through a temporary file, so a crash
+  cannot leave it empty and lose the PIN.
+
 ## 2.9.0 — 2026-10-04
 
 - **Cleaner phone client** — same "cyber" filing-cabinet theme, tighter hierarchy: tab number

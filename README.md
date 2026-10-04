@@ -172,7 +172,7 @@ stubs.
 
 ```bash
 pip install pytest websockets
-python -m pytest                 # 482 tests, the same ones CI runs on every push
+python -m pytest                 # 566 tests, the same ones CI runs on every push
 py -3.13 server.pyw              # run from source (Windows)
 py -3.13 test_server.py          # smoke test against the running server (Windows)
 py -3.13 build.py                # build EXE/LiquidMouse.exe  (--pre: archive a candidate)
