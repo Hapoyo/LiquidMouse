@@ -199,7 +199,8 @@ class SftpManager:
         raise SftpError("profilo inesistente")
 
     def save_profile(self, name, host, port, user, password) -> None:
-        """Crea o aggiorna un profilo. Password vuota = tiene quella salvata."""
+        """Crea o aggiorna un profilo. Password vuota = tiene quella salvata, ma
+        solo se host, porta e utente non cambiano."""
         if not all(isinstance(v, str) and v.strip() and len(v) <= NAME_MAX
                    for v in (name, host, user)):
             raise SftpError("nome, host e utente sono obbligatori")
@@ -213,6 +214,14 @@ class SftpManager:
         if esistente is None and len(profili) >= PROFILES_MAX:
             raise SftpError("troppi profili")
         secret = esistente.get("secret", "") if esistente else ""
+        stessa_destinazione = bool(esistente) and (
+            esistente["host"], esistente["port"], esistente["user"]) == (host, port, user)
+        if not stessa_destinazione:
+            # Il segreto salvato vale solo per la destinazione per cui è stato
+            # inserito: cambiando host, porta o utente senza dare una password
+            # nuova, la vecchia verrebbe inviata a un server scelto da chi
+            # modifica il profilo. Va reinserita.
+            secret = ""
         if password:
             if self.protector is None:
                 raise SftpError("cifratura password non disponibile su questo sistema")
