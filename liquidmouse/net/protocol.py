@@ -17,7 +17,7 @@ from liquidmouse.events import log_message
 from liquidmouse.executors import SFTP
 from liquidmouse.input.win32 import (
     hotkey, key_down, key_press, key_text, key_up,
-    mouse_button, mouse_click, mouse_move, mouse_scroll,
+    mouse_button, mouse_click, mouse_hscroll, mouse_move, mouse_scroll,
 )
 from liquidmouse.net.sftp import SftpError, join_path, validate_name
 from liquidmouse.net.transfers import DOWNLOAD, REMOTE_DOWNLOAD_MAX, UPLOAD
@@ -147,14 +147,24 @@ async def _move(ctx: ClientConnection, data: dict) -> None:
 
 @handles('scroll')
 async def _scroll(ctx: ClientConnection, data: dict) -> None:
+    """`amount` = verticale, `h` = orizzontale (positivo = destra); ognuno opzionale."""
     amt = clamp_int(data.get('amount'), -SCROLL_CLAMP, SCROLL_CLAMP)
     if amt:
         mouse_scroll(amt)
+    h = clamp_int(data.get('h'), -SCROLL_CLAMP, SCROLL_CLAMP)
+    if h:
+        mouse_hscroll(h)
+
+
+# Pulsanti che il client può chiedere: whitelist, non "tutto ciò che non è left".
+CLICK_BUTTONS = ('left', 'right', 'middle')
 
 
 @handles('click')
 async def _click(ctx: ClientConnection, data: dict) -> None:
-    mouse_click(data.get('btn', 'left'))
+    btn = data.get('btn', 'left')
+    if isinstance(btn, str) and btn in CLICK_BUTTONS:
+        mouse_click(btn)
 
 
 @handles('drag')

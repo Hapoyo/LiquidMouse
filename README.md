@@ -26,8 +26,8 @@ and the browser does the rest — on the same Wi-Fi or from anywhere.
 
 ## 1. Features
 
-- **Touchpad** — tap to click, double-tap, long-press for right click, two-finger scroll,
-  drag lock. Sub-pixel accumulation keeps slow movements smooth; speed is adjustable and
+- **Touchpad** — tap to click, double-tap, tap-and-drag, long-press or two-finger tap for right
+  click, three-finger tap for middle click, two-finger scroll (vertical and horizontal), drag lock. Sub-pixel accumulation keeps slow movements smooth; speed is adjustable and
   remembered by the phone.
 - **Keyboard** — the phone's own keyboard, Unicode included; what you type is echoed on
   screen. A quick menu adds `esc`, copy, paste, select all, `win`, `win+v`, play/pause and
@@ -141,8 +141,12 @@ the tunnel. The mapping is renewed every 10 minutes and survives router reboots.
 |---|---|
 | tap | left click |
 | double tap | double click |
+| tap, then touch again and move | **tap-and-drag**: the left button is held while you move, released when you lift (within 0.3 s of the tap and near it) |
 | hold (0.65 s) | right click |
+| two-finger tap | right click |
+| three-finger tap | middle click |
 | two fingers up/down | scroll |
+| two fingers left/right | horizontal scroll (the content follows your fingers) |
 | **menu → trascina** | drag lock: move to select or drag, tap again to release |
 | **menu → ctrl / shift** | held until tapped again |
 

@@ -150,6 +150,10 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   linguette si legano in app.js con `data-tab`; lo controlla test_assets_consistency);
   `style-src` ha ancora `'unsafe-inline'` per xterm.js: passare a nonce/hash è un passo futuro.
 - Output del terminale in frame binari, non base64 in JSON.
+- Gesti del touchpad: le decisioni pure (tap a 2/3 dita, tap-e-trascina, asse dello scroll) stanno
+  nel blocco `// --- GESTI: contratto` di app.js (test con node); i gestori touch non animano.
+  `click` accetta solo `CLICK_BUTTONS` (protocol.py); `scroll` ha `amount` (verticale) e `h`
+  (orizzontale, + = destra), entrambi opzionali e passati da `clamp_int`.
 - Shell del terminale: il server manda in `term_sessions` l'elenco di quelle ammesse e installate
   (`available_shells`); il client non ne nomina nessuna e invia solo un `cmd` di quell'elenco.
   La whitelist (`resolve_argv`) resta l'autorità e ricontrolla ogni `term_create`.

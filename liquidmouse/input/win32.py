@@ -21,7 +21,10 @@ MOUSEEVENTF_LEFTDOWN  = 0x0002
 MOUSEEVENTF_LEFTUP    = 0x0004
 MOUSEEVENTF_RIGHTDOWN = 0x0008
 MOUSEEVENTF_RIGHTUP   = 0x0010
+MOUSEEVENTF_MIDDLEDOWN = 0x0020
+MOUSEEVENTF_MIDDLEUP   = 0x0040
 MOUSEEVENTF_WHEEL     = 0x0800
+MOUSEEVENTF_HWHEEL    = 0x1000
 
 KEYEVENTF_KEYUP   = 0x0002
 KEYEVENTF_UNICODE = 0x0004
@@ -88,6 +91,7 @@ def _ki(vk=0, scan=0, flags=0):
 # evento per evitare di allocare una INPUT + array a ogni movimento del cursore.
 _move_arr   = (INPUT * 1)(_mi(MOUSEEVENTF_MOVE))
 _scroll_arr = (INPUT * 1)(_mi(MOUSEEVENTF_WHEEL))
+_hscroll_arr = (INPUT * 1)(_mi(MOUSEEVENTF_HWHEEL))
 
 
 def mouse_move(dx, dy):
@@ -109,11 +113,29 @@ def mouse_scroll(amount):
     _user32.SendInput(1, _scroll_arr, _INPUT_SIZE)
 
 
+def mouse_hscroll(amount):
+    """Scroll orizzontale: positivo = verso destra (WHEEL_DELTA per scatto)."""
+    if _user32 is None:
+        return
+    _hscroll_arr[0].value.mi.mouseData = ctypes.c_ulong(
+        ctypes.c_long(amount * WHEEL_DELTA).value).value
+    _user32.SendInput(1, _hscroll_arr, _INPUT_SIZE)
+
+
+# Pulsante → (flag giù, flag su). Un pulsante sconosciuto non fa nulla: prima ogni
+# valore diverso da 'left' diventava un click destro.
+_CLICK_FLAGS = {
+    'left':   (MOUSEEVENTF_LEFTDOWN,   MOUSEEVENTF_LEFTUP),
+    'right':  (MOUSEEVENTF_RIGHTDOWN,  MOUSEEVENTF_RIGHTUP),
+    'middle': (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
+}
+
+
 def mouse_click(button='left'):
-    if button == 'left':
-        _send(_mi(MOUSEEVENTF_LEFTDOWN), _mi(MOUSEEVENTF_LEFTUP))
-    else:
-        _send(_mi(MOUSEEVENTF_RIGHTDOWN), _mi(MOUSEEVENTF_RIGHTUP))
+    flags = _CLICK_FLAGS.get(button)
+    if flags is None:
+        return
+    _send(_mi(flags[0]), _mi(flags[1]))
 
 
 def mouse_button(state, button='left'):
@@ -173,6 +195,6 @@ def hotkey(*keys):
 
 __all__ = [
     "VK_MAP", "WHEEL_DELTA",
-    "mouse_move", "mouse_scroll", "mouse_click", "mouse_button",
+    "mouse_move", "mouse_scroll", "mouse_hscroll", "mouse_click", "mouse_button",
     "key_press", "key_down", "key_up", "key_text", "hotkey",
 ]

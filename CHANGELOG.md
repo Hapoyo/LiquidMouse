@@ -85,6 +85,13 @@ Security and robustness pass from a full code review, plus follow-ups.
   answers; loopback (the PC's own terminal window) stays trusted. Binding the first-come
   whitelist to a per-device token instead of the IP is **not done**: the current client has no
   LAN handshake to carry a token, so it needs a protocol change and is left as a next step.
+- **More touchpad gestures** — two-finger tap = right click, three-finger tap = middle click,
+  two-finger horizontal scroll (new optional `h` field of the `scroll` message, sent as
+  `MOUSEEVENTF_HWHEEL`; the dominant axis wins so a vertical scroll does not wobble sideways),
+  and tap-and-drag (a touch that starts within 0.3 s of a tap and moves holds the left button
+  until you lift; the existing "trascina" lock takes precedence, and a disconnect still releases
+  the button on the PC). The `click` message is now a whitelist (`left`, `right`, `middle`):
+  before, any value other than `left` produced a right click. Nothing animates on the touchpad.
 
 ## 2.9.0 — 2026-10-04
 
