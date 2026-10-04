@@ -29,7 +29,7 @@ from liquidmouse.executors import NET, SFTP
 from liquidmouse.net.addresses import is_loopback, is_private_ip
 from liquidmouse.net.protocol import ClientConnection, dispatch
 from liquidmouse.net.sftp import CHUNK, SftpError
-from liquidmouse.net.static import etag_matches
+from liquidmouse.net.static import SECURITY_HEADERS
 from liquidmouse.net.transfers import DOWNLOAD, REMOTE_DOWNLOAD_MAX, UPLOAD
 from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, TUNNEL_PORT, WSS_PORT
 from liquidmouse.security.auth import AUTH_MAX_FAILS, pin_matches
@@ -218,26 +218,24 @@ def make_http_handler(static, sftp=None, transfers=None):
         def do_HEAD(self):
             self._serve(con_corpo=False)
 
+        def end_headers(self):
+            # Su ogni risposta (pagina, 404, download), non solo sugli asset.
+            for nome, valore in SECURITY_HEADERS:
+                self.send_header(nome, valore)
+            super().end_headers()
+
         def _serve(self, con_corpo: bool):
-            asset = static.get(self.path)
-            if asset is None:
+            risposta = static.serve(self.path, self.headers.get("Accept-Encoding"),
+                                    self.headers.get("If-None-Match"))
+            if risposta is None:
                 self.send_error(HTTPStatus.NOT_FOUND, "Not found")
                 return
-            if etag_matches(self.headers.get("If-None-Match"), asset.etag):
-                self.send_response(HTTPStatus.NOT_MODIFIED)
-                self.send_header("ETag", asset.etag)
-                self.end_headers()
-                return
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", asset.content_type)
-            self.send_header("Content-Length", str(len(asset.body)))
-            self.send_header("ETag", asset.etag)
-            # no-cache = rivalida sempre, ma con l'ETag la rivalidazione costa
-            # un 304 vuoto invece di ritrasferire 283 KB di xterm.js.
-            self.send_header("Cache-Control", "no-cache")
+            self.send_response(risposta.status)
+            for nome, valore in risposta.headers:
+                self.send_header(nome, valore)
             self.end_headers()
-            if con_corpo:
-                self.wfile.write(asset.body)
+            if con_corpo and risposta.body:
+                self.wfile.write(risposta.body)
 
         def log_message(self, *args):
             pass
@@ -447,22 +445,22 @@ class NetworkServices:
         if request.headers.get("Upgrade", ""):
             return None
         if request.path.startswith(SFTP_DOWNLOAD_PATH):
-            return await self._remote_download(connection, request)
-        asset = self.static.get(request.path)
-        if asset is None:
+            risposta = await self._remote_download(connection, request)
+        else:
+            risposta = self._remote_static(connection, request)
+        # Su ogni risposta (pagina, 404, download), non solo sugli asset.
+        for nome, valore in SECURITY_HEADERS:
+            risposta.headers[nome] = valore
+        return risposta
+
+    def _remote_static(self, connection, request):
+        servito = self.static.serve(request.path, request.headers.get("Accept-Encoding"),
+                                    request.headers.get("If-None-Match"))
+        if servito is None:
             return connection.respond(HTTPStatus.NOT_FOUND, "Not found\n")
-        if etag_matches(request.headers.get("If-None-Match"), asset.etag):
-            return Response(304, "Not Modified", Headers([
-                ("ETag", asset.etag),
-                ("Connection", "close"),
-            ]), b"")
-        return Response(200, "OK", Headers([
-            ("Content-Type", asset.content_type),
-            ("Content-Length", str(len(asset.body))),
-            ("ETag", asset.etag),
-            ("Cache-Control", "no-cache"),
-            ("Connection", "close"),
-        ]), asset.body)
+        motivo = "Not Modified" if servito.status == 304 else "OK"
+        return Response(servito.status, motivo,
+                        Headers(servito.headers + [("Connection", "close")]), servito.body)
 
     # --- avvio ------------------------------------------------------------
 
