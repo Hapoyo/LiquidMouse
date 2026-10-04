@@ -282,7 +282,7 @@ async def _term_kill(ctx: ClientConnection, data: dict) -> None:
 
 # --- file manager (SFTP) -----------------------------------------------------
 
-def _text(data: dict, key: str) -> str:
+def _campo(data: dict, key: str) -> str:
     """Campo testuale del messaggio, mai un non-stringa e con lunghezza limitata."""
     v = data.get(key, '')
     return v[:SFTP_TEXT_MAX] if isinstance(v, str) else ''
@@ -314,21 +314,21 @@ async def _sftp_profiles(ctx: ClientConnection, data: dict) -> None:
 @handles('sftp_profile_save')
 async def _sftp_profile_save(ctx: ClientConnection, data: dict) -> None:
     if await _sftp(ctx, lambda: ctx.sftp.save_profile(
-            _text(data, 'name'), _text(data, 'host'),
+            _campo(data, 'name'), _campo(data, 'host'),
             clamp_int(data.get('port'), 1, 65535, 22),
-            _text(data, 'user'), _text(data, 'password')) or True):
+            _campo(data, 'user'), _campo(data, 'password')) or True):
         await _send_profiles(ctx)
 
 
 @handles('sftp_profile_delete')
 async def _sftp_profile_delete(ctx: ClientConnection, data: dict) -> None:
-    if await _sftp(ctx, lambda: ctx.sftp.delete_profile(_text(data, 'name')) or True):
+    if await _sftp(ctx, lambda: ctx.sftp.delete_profile(_campo(data, 'name')) or True):
         await _send_profiles(ctx)
 
 
 @handles('sftp_connect')
 async def _sftp_connect(ctx: ClientConnection, data: dict) -> None:
-    name = _text(data, 'name')
+    name = _campo(data, 'name')
     path = await _sftp(ctx, ctx.sftp.connect if ctx.sftp else None, ctx.owner, name)
     if path is not None:
         await ctx.send_json({"type": "sftp_connected", "name": name, "path": path})
@@ -344,7 +344,7 @@ async def _sftp_disconnect(ctx: ClientConnection, data: dict) -> None:
 @handles('sftp_list')
 async def _sftp_list(ctx: ClientConnection, data: dict) -> None:
     listing = await _sftp(ctx, ctx.sftp.list_dir if ctx.sftp else None,
-                          ctx.owner, _text(data, 'path'))
+                          ctx.owner, _campo(data, 'path'))
     if listing is not None:
         await ctx.send_json({"type": "sftp_listing", **listing})
 
@@ -359,22 +359,22 @@ async def _sftp_done(ctx: ClientConnection, op: str, path: str, fn, *args) -> No
 @handles('sftp_mkdir')
 async def _sftp_mkdir(ctx: ClientConnection, data: dict) -> None:
     if ctx.sftp:
-        await _sftp_done(ctx, 'mkdir', _text(data, 'path'), ctx.sftp.mkdir,
-                         ctx.owner, _text(data, 'path'), _text(data, 'name'))
+        await _sftp_done(ctx, 'mkdir', _campo(data, 'path'), ctx.sftp.mkdir,
+                         ctx.owner, _campo(data, 'path'), _campo(data, 'name'))
 
 
 @handles('sftp_rename')
 async def _sftp_rename(ctx: ClientConnection, data: dict) -> None:
     if ctx.sftp:
-        await _sftp_done(ctx, 'rename', _text(data, 'path'), ctx.sftp.rename,
-                         ctx.owner, _text(data, 'path'), _text(data, 'old'), _text(data, 'new'))
+        await _sftp_done(ctx, 'rename', _campo(data, 'path'), ctx.sftp.rename,
+                         ctx.owner, _campo(data, 'path'), _campo(data, 'old'), _campo(data, 'new'))
 
 
 @handles('sftp_delete')
 async def _sftp_delete(ctx: ClientConnection, data: dict) -> None:
     if ctx.sftp:
-        await _sftp_done(ctx, 'delete', _text(data, 'path'), ctx.sftp.delete,
-                         ctx.owner, _text(data, 'path'), _text(data, 'name'),
+        await _sftp_done(ctx, 'delete', _campo(data, 'path'), ctx.sftp.delete,
+                         ctx.owner, _campo(data, 'path'), _campo(data, 'name'),
                          data.get('dir') is True)
 
 
@@ -384,7 +384,7 @@ def _issue_ticket(ctx: ClientConnection, data: dict) -> dict:
     if ctx.transfers is None or direction not in (DOWNLOAD, UPLOAD):
         raise SftpError("trasferimento non disponibile")
     if direction == DOWNLOAD:
-        path = join_path(_text(data, 'path'), _text(data, 'name'))
+        path = join_path(_campo(data, 'path'), _campo(data, 'name'))
         size = ctx.sftp.file_size(ctx.owner, path)
         if ctx.remote and size > REMOTE_DOWNLOAD_MAX:
             raise SftpError(
@@ -393,7 +393,7 @@ def _issue_ticket(ctx: ClientConnection, data: dict) -> dict:
         if ctx.remote:
             raise SftpError("l'upload non è disponibile da remoto: usa la rete locale",
                             code="remote_upload")
-        path = join_path(_text(data, 'path'), _text(data, 'name'))
+        path = join_path(_campo(data, 'path'), _campo(data, 'name'))
         size = 0
         if data.get('overwrite') is not True and ctx.sftp.exists(ctx.owner, path):
             raise SftpError("esiste già un file con quel nome", code="exists")
@@ -403,7 +403,7 @@ def _issue_ticket(ctx: ClientConnection, data: dict) -> dict:
     except RuntimeError as e:
         raise SftpError(str(e)) from e
     return {"type": "sftp_ticket", "direction": direction, "token": token,
-            "name": validate_name(_text(data, 'name')), "size": size}
+            "name": validate_name(_campo(data, 'name')), "size": size}
 
 
 @handles('sftp_ticket')
