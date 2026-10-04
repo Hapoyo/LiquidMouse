@@ -62,6 +62,7 @@ jobs:
               "liquidmouse.net.tunnel",
               "liquidmouse.net.static",
               "liquidmouse.security.auth",
+              "liquidmouse.security.dpapi",
               "liquidmouse.security.tls",
               "liquidmouse.terminal.commands",
               "liquidmouse.terminal.conpty",

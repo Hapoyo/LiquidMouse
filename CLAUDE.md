@@ -24,7 +24,8 @@ liquidmouse/
   input/                 keymap.py (nomi tasto → VK), win32.py (SendInput)
   terminal/              sessions.py, conpty.py (pywinpty o ConPTY ctypes), commands.py
                          (whitelist comandi), ringbuffer.py, launcher.py (finestra sul PC)
-  security/              auth.py (PIN, anti brute force), tls.py (certificato auto-firmato)
+  security/              auth.py (PIN, anti brute force), tls.py (certificato auto-firmato),
+                         dpapi.py (DPAPI: password SFTP, PIN e chiave TLS della config)
   gui/                   window.py (finestra, tray, pannello sessioni), effects.py (DWM,
                          font privati). Unico pacchetto che importa tkinter/pystray/PIL/qrcode
 static/                  index.html, app.css, app.js, icon.ico
@@ -144,13 +145,17 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   (60 s) chiesto via WS (`sftp_ticket`): sulla 8000 in streaming; da remoto (8443/tunnel) il
   download è letto in memoria con tetto 64 MB e l'upload non c'è (websockets non riceve il
   corpo di un POST). Nomi con `/`, `\`, `..` rifiutati (`validate_name`).
+- Config: `pin_plain` e `ssl_key` sono in chiaro solo in memoria; su disco `pin_secret` e
+  `ssl_key_secret` (DPAPI, `Config(protector=...)`). Una config vecchia in chiaro viene riscritta
+  cifrata al primo avvio con PIN e certificato invariati. Senza DPAPI il file resta come prima;
+  un segreto non decifrabile viene rigenerato (PIN nuovo = QR da rifare).
 - Font TTF e non woff2: gli stessi file servono al browser e a Tk (AddFontResourceEx privato).
 
 ## 8. Vincoli noti
 - Python 3.14 non supportato (miniupnpc senza wheel).
 - ConPTY via ctypes richiede Windows 10 1809+; pywinpty è il backend preferito.
 - Certificato auto-firmato: al primo accesso remoto il browser mostra l'avviso.
-- Ancora da provare su Windows: file manager (OpenSSH locale, download/upload di file grandi, DPAPI, paramiko nell'EXE), font privati in Tk, ConPTY senza pywinpty, barra tasti del
+- Ancora da provare su Windows: file manager (OpenSSH locale, download/upload di file grandi, DPAPI, paramiko nell'EXE, migrazione della config con PIN/chiave cifrati), font privati in Tk, ConPTY senza pywinpty, barra tasti del
   terminale, chiusura delle sessioni, EXE 2.6.x. Sul telefono: tastiera aperta nel
   terminale (Safari e Chrome). Tunnel Cloudflare reale (qui il proxy lo blocca con 403):
   download di cloudflared, QR trycloudflare, PIN, niente finestra nera di cloudflared.

@@ -1,8 +1,10 @@
 """Configurazione persistente in %APPDATA%/LiquidMouse/config.json.
 
-Contiene il PIN remoto (in chiaro per mostrarlo nella GUI e nel QR, e in hash
-per il confronto) e il certificato TLS auto-firmato riusato tra un avvio e
-l'altro.
+Contiene il PIN remoto (in hash per il confronto, e cifrato con DPAPI per
+mostrarlo nella GUI e nel QR) e il certificato TLS auto-firmato riusato tra un
+avvio e l'altro, con la chiave privata cifrata. In memoria PIN e chiave restano
+in chiaro (`pin_plain`, `ssl_key`): solo su disco diventano `pin_secret` e
+`ssl_key_secret`. Dove DPAPI manca il file resta come prima.
 
 Fino alla 2.5.x il programma si chiamava LiquidControl e la config stava in
 %APPDATA%/LiquidControl: al primo avvio viene copiata nella cartella nuova
@@ -24,6 +26,8 @@ from liquidmouse.theme import COLOR_ERROR
 PIN_BYTES = 8  # secrets.token_urlsafe(8) → ~11 caratteri
 APP_DIR = "LiquidMouse"
 LEGACY_APP_DIRS = ("LiquidControl",)  # nomi precedenti, dal più recente
+# Campo in chiaro (in memoria) → campo cifrato (su disco).
+SECRET_FIELDS = {"pin_plain": "pin_secret", "ssl_key": "ssl_key_secret"}
 
 
 def _appdata() -> pathlib.Path:
@@ -65,13 +69,15 @@ class Config:
     istanziarne una su una directory temporanea senza toccare %APPDATA%.
     """
 
-    def __init__(self, path: pathlib.Path | None = None) -> None:
+    def __init__(self, path: pathlib.Path | None = None, protector=None) -> None:
         # La migrazione vale solo per il percorso di default: una config con
         # percorso esplicito (i test) non deve andare a leggere %APPDATA%.
         self._migra = path is None
         self.path = path or get_config_path()
         self.data: dict = {}
         self._lock = threading.RLock()
+        # Oggetto con protect/unprotect (DPAPI); None = niente cifratura.
+        self._protector = protector
 
     def load(self) -> dict:
         """Carica la config, generando il PIN se assente. Ritorna `self.data`."""
@@ -89,12 +95,50 @@ class Config:
         else:
             self.data = {}
 
+        migrata = self._decifra_segreti()
+
         # Genera il PIN solo se la config manca del tutto o è malformata, non
         # se manca la sola chiave: così un upgrade che aggiunge campi non
         # invalida il PIN già stampato sul QR e memorizzato sui telefoni.
         if not loaded or "pin_hash" not in self.data:
             self.set_pin(secrets.token_urlsafe(PIN_BYTES))
+        elif migrata:
+            # Config scritta prima della cifratura: stesso PIN e stesso
+            # certificato (telefoni e browser non si accorgono di nulla), ma ora
+            # il file non li contiene più in chiaro.
+            self.save()
         return self.data
+
+    def _decifra_segreti(self) -> bool:
+        """Porta in chiaro, in memoria, i campi cifrati letti dal file.
+
+        Ritorna True se il file aveva ancora dei segreti in chiaro che con un
+        protettore vanno riscritti cifrati. Un segreto che non si decifra
+        (config copiata su un altro utente o PC, o senza DPAPI) non fa fallire
+        l'avvio: lo si scarta e si rigenera, perché un PIN sbagliato in memoria
+        bloccherebbe il proprietario fuori dal proprio PC. PIN scartato →
+        anche l'hash, così ne nasce uno nuovo; chiave scartata → anche il
+        certificato, che senza la sua chiave non serve.
+        """
+        da_riscrivere = False
+        for chiaro, cifrato in SECRET_FIELDS.items():
+            blob = self.data.pop(cifrato, None)
+            if blob is not None:
+                try:
+                    if self._protector is None:
+                        raise OSError("cifratura non disponibile su questo sistema")
+                    self.data[chiaro] = self._protector.unprotect(blob)
+                except Exception as e:
+                    self.data.pop(chiaro, None)
+                    scartati = (("pin_hash",) if chiaro == "pin_plain"
+                                else ("ssl_cert", "ssl_ip"))
+                    for k in scartati:
+                        self.data.pop(k, None)
+                    log_message(f"{chiaro} non decifrabile ({e}): rigenerato",
+                                color=COLOR_ERROR)
+            elif chiaro in self.data and self._protector is not None:
+                da_riscrivere = True
+        return da_riscrivere
 
     def set_pin(self, pin: str) -> None:
         self.data["pin_plain"] = pin
@@ -113,7 +157,7 @@ class Config:
             try:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 with open(temporaneo, "w", encoding="utf-8") as f:
-                    json.dump(self.data, f, indent=2)
+                    json.dump(self._per_il_disco(), f, indent=2)
                 os.replace(temporaneo, self.path)
             except Exception as e:
                 log_message(f"Errore salvataggio config: {e}", color=COLOR_ERROR)
@@ -121,6 +165,25 @@ class Config:
                     temporaneo.unlink()
                 except OSError:
                     pass
+
+    def _per_il_disco(self) -> dict:
+        """Copia di `data` con i segreti cifrati; `data` resta in chiaro."""
+        su_disco = dict(self.data)
+        if self._protector is None:
+            return su_disco
+        for chiaro, cifrato in SECRET_FIELDS.items():
+            if chiaro not in su_disco:
+                continue
+            try:
+                su_disco[cifrato] = self._protector.protect(su_disco[chiaro])
+            except Exception as e:
+                # Meglio il file come prima della cifratura che perdere il PIN
+                # già sui telefoni.
+                log_message(f"Cifratura di {chiaro} non riuscita ({e}): salvato in chiaro",
+                            color=COLOR_ERROR)
+                continue
+            del su_disco[chiaro]
+        return su_disco
 
     def get(self, key: str, default=None):
         return self.data.get(key, default)

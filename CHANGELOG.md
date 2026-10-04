@@ -39,6 +39,13 @@ Security and robustness pass from a full code review, plus follow-ups.
   for the new asyncio API), tests also run on `windows-latest` with Python 3.10 and 3.13,
   Dependabot for pip and GitHub Actions, and the unused `websockets.legacy` hidden imports are
   gone from the PyInstaller spec.
+- **PIN and TLS key encrypted at rest** — `config.json` no longer stores the PIN or the
+  certificate's private key in clear: they are protected with Windows DPAPI, like the SFTP
+  passwords (the PIN hash is kept for comparison). An old config is read and rewritten
+  encrypted on first start; the PIN stays the same, so phones already set up keep working,
+  and the certificate the browser accepted stays valid. Where DPAPI is missing (Linux, tests)
+  nothing changes; if a secret cannot be decrypted (config copied to another user or PC) the
+  PIN or certificate is regenerated instead of failing to start.
 
 ## 2.9.0 — 2026-10-04
 
