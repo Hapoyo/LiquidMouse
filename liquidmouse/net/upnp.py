@@ -10,6 +10,7 @@ import atexit
 import ipaddress
 
 from liquidmouse.events import log_message
+from liquidmouse.executors import NET
 from liquidmouse.ports import HTTPS_PORT
 from liquidmouse.theme import COLOR_MUTED
 
@@ -198,7 +199,7 @@ class UpnpMapper:
         WebSocket attivi.
         """
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.setup_sync, local_ip)
+        return await loop.run_in_executor(NET, self.setup_sync, local_ip)
 
     def cleanup(self) -> None:
         """Rimuove il mapping. Lasciarlo aperto esporrebbe la porta oltre la

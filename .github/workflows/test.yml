@@ -46,6 +46,7 @@ jobs:
               "liquidmouse",
               "liquidmouse.config",
               "liquidmouse.events",
+              "liquidmouse.executors",
               "liquidmouse.paths",
               "liquidmouse.ports",
               "liquidmouse.theme",
