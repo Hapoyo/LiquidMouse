@@ -195,6 +195,22 @@
         return /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(s);
     }
 
+    // --- AUTH: contratto (tests/test_auth_client.py) ---
+    // Dopo un PIN errato o un blocco nessuna riconnessione automatica (timer o
+    // risveglio del telefono) deve rimandare lo stesso PIN: al quinto errore il
+    // server blocca l'IP per 30 minuti. Si riabilita solo da un gesto
+    // dell'utente: "connetti" o la modifica del PIN.
+    function makeAuthGate() {
+        let failed = false;
+        return {
+            fail() { failed = true; },
+            reset() { failed = false; },
+            canAutoReconnect() { return !failed; },
+        };
+    }
+    // --- fine contratto ---
+    const authGate = makeAuthGate();
+
     function connectServer(ip) {
         const _ip = ip.trim();
         if (!_ip) { alert('Inserire un indirizzo IP valido.'); return; }
@@ -287,9 +303,11 @@
                     return;
                 } else if (msg.type === 'auth_fail') {
                     const rem = msg.remaining > 0 ? ` (${msg.remaining} tentativi rimasti)` : '';
+                    authGate.fail();
                     stopWithError(`pin errato${rem}`);
                     return;
                 } else if (msg.type === 'auth_blocked') {
+                    authGate.fail();
                     stopWithError('bloccato — riprova tra 30 min');
                     return;
                 } else if (msg.type === 'pong' && pingTimestamp > 0) {
@@ -388,14 +406,17 @@
         }
     }
 
-    connectBtn.addEventListener('click', () => { reconnectAttempts = 0; connectServer(ipInput.value); });
-    ipInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') { reconnectAttempts = 0; connectServer(ipInput.value); } });
+    connectBtn.addEventListener('click', () => { authGate.reset(); reconnectAttempts = 0; connectServer(ipInput.value); });
+    ipInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') { authGate.reset(); reconnectAttempts = 0; connectServer(ipInput.value); } });
+    // Un PIN corretto a mano è un nuovo tentativo deliberato.
+    pinInput.addEventListener('input', () => authGate.reset());
 
     // Gestisce il risveglio dello smartphone (sleep/wake)
     // Forza sempre la riconnessione: dopo sleep la WebSocket può risultare
-    // OPEN ma essere in realtà morta (stale), quindi chiudiamo e ricreiamo
+    // OPEN ma essere in realtà morta (stale), quindi chiudiamo e ricreiamo.
+    // Non dopo un errore di PIN (authGate): rimanderebbe lo stesso PIN.
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
+        if (document.visibilityState === 'visible' && authGate.canAutoReconnect()) {
             const ipToConnect = ipInput.value || loadIP();
             if (ipToConnect) {
                 reconnectAttempts = 0;
