@@ -3,6 +3,22 @@
 All notable changes to Liquid Mouse. Versions follow `liquidmouse/version.py`; each one is
 published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its executable.
 
+## Unreleased
+
+- **Cleaner phone client** — same "cyber" filing-cabinet theme, tighter hierarchy: tab number
+  and name aligned left with the open tab's number in amber; the session list starts at the
+  top like the SSH profiles, with a count next to the title; file rows on dark outlined panels
+  (cream stays for sessions and profiles), a vector rename icon instead of the emoji pencil,
+  38 px action buttons, a fixed toolbar grid, an upload progress bar and a dashed empty state.
+  Terminal and file headers and error banners now share one style. Visible keyboard focus,
+  labelled form fields and `role="alert"` banners. The touchpad no longer shrinks on touch.
+- **Motion animations** — [Motion](https://motion.dev) 14.0.0 ships as a local file
+  (`static/vendor/motion.js`, MIT), no CDN, so it works on an offline LAN. Short springs and
+  fades on tab changes, staggered session/profile/file lists, the quick menu, the typed-text
+  echo, banners, status changes (a small shake on errors), delete/close confirmations and
+  button presses. Nothing runs on the touchpad path. With "reduce motion" enabled, or if the
+  file fails to load, the client works exactly as before.
+
 ## 2.8.0 — 2026-09-29
 
 - **File manager (tab 003)** — browse, download and upload files over SSH/SFTP from the phone,

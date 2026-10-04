@@ -26,6 +26,8 @@ a = Analysis(
         ('static/app.js', 'static'), ('static/icon.ico', 'static'),
         ('static/vendor/xterm.js', 'static/vendor'),
         ('static/vendor/xterm.css', 'static/vendor'),
+        ('static/vendor/motion.js', 'static/vendor'),
+        ('static/vendor/LICENSE-motion.txt', 'static/vendor'),
         ('static/fonts/SpaceGrotesk-Medium.ttf', 'static/fonts'),
         ('static/fonts/SpaceMono-Regular.ttf', 'static/fonts'),
         ('static/fonts/SpaceMono-Bold.ttf', 'static/fonts'),

@@ -72,6 +72,14 @@ body {
 
 button { font-family: inherit; }
 
+/* Focus da tastiera (finestra del terminale sul PC, tastiere bluetooth):
+   prima nessun elemento lo mostrava. Solo :focus-visible, così il tocco non
+   lascia anelli in giro. */
+:where(button, a, input[type="range"]):focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 2px;
+}
+
 /* --- SCHEDARIO: LINGUETTE --- */
 #tab-bar {
     flex: 0 0 auto;
@@ -86,8 +94,11 @@ button { font-family: inherit; }
     height: var(--tab-h);
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    /* Numero e nome vicini, a sinistra: con space-between "003 file" finiva
+       ai due capi della linguetta e le tre non si leggevano come una riga. */
+    justify-content: flex-start;
+    gap: 10px;
+    min-width: 0;
     padding: 0 12px;
     background: var(--cream);
     color: var(--ink);
@@ -97,9 +108,14 @@ button { font-family: inherit; }
     font-size: 12px;
     cursor: pointer;
     position: relative;
-    transition: background 0.15s;
+    touch-action: manipulation;
+    transition: background 0.15s, color 0.15s;
 }
 .tab-btn:active { background: var(--amber); border-color: var(--amber); }
+.tab-num { font-variant-numeric: tabular-nums; }
+.tab-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab-btn.active .tab-num { color: var(--amber); }
+.tab-btn:focus-visible { outline-offset: -4px; }
 /* Linguetta aperta: stesso colore della cartella, scende di 1px per coprirne
    il bordo superiore e unirsi a lei. */
 .tab-btn.active {
@@ -134,10 +150,10 @@ button { font-family: inherit; }
 }
 /* La prima linguetta sta sul bordo sinistro: l'angolo sotto di lei è vivo. */
 #content-touchpad { border-top-left-radius: 0; }
-.tab-content.active {
-    display: flex;
-    animation: folderIn 0.15s ease-out;
-}
+.tab-content.active { display: flex; }
+/* Le animazioni CSS restano come riserva: con Motion caricato (classe
+   .motion su <html>, messa da app.js) le fa anima() e queste tacciono. */
+html:not(.motion) .tab-content.active { animation: folderIn 0.15s ease-out; }
 @keyframes folderIn {
     from { opacity: 0; transform: translateY(4px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -156,10 +172,11 @@ button { font-family: inherit; }
     overflow: hidden;
     transition: background 0.1s, border-color 0.1s, transform 0.08s;
 }
-.fluid-pressed {
-    transform: scale(0.97);
-    border-color: var(--cream) !important;
-}
+.fluid-pressed { border-color: var(--cream) !important; }
+html:not(.motion) .fluid-pressed { transform: scale(0.97); }
+/* Il touchpad non si rimpicciolisce mai: è sotto il dito che muove il
+   cursore, e un'area così grande in scala costa un ridisegno per frame. */
+#touchpad.fluid-pressed { transform: none; }
 /* Tasti "lucchetto" (trascina, ctrl, shift) quando attivi: pannello ambra. */
 .lock-active {
     background: var(--amber) !important;
@@ -262,10 +279,8 @@ button { font-family: inherit; }
     display: none;
     z-index: 100;
 }
-#text-display.active {
-    display: block;
-    animation: slideDown 0.2s ease-out;
-}
+#text-display.active { display: block; }
+html:not(.motion) #text-display.active { animation: slideDown 0.2s ease-out; }
 @keyframes slideDown {
     from { opacity: 0; transform: translateY(-8px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -289,7 +304,7 @@ button { font-family: inherit; }
     border-radius: var(--radius);
     padding: 22px 20px;
 }
-.config-content .label { font-size: 11px; color: var(--tan); }
+.config-content .label { display: block; font-size: 11px; color: var(--tan); }
 .config-content h1 {
     font-family: var(--font-num);
     font-weight: 500;
@@ -311,8 +326,15 @@ button { font-family: inherit; }
     outline: none;
     transition: border-color 0.15s;
 }
-.config-input:focus { border-color: var(--amber); }
-.config-input::placeholder { color: var(--tan); }
+/* Focus dei campi: bordo ambra raddoppiato dall'ombra, 2px in tutto. Un
+   bordo da 1px che cambia colore solo si notava appena. */
+.config-input:focus,
+.files-input:focus {
+    border-color: var(--amber);
+    box-shadow: 0 0 0 1px var(--amber);
+}
+.config-input::placeholder,
+.files-input::placeholder { color: var(--tan); }
 #pinInput:not(:placeholder-shown) { letter-spacing: 2px; }
 #cert-hint {
     display: none;
@@ -333,6 +355,7 @@ button { font-family: inherit; }
     cursor: pointer;
 }
 .config-btn:active { background: var(--amber); }
+.config-btn:focus-visible { outline-offset: 3px; }
 
 /* --- MENU (griglia 3×4) --- */
 #menu-overlay {
@@ -368,6 +391,11 @@ button { font-family: inherit; }
     transform: translateY(0);
     opacity: 1;
 }
+/* Con Motion il velo e i tasti li anima openMenu()/closeMenu() (app.js):
+   le transizioni CSS si fermano, se no le due animazioni si sommano. */
+html.motion #menu-overlay,
+html.motion .arrow-grid { transition: none; }
+html.motion .arrow-grid { transform: none; opacity: 1; }
 .menu-btn-item {
     aspect-ratio: 1;
     background: var(--panel);
@@ -377,7 +405,7 @@ button { font-family: inherit; }
     text-align: center;
     cursor: pointer;
 }
-.menu-btn-item:active { transform: scale(0.95); }
+html:not(.motion) .menu-btn-item:active { transform: scale(0.95); }
 .menu-btn-item svg { width: 24px; height: 24px; }
 .menu-btn-item .key {
     font-family: var(--font-num);
@@ -413,25 +441,28 @@ button { font-family: inherit; }
 
 /* --- FILE MANAGER --- */
 #content-files { padding: 0; gap: 0; }
-#files-banner {
+#files-banner,
+#term-error-banner {
     display: none;
-    margin: 8px;
+    margin: 8px 8px 0;
     padding: 10px 14px;
     background: var(--pink);
     color: var(--ink);
     border-radius: 8px;
     font-size: 11px;
 }
-#files-banner.visible { display: block; }
+#files-banner.visible,
+#term-error-banner.visible { display: block; }
 #files-profiles {
     flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 16px;
+    padding: 14px;
     gap: 10px;
     overflow-y: auto;
 }
+#files-profile-form { margin-top: 10px; }
 #files-profile-list, #files-profile-form {
     width: 100%;
     max-width: 380px;
@@ -448,6 +479,8 @@ button { font-family: inherit; }
     padding: 10px 12px;
     font-family: var(--font-mono);
     font-size: 16px;
+    outline: none;
+    transition: border-color 0.15s;
 }
 #files-browser {
     flex: 1;
@@ -456,40 +489,54 @@ button { font-family: inherit; }
     flex-direction: column;
 }
 #files-browser.visible { display: flex; }
-#files-head {
+/* Intestazioni di terminale e file: stessa riga, stesso bottone "‹ indietro". */
+#files-head,
+#term-head {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 10px;
+    padding: 6px;
     font-size: 11px;
     color: var(--tan);
 }
-#files-back {
+#files-head { padding: 8px 10px; }
+#files-back,
+#term-back {
     flex: 0 0 auto;
-    background: transparent;
+    height: 32px;
+    padding: 0 12px;
+    background: var(--bg);
     color: var(--amber);
     border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 6px 10px;
+    border-radius: 7px;
     font-size: 12px;
     cursor: pointer;
+    touch-action: manipulation;
 }
+#files-back:active,
+#term-back:active { border-color: var(--cream); }
+/* Il percorso è dove ci si trova: testo pieno, non etichetta. */
 #files-path {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: var(--cream);
+    font-size: 12px;
 }
+/* Due tasti quadrati (su, aggiorna) e due larghi: stessa griglia a ogni
+   larghezza invece di un flex-wrap che andava a capo a caso. */
 #files-toolbar {
-    display: flex;
+    display: grid;
+    grid-template-columns: 40px 40px 1fr 1fr;
     gap: 6px;
-    padding: 0 10px 8px;
-    flex-wrap: wrap;
+    padding: 0 10px 10px;
 }
 .fbtn {
-    height: 36px;
-    min-width: 40px;
-    padding: 0 12px;
+    height: 38px;
+    min-width: 0;
+    padding: 0 10px;
     background: var(--bg);
     color: var(--cream);
     border: 1px solid var(--line);
@@ -500,13 +547,20 @@ button { font-family: inherit; }
     touch-action: manipulation;
 }
 .fbtn:active { background: var(--line); border-color: var(--cream); }
+/* Avanzamento del caricamento: testo ambra e una barra da 2px sotto, larga
+   --p (impostata da app.js). Sfondo, non un elemento in più. */
 #files-progress {
-    padding: 0 12px;
+    --p: 0%;
+    margin: 0 10px 10px;
+    padding-bottom: 6px;
     font-size: 11px;
     color: var(--amber);
-    min-height: 0;
+    background:
+        linear-gradient(var(--amber), var(--amber)) left bottom / var(--p) 2px no-repeat,
+        linear-gradient(var(--line), var(--line)) left bottom / 100% 2px no-repeat;
+    transition: background-size 0.2s ease-out;
 }
-#files-progress:not(:empty) { padding-bottom: 8px; }
+#files-progress:empty { display: none; }
 #files-list {
     flex: 1;
     min-height: 0;
@@ -516,9 +570,41 @@ button { font-family: inherit; }
     gap: 6px;
     padding: 0 10px 10px;
 }
-.file-row { padding: 10px 12px; cursor: pointer; }
-.file-row .name { font-size: 15px; }
-.file-empty { color: var(--tan); font-size: 11px; padding: 12px 2px; }
+/* Righe dell'elenco file: pannelli scuri con contorno, non crema pieno. Il
+   crema resta agli oggetti principali (sessioni, profili); un elenco lungo
+   di pannelli pieni pesava più del contenuto. */
+.file-row {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--cream);
+    padding: 8px 8px 8px 12px;
+    gap: 10px;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: border-color 0.1s;
+}
+.file-row:active { border-color: var(--cream); }
+.file-row .name { font-size: 16px; }
+.file-row .meta { color: var(--tan); }
+.file-row .dir-mark { color: var(--amber); margin-right: 8px; }
+.file-row .session-card-actions { gap: 6px; }
+.file-row .session-card-close {
+    min-width: 38px;
+    min-height: 38px;
+    padding: 0 8px;
+    color: var(--cream);
+    border-color: var(--line);
+}
+.file-row .session-card-close.confirm { color: var(--ink); border-color: var(--pink); }
+.file-row .session-card-close svg { width: 16px; height: 16px; display: block; margin: auto; }
+.file-empty {
+    color: var(--tan);
+    font-size: 11px;
+    text-align: center;
+    padding: 22px 12px;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+}
 
 /* --- TERMINALE --- */
 #content-terminal { padding: 0; gap: 0; }
@@ -527,17 +613,23 @@ button { font-family: inherit; }
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: 16px;
+    /* In alto e non centrato: come i profili dei file, e l'elenco non salta
+       di mezza schermata quando una sessione si apre o si chiude. */
+    justify-content: flex-start;
+    padding: 14px;
     gap: 10px;
     overflow-y: auto;
 }
 .picker-title {
     width: 100%;
     max-width: 380px;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
     font-size: 11px;
     color: var(--tan);
 }
+.picker-count { color: var(--cream); font-variant-numeric: tabular-nums; }
 #session-list {
     width: 100%;
     max-width: 380px;
@@ -547,7 +639,7 @@ button { font-family: inherit; }
 }
 .session-card {
     border-radius: var(--radius);
-    padding: 14px;
+    padding: 12px 12px 12px 14px;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -567,6 +659,7 @@ button { font-family: inherit; }
 .session-card-label .name-new { font-size: 12px; color: var(--tan); }
 .session-card-btn {
     flex: 0 0 auto;
+    min-height: 40px;
     border: none;
     border-radius: 8px;
     padding: 10px 16px;
@@ -601,7 +694,11 @@ button { font-family: inherit; }
     font-size: 12px;
     font-weight: 700;
 }
-.session-card-close:disabled { opacity: 0.5; }
+.session-card-close:disabled,
+.session-card-btn:disabled { opacity: 0.5; cursor: default; }
+/* Tocco: il pannello passa al colore vicino della palette, come .config-btn. */
+.btn-resume:active { background: var(--amber); }
+.btn-new:active    { background: var(--cream); }
 .btn-new    { background: var(--amber); }
 
 #terminal-active {
@@ -614,26 +711,8 @@ button { font-family: inherit; }
 #terminal-active.visible { display: flex; }
 /* Intestazione del terminale: torna all'elenco senza chiudere la sessione. */
 #term-head {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px;
     background: var(--panel);
     border-bottom: 1px solid var(--line);
-    font-size: 11px;
-    color: var(--tan);
-}
-#term-back {
-    flex: 0 0 auto;
-    height: 32px;
-    padding: 0 12px;
-    background: var(--bg);
-    color: var(--cream);
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    font-size: 12px;
-    cursor: pointer;
 }
 #term-title {
     min-width: 0;
@@ -693,16 +772,6 @@ button { font-family: inherit; }
 .tkey.hot { color: var(--orange); border-color: var(--orange); }
 .tkey.fluid-pressed { background: var(--line); border-color: var(--cream); }
 .tkey.lock-active { background: var(--amber); border-color: var(--amber); color: var(--ink); }
-#term-error-banner {
-    display: none;
-    margin: 8px;
-    padding: 10px 14px;
-    background: var(--pink);
-    color: var(--ink);
-    border-radius: 8px;
-    font-size: 11px;
-}
-#term-error-banner.visible { display: block; }
 /* Input nascosto per aprire la tastiera del telefono. Dentro l'area visibile,
    in alto: fuori schermo (-2000px) Safari faceva scorrere la pagina per
    mostrarlo, spostando il terminale. 16px: sotto, iOS ingrandisce al focus. */
@@ -729,8 +798,13 @@ body.kbd-open.term-open #content-terminal {
 }
 body.kbd-open #bottom-bar { padding-bottom: 6px; }
 
+/* Stessa specificità delle regole di riserva (html:not(.motion) ...), se no
+   queste vincerebbero. Le animazioni di Motion le spegne anima() in app.js. */
 @media (prefers-reduced-motion: reduce) {
     #status::after { animation: none; }
-    .tab-content.active, #text-display.active { animation: none; }
-    #menu-overlay, .arrow-grid { transition: none; }
+    html:not(.motion) .tab-content.active,
+    html:not(.motion) #text-display.active { animation: none; }
+    #menu-overlay, .arrow-grid, #files-progress { transition: none; }
+    html:not(.motion) .fluid-pressed,
+    html:not(.motion) .menu-btn-item:active { transform: none; }
 }

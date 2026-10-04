@@ -127,6 +127,10 @@ class Client:
             viewport=TELEFONO, device_scale_factor=scala, is_mobile=True,
             has_touch=True, locale="it-IT")
         page = ctx.new_page()
+        # Motion non segue page.clock (le sue animazioni restano al primo
+        # fotogramma, trasparenti): con "meno movimento" anima() le salta e le
+        # schermate mostrano lo stato finale, uguale a ogni esecuzione.
+        page.emulate_media(reduced_motion="reduce")
         page.clock.install(time=time.mktime((2026, 9, 27, 18, 30, 0, 0, 0, -1)))
         page.add_init_script(FAKE_WS)
         page.route("**/*", self._servi)
