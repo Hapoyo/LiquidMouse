@@ -17,9 +17,10 @@ import base64
 import hashlib
 import posixpath
 import stat
-import sys
 import threading
 from dataclasses import dataclass
+
+from liquidmouse.security.dpapi import ProtectError, default_protector  # noqa: F401
 
 CHUNK = 64 * 1024
 CONNECT_TIMEOUT = 10
@@ -61,44 +62,6 @@ def validate_path(path) -> str:
 
 def join_path(folder: str, name: str) -> str:
     return posixpath.join(validate_path(folder), validate_name(name))
-
-
-# --- password cifrate --------------------------------------------------------
-
-class DpapiProtector:
-    """Cifra con la chiave dell'utente Windows (CryptProtectData): il file di
-    config copiato su un altro PC o utente non rivela le password."""
-
-    def protect(self, text: str) -> str:
-        return base64.b64encode(_dpapi(text.encode("utf-8"), protect=True)).decode("ascii")
-
-    def unprotect(self, blob: str) -> str:
-        return _dpapi(base64.b64decode(blob), protect=False).decode("utf-8")
-
-
-def _dpapi(data: bytes, *, protect: bool) -> bytes:
-    import ctypes
-    from ctypes import wintypes
-
-    class Blob(ctypes.Structure):
-        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
-
-    src = Blob(len(data), ctypes.cast(ctypes.create_string_buffer(data, len(data)),
-                                      ctypes.POINTER(ctypes.c_char)))
-    out = Blob()
-    fn = ctypes.windll.crypt32.CryptProtectData if protect else ctypes.windll.crypt32.CryptUnprotectData
-    if not fn(ctypes.byref(src), None, None, None, None, 0, ctypes.byref(out)):
-        raise SftpError("cifratura password non riuscita")
-    try:
-        return ctypes.string_at(out.pbData, out.cbData)
-    finally:
-        ctypes.windll.kernel32.LocalFree(out.pbData)
-
-
-def default_protector():
-    """DPAPI su Windows; altrove None: meglio rifiutare di salvare una password
-    che scriverla in chiaro."""
-    return DpapiProtector() if sys.platform == "win32" else None
 
 
 # --- connessione -------------------------------------------------------------
@@ -282,7 +245,10 @@ class SftpManager:
         if password:
             if self.protector is None:
                 raise SftpError("cifratura password non disponibile su questo sistema")
-            secret = self.protector.protect(password)
+            try:
+                secret = self.protector.protect(password)
+            except ProtectError as e:
+                raise SftpError("cifratura password non riuscita") from e
         nuovo = {"name": name, "host": host, "port": port, "user": user, "secret": secret}
         # Cambiando host o porta l'impronta vecchia non vale più: la prima
         # connessione al nuovo indirizzo ne registra una nuova.
@@ -304,7 +270,10 @@ class SftpManager:
         if profilo.get("secret"):
             if self.protector is None:
                 raise SftpError("cifratura password non disponibile su questo sistema")
-            password = self.protector.unprotect(profilo["secret"])
+            try:
+                password = self.protector.unprotect(profilo["secret"])
+            except ProtectError as e:
+                raise SftpError("password salvata non decifrabile: reinseriscila") from e
         self.close_owner(owner)
         sessione, fp = self.connector(profilo["host"], profilo["port"], profilo["user"],
                                       password, profilo.get("hostkey") or None)

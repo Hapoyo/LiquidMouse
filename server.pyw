@@ -15,7 +15,7 @@ from liquidmouse.config import Config, get_config_path
 from liquidmouse.events import log_message
 from liquidmouse.net.addresses import TrustedPeer, get_local_ip, is_loopback
 from liquidmouse.net.server import NetworkServices
-from liquidmouse.net.sftp import SftpManager, default_protector
+from liquidmouse.net.sftp import SftpManager
 from liquidmouse.net.static import StaticFiles
 from liquidmouse.net.transfers import TransferRegistry
 from liquidmouse.net.tunnel import CloudflareTunnel
@@ -23,6 +23,7 @@ from liquidmouse.net.upnp import UpnpMapper
 from liquidmouse.paths import BASE_DIR
 from liquidmouse.ports import TUNNEL_PORT
 from liquidmouse.security.auth import AuthGuard
+from liquidmouse.security.dpapi import default_protector
 from liquidmouse.security.tls import SelfSignedCert
 from liquidmouse.terminal.launcher import open_pc_terminal
 from liquidmouse.terminal.sessions import SessionManager
@@ -47,13 +48,14 @@ except ImportError:
 # --- DIPENDENZE ---
 # Costruite qui e passate a chi le usa: nessun modulo del pacchetto tiene stato
 # globale proprio, ed è ciò che li rende testabili in isolamento.
-_config = Config()
+_protector = default_protector()
+_config = Config(protector=_protector)
 _auth_guard = AuthGuard()
 _trusted_peer = TrustedPeer()
 _session_manager = SessionManager()
 _static = StaticFiles(BASE_DIR)
 # File manager: profili SSH nella config, password cifrate con DPAPI.
-_sftp = SftpManager(_config, protector=default_protector())
+_sftp = SftpManager(_config, protector=_protector)
 _transfers = TransferRegistry()
 _tls = SelfSignedCert(_config)
 _upnp = UpnpMapper()
