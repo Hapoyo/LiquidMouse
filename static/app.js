@@ -195,6 +195,20 @@
         return /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(s);
     }
 
+    // --- TASTIERA: contratto (tests/test_kbd_diff.py) ---
+    // Cosa mandare al PC quando il campo nascosto passa da `prev` a `val`:
+    // si cancella la parte tolta e si scrive la nuova coda, dopo il prefisso
+    // comune. Il confronto per sola lunghezza perdeva le sostituzioni della
+    // correzione automatica ("teh" -> "the"). Si lavora per punti di codice:
+    // un'emoji e' un solo backspace e una coppia surrogata non si spezza.
+    function diffTastiera(prev, val) {
+        const a = Array.from(prev), b = Array.from(val);
+        let i = 0;
+        while (i < a.length && i < b.length && a[i] === b[i]) i++;
+        return { del: a.length - i, add: b.slice(i).join('') };
+    }
+    // --- fine contratto ---
+
     // --- AUTH: contratto (tests/test_auth_client.py) ---
     // Dopo un PIN errato o un blocco nessuna riconnessione automatica (timer o
     // risveglio del telefono) deve rimandare lo stesso PIN: al quinto errore il
@@ -785,17 +799,17 @@
     hiddenInput.addEventListener('input', (e) => {
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
         const val = hiddenInput.value;
-        if (val.length > previousValue.length) {
-            const added = val.substring(previousValue.length);
-            ws.send(JSON.stringify({ type: 'text', char: added })); updateTextDisplay(added);
-        } else if (val.length < previousValue.length) {
-            const del = previousValue.length - val.length;
+        const { del, add } = diffTastiera(previousValue, val);
+        if (del > 0) {
             // Un solo messaggio con il conteggio, non uno per carattere.
             // Prima il server scartava tutti i backspace successivi al
             // primo per via del debounce anti-autorepeat da 80ms: cancellare
             // cinque caratteri ne cancellava uno solo.
             ws.send(JSON.stringify({ type: 'key', key: 'backspace', count: del }));
             updateTextDisplay('⌫'.repeat(Math.min(del, 8)));
+        }
+        if (add) {
+            ws.send(JSON.stringify({ type: 'text', char: add })); updateTextDisplay(add);
         }
         previousValue = val;
     });
@@ -1101,13 +1115,14 @@
     termKbdInput.addEventListener('input', () => {
         if (!ws || ws.readyState !== WebSocket.OPEN || !termSessionId) return;
         const val = termKbdInput.value;
-        if (val.length > termKbdPrev.length) {
-            const added = val.substring(termKbdPrev.length);
+        const { del, add } = diffTastiera(termKbdPrev, val);
+        // '' come nel keydown di Backspace e nei test dei tasti: non si
+        // passa a 0x7f senza provare cmd e PowerShell su Windows.
+        if (del > 0) termSend(''.repeat(del));
+        if (add) {
             // Un solo carattere dopo ctrl/alt della barra: ctrl+r, alt+f...
             // Un blocco più lungo (incolla, suggerimento) passa così com'è.
-            termSend(added.length === 1 ? withMods(added, null, consumeTermMods()) : added);
-        } else if (val.length < termKbdPrev.length) {
-            termSend('\b'.repeat(termKbdPrev.length - val.length));
+            termSend(add.length === 1 && del === 0 ? withMods(add, null, consumeTermMods()) : add);
         }
         termKbdPrev = val;
     });
