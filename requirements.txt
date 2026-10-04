@@ -12,4 +12,4 @@ qrcode>=7.4
 cryptography>=42.0
 pywinpty>=2.0
 miniupnpc>=2.2
-paramiko>=3.0
+paramiko>=5.0.0
