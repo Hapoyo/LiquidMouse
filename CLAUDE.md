@@ -41,16 +41,17 @@ README.md, CHANGELOG.md  in inglese, stile PiDash (sezioni numerate); le novità
                          CHANGELOG, non nel README
 test_server.py           smoke test da lanciare con il server avviato (solo Windows)
 build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
-.github/workflows/       test.yml (ogni push e PR), build.yml (EXE; release con pubblica=true
+.github/workflows/       test.yml (ogni push e PR: Linux 3.12 e Windows 3.10/3.13), dependabot.yml, build.yml (EXE; release con pubblica=true
                          o con il push di un tag v*)
 ```
 
 ## 3. Comandi
+- Dipendenze: `requirements.txt` (versioni minime verificate; `.github/dependabot.yml` apre le PR di aggiornamento).
 - Test: `pip install pytest websockets && python -m pytest` (node serve ai test dei contratti JS)
   Su Windows: `PYTHONUTF8=1 py -3.13 -m pytest` (senza, l'output UTF-8 di node letto in cp1252
   fa fallire test_files_client_contract sui nomi accentati)
 - Core senza GUI: i moduli elencati in `.github/workflows/test.yml` devono importarsi su Linux
-- Avvio da sorgente (Windows): `py -3.13 -m pip install websockets pystray Pillow qrcode cryptography pywinpty miniupnpc paramiko` poi `py -3.13 server.pyw`
+- Avvio da sorgente (Windows): `py -3.13 -m pip install -r requirements.txt` poi `py -3.13 server.pyw`
 - Smoke test (Windows, server avviato): `py -3.13 test_server.py`
 - Anteprime del README: `xvfb-run -s "-screen 0 1920x1080x24 -dpi 192" python tools/anteprime.py`
   (su Windows funziona `--solo client`, con `PYTHONUTF8=1`; Motion non segue `page.clock`,
@@ -113,8 +114,8 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   account; Tailscale rimosso in 2.4.0 perché voleva l'app sul telefono). Porta unica 8443
   per pagina e WSS. Una sola decisione in `NetworkServices._refresh_remote` (avvio e
   keepalive): UPnP riuscito ferma il tunnel.
-- Tunnel: cloudflared non è nel bundle (~55 MB), si usa quello nel PATH o si scarica in
-  `%APPDATA%/LiquidMouse/bin`. Origine su 127.0.0.1:8767 (TUNNEL_PORT): lì ogni client
+- Tunnel: cloudflared non è nel bundle (~55 MB): si usa quello in `%APPDATA%/LiquidMouse/bin`,
+  poi quello nel PATH, altrimenti si scarica lì verificando lo SHA-256 dell'API della release. Origine su 127.0.0.1:8767 (TUNNEL_PORT): lì ogni client
   arriva da loopback, quindi `via_tunnel` forza sempre il PIN, e l'anti brute force usa
   `CF-Connecting-IP` (altrimenti chiunque bloccherebbe il proprietario). Indirizzo
   `*.trycloudflare.com` diverso a ogni avvio.

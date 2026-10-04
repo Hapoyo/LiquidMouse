@@ -5,7 +5,7 @@ published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its
 
 ## Unreleased
 
-Security and robustness pass from a full code review. No new features.
+Security and robustness pass from a full code review, plus follow-ups.
 
 - **WebSocket Origin check** — the four WebSocket servers now refuse browser handshakes whose
   `Origin` is not localhost, a numeric LAN/WAN IP or `*.trycloudflare.com`. A web page open on
@@ -32,6 +32,13 @@ Security and robustness pass from a full code review. No new features.
 - **Atomic writes** — uploads go to `name.part` and are renamed when complete (an interrupted
   upload keeps the original file); `config.json` is written through a temporary file, so a crash
   cannot leave it empty and lose the PIN.
+- **cloudflared is verified** — the downloaded tunnel binary is checked against the SHA-256 that
+  the GitHub release publishes before it replaces anything, and the copy in
+  `%APPDATA%/LiquidMouse/bin` is now preferred over one found in `PATH`.
+- **CI and dependencies** — `requirements.txt` with the real minimum versions (websockets 14
+  for the new asyncio API), tests also run on `windows-latest` with Python 3.10 and 3.13,
+  Dependabot for pip and GitHub Actions, and the unused `websockets.legacy` hidden imports are
+  gone from the PyInstaller spec.
 
 ## 2.9.0 — 2026-10-04
 

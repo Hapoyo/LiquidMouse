@@ -1,0 +1,15 @@
+# Dipendenze di esecuzione. I minimi sono quelli che il codice usa davvero:
+# - websockets 14: API asyncio nuova (serve con process_request(connection, request),
+#   origins=, connection.respond); nelle 13 e precedenti `serve` e' l'implementazione legacy.
+# - cryptography 42: certificato auto-firmato senza il parametro backend.
+# - paramiko 3: file manager SFTP (import pigro).
+# pywinpty e miniupnpc sono facoltativi a runtime (ripiego ConPTY via ctypes, UPnP
+# assente = solo tunnel), ma la build dell'EXE li include.
+websockets>=14.0
+pystray>=0.19
+Pillow>=10.0
+qrcode>=7.4
+cryptography>=42.0
+pywinpty>=2.0
+miniupnpc>=2.2
+paramiko>=3.0
