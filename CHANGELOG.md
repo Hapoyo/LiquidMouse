@@ -54,6 +54,16 @@ Security and robustness pass from a full code review, plus follow-ups.
   calls and reports write errors. PTY reads, PTY writes, SFTP and UPnP each run on their own
   thread pool instead of the shared default one, and the idle poll of the pywinpty backend backs
   off from 10 to 50 ms while the shell is silent.
+- **Faster, safer asset serving** — assets are gzipped once at start-up and served with
+  `Accept-Encoding` (xterm.js goes from 283 KB to about a quarter of that over the 4G link);
+  `index.html` references every file as `?v=VERSION`, and versioned URLs plus the fonts are sent
+  with `Cache-Control: max-age=31536000, immutable`, so a returning phone only revalidates the
+  page itself (`no-cache` + ETag, a different ETag for the gzip variant). Every response now also
+  carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options:
+  DENY` and a Content-Security-Policy. The three inline `onclick` handlers of the tab bar moved
+  into `app.js`, so `script-src` is just `'self'`. `style-src` still allows `'unsafe-inline'`
+  (xterm.js injects `<style>` elements and a few `style=""` attributes remain): moving to nonces
+  or hashes is a follow-up. `motion.js` was already `defer` (non-blocking), so it is unchanged.
 
 ## 2.9.0 — 2026-10-04
 

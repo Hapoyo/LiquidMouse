@@ -90,8 +90,8 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Grafica: solo colori di `theme.py` / `:root` di app.css; numeri grandi in Space Grotesk,
   etichette in Space Mono. Contrasto testo ≥ 4.5:1 (test_theme_contrast.py).
 - Finestra desktop: tutto disegnato sul canvas, misure in px a 96 dpi passate da `_px`.
-- Client: app.js è uno script classico (non modulo: gli onclick inline vogliono globali),
-  caricato con defer. Colori della riga di stato via classi (`setStatus(text, kind)`).
+- Client: app.js è uno script classico (non modulo), caricato con defer; nel markup niente
+  `onclick=` inline (la CSP li blocca). Colori della riga di stato via classi (`setStatus(text, kind)`).
 - Valori dal client = non fidati: passare da `clamp_int` e dalle whitelist.
 - Animazioni del client: solo tramite `anima()` in app.js (unico punto che legge
   `window.Motion`; null se Motion manca o con prefers-reduced-motion). Senza Motion
@@ -128,6 +128,14 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   100dvh; `kbd-open` sul body nasconde linguette e intestazione del terminale.
 - LAN senza PIN ma whitelist "primo arrivato" (reset dal menu tray); CGNAT 100.64/10 = remoto.
 - Asset serviti da cache in memoria con ETag; qualunque path fuori whitelist → 404.
+  `StaticFiles.serve` è l'unico punto che decide la risposta (porta 8000 e strada remota):
+  gzip precalcolato al load (ETag `-gz` distinto, `Vary: Accept-Encoding`), `index.html`
+  riscritto al load con `?v=VERSION` sui riferimenti locali (il file su disco resta pulito),
+  `Cache-Control: immutable` solo per URL con `?v=` e per i font (index e URL senza versione
+  restano `no-cache`), e `SECURITY_HEADERS` (nosniff, no-referrer, X-Frame-Options, CSP) su
+  ogni risposta. CSP: `script-src 'self'`, quindi **niente handler inline** nel markup (le
+  linguette si legano in app.js con `data-tab`; lo controlla test_assets_consistency);
+  `style-src` ha ancora `'unsafe-inline'` per xterm.js: passare a nonce/hash è un passo futuro.
 - Output del terminale in frame binari, non base64 in JSON.
 - Terminale: il read loop del PTY accoda soltanto; ogni viewer ha una coda limitata
   (`MAX_QUEUED_BYTES`, 1 MB) e un task di invio (`_Pump` in terminal/sessions.py). Chi supera
