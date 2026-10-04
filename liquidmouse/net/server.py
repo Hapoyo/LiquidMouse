@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import ipaddress
 import json
+import re
 import threading
 from http import HTTPStatus
 from urllib.parse import parse_qs, quote, urlsplit
@@ -36,6 +37,11 @@ from liquidmouse.theme import COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_OK
 AUTH_TIMEOUT_SECS = 10.0
 WS_PING_INTERVAL = 20
 WS_PING_TIMEOUT = 10
+# Timeout di lettura/scrittura delle connessioni HTTP sulla 8000 (aperta alla
+# LAN): senza, un client che apre il socket e non finisce la richiesta (o non
+# legge la risposta) terrebbe un thread per sempre (slowloris). Vale per ogni
+# singola operazione sul socket, non per l'intero trasferimento.
+HTTP_TIMEOUT_SECS = 30
 # Rinnovo dei mapping UPnP. Auto-ripara il remoto dopo un riavvio del router
 # (che azzera il NAT) e recupera i casi in cui l'UPnP viene abilitato a server
 # già avviato.
@@ -43,6 +49,21 @@ UPNP_KEEPALIVE_SECS = 600
 # Chiave anti brute force per chi arriva dal tunnel senza l'header di
 # Cloudflare (in pratica solo un processo locale).
 TUNNEL_GUARD_KEY = "tunnel"
+
+# Origin ammessi nell'handshake WebSocket. Un browser manda sempre l'Origin
+# della pagina che apre il socket: senza filtro, una pagina qualunque aperta
+# sul telefono o sul PC (anche su internet) potrebbe collegarsi a ws://<ip>:8765
+# e, dal loopback o dalla LAN, essere trattata come client fidato. Valgono solo
+# le pagine servite da noi: localhost/127.0.0.1 (finestra terminale sul PC), un
+# IPv4 numerico (LAN e IP pubblico UPnP) e il tunnel. Hostname arbitrari no:
+# sono la via del DNS rebinding. None = client non browser (nessun header, come
+# test_server.py), che non è un vettore di attacco da pagina web.
+_ORIGIN_HOST = (r"(?:localhost|\d{1,3}(?:\.\d{1,3}){3}"
+                r"|[a-z0-9-]+\.trycloudflare\.com)")
+ALLOWED_ORIGINS = [
+    None,
+    re.compile(rf"https?://{_ORIGIN_HOST}(?::\d{{1,5}})?", re.IGNORECASE),
+]
 
 
 def tunnel_client_ip(headers) -> str:
@@ -95,6 +116,7 @@ def make_http_handler(static, sftp=None, transfers=None):
 
     class _StaticHTTPHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+        timeout = HTTP_TIMEOUT_SECS
 
         def do_GET(self):
             if urlsplit(self.path).path == SFTP_DOWNLOAD_PATH:
@@ -166,6 +188,7 @@ def make_http_handler(static, sftp=None, transfers=None):
                 self.close_connection = True
                 self.send_error(HTTPStatus.GONE, str(e))
                 return
+            completo = False
             try:
                 rimasti = totale
                 while rimasti > 0:
@@ -174,11 +197,16 @@ def make_http_handler(static, sftp=None, transfers=None):
                         raise ConnectionError("upload interrotto")
                     fh.write(blocco)
                     rimasti -= len(blocco)
+                fh.close()   # qui il file parziale diventa quello definitivo
+                completo = True
             except (OSError, ConnectionError):
                 self.close_connection = True
                 return
             finally:
-                fh.close()
+                if not completo:
+                    # Un upload interrotto non deve lasciare un file troncato
+                    # al posto dell'originale: si scarta il parziale.
+                    fh.abort()
             corpo = b'{"ok":true}'
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json")
@@ -308,10 +336,18 @@ class NetworkServices:
             except Exception:
                 await websocket.close()
                 return False
-            if data.get('type') != 'auth':
+            if not isinstance(data, dict):
+                # Un JSON che non è un oggetto (lista, numero) non è un client
+                # vero: conta come tentativo fallito invece di far cadere
+                # l'handshake con un'eccezione non contata dal guard.
+                pin = None
+            elif data.get('type') != 'auth':
                 await websocket.close()
                 return False
-            if not pin_matches(data.get('pin', ''), self.config.get('pin_hash', '')):
+            else:
+                pin = data.get('pin', '')
+            if not isinstance(pin, str) or not pin_matches(
+                    pin, self.config.get('pin_hash', '')):
                 guard.record_fail(client_ip)
                 rimasti = guard.remaining(client_ip)
                 await websocket.send(json.dumps({
@@ -487,7 +523,13 @@ class NetworkServices:
     async def _remote_keepalive(self) -> None:
         while True:
             await asyncio.sleep(UPNP_KEEPALIVE_SECS)
-            await self._refresh_remote()
+            # Un'eccezione qui (router che risponde male, tunnel che non parte)
+            # ucciderebbe il task in silenzio e il remoto non si ripareriebbe
+            # più fino al riavvio: si registra e si riprova al giro dopo.
+            try:
+                await self._refresh_remote()
+            except Exception as e:
+                log_message(f"Rinnovo accesso remoto fallito: {e}", color=COLOR_ERROR)
 
     async def _tunnel_handler(self, websocket):
         await self.handler(websocket, via_tunnel=True)
@@ -497,45 +539,60 @@ class NetworkServices:
         ssl_ctx = self.tls.context_for(self.local_ip)
         self._ssl_ctx = ssl_ctx
 
-        await self._refresh_remote(primo=True)
+        # Un errore nella scelta della strada remota non deve impedire l'avvio
+        # dei server locali: il telefono in LAN funziona comunque.
+        try:
+            await self._refresh_remote(primo=True)
+        except Exception as e:
+            log_message(f"Accesso remoto non avviato: {e}", color=COLOR_ERROR)
         asyncio.get_running_loop().create_task(self._remote_keepalive())
 
         servers = [
-            websockets.serve(self.handler, "0.0.0.0", PORT,
-                             ping_interval=WS_PING_INTERVAL,
-                             ping_timeout=WS_PING_TIMEOUT),
+            (PORT, websockets.serve(self.handler, "0.0.0.0", PORT,
+                                    ping_interval=WS_PING_INTERVAL,
+                                    ping_timeout=WS_PING_TIMEOUT,
+                                    origins=ALLOWED_ORIGINS)),
         ]
         if ssl_ctx:
             # Porta unica remota: pagina + WSS su HTTPS_PORT.
-            servers.append(
+            servers.append((HTTPS_PORT,
                 websockets.serve(self.handler, "0.0.0.0", HTTPS_PORT, ssl=ssl_ctx,
                                  ping_interval=WS_PING_INTERVAL,
                                  ping_timeout=WS_PING_TIMEOUT,
-                                 process_request=self.https_process_request)
-            )
+                                 origins=ALLOWED_ORIGINS,
+                                 process_request=self.https_process_request)))
             # Legacy: WSS dedicato per client pre-porta-unica ancora in giro.
-            servers.append(
+            servers.append((WSS_PORT,
                 websockets.serve(self.handler, "0.0.0.0", WSS_PORT, ssl=ssl_ctx,
                                  ping_interval=WS_PING_INTERVAL,
-                                 ping_timeout=WS_PING_TIMEOUT)
-            )
+                                 ping_timeout=WS_PING_TIMEOUT,
+                                 origins=ALLOWED_ORIGINS)))
         if self.tunnel is not None:
             # Origine del tunnel: solo loopback, pagina + WS insieme come la
             # 8443. Il TLS lo termina Cloudflare, qui arriva in chiaro.
-            servers.append(
+            servers.append((TUNNEL_PORT,
                 websockets.serve(self._tunnel_handler, "127.0.0.1", TUNNEL_PORT,
                                  ping_interval=WS_PING_INTERVAL,
                                  ping_timeout=WS_PING_TIMEOUT,
-                                 process_request=self.https_process_request)
-            )
+                                 origins=ALLOWED_ORIGINS,
+                                 process_request=self.https_process_request)))
 
         try:
             async with contextlib.AsyncExitStack() as stack:
-                for srv in servers:
-                    await stack.enter_async_context(srv)
-                await asyncio.Future()
-        except OSError:
-            log_message(f"ERRORE CRITICO: Porta {PORT} occupata!", color=COLOR_ERROR)
+                avviati = 0
+                for porta, srv in servers:
+                    # Una porta occupata ferma solo il suo server: prima
+                    # l'OSError smontava anche quelli già avviati e il log
+                    # accusava sempre la 8765.
+                    try:
+                        await stack.enter_async_context(srv)
+                    except OSError as e:
+                        log_message(f"ERRORE CRITICO: Porta {porta} occupata! ({e})",
+                                    color=COLOR_ERROR)
+                        continue
+                    avviati += 1
+                if avviati:
+                    await asyncio.Future()
         except Exception as e:
             log_message(f"WebSocket Server crash: {e}", color=COLOR_ERROR)
         finally:

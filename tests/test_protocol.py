@@ -11,6 +11,8 @@ import pytest
 
 from liquidmouse.net import protocol
 from liquidmouse.net.protocol import (
+    HOTKEY_KEYS_MAX,
+    KEY_TEXT_MAX,
     MOVE_CLAMP,
     PING_MIN_INTERVAL,
     SCROLL_CLAMP,
@@ -186,6 +188,31 @@ class TestInput:
         send(ctx, type="hotkey", keys="ctrl")
         assert visti == []
         send(ctx, type="hotkey", keys=["ctrl", "c"])
+        assert visti == [("ctrl", "c")]
+
+    def test_text_lungo_e_troncato(self, ctx, monkeypatch):
+        visti = []
+        monkeypatch.setattr(protocol, "key_text", lambda t: visti.append(t))
+        send(ctx, type="text", char="x" * (KEY_TEXT_MAX * 50))
+        assert visti == ["x" * KEY_TEXT_MAX]
+
+    def test_text_non_stringa_ignorato(self, ctx, monkeypatch):
+        visti = []
+        monkeypatch.setattr(protocol, "key_text", lambda t: visti.append(t))
+        send(ctx, type="text", char=["a"])
+        send(ctx, type="text", char=5)
+        assert visti == []
+
+    def test_hotkey_con_troppi_tasti_e_limitata(self, ctx, monkeypatch):
+        visti = []
+        monkeypatch.setattr(protocol, "hotkey", lambda *k: visti.append(k))
+        send(ctx, type="hotkey", keys=["ctrl"] * 5000)
+        assert len(visti) == 1 and len(visti[0]) == HOTKEY_KEYS_MAX
+
+    def test_hotkey_scarta_i_token_non_stringa_prima_del_tetto(self, ctx, monkeypatch):
+        visti = []
+        monkeypatch.setattr(protocol, "hotkey", lambda *k: visti.append(k))
+        send(ctx, type="hotkey", keys=[None, 3, {"a": 1}, "ctrl", "c"])
         assert visti == [("ctrl", "c")]
 
 

@@ -20,6 +20,14 @@ class RingBuffer:
         self._buf = bytearray()
         self._start = 0
         self._maxsize = maxsize
+        # Byte scritti in totale dalla creazione: non scende mai, nemmeno quando
+        # il ring scarta o viene svuotato. Permette a chi prende uno snapshot di
+        # chiedere poi solo "cio' che e' arrivato dopo" senza perdere byte.
+        self._total = 0
+
+    @property
+    def total(self) -> int:
+        return self._total
 
     @property
     def maxsize(self) -> int:
@@ -29,6 +37,7 @@ class RingBuffer:
         if not data:
             return
         self._buf += data
+        self._total += len(data)
         excess = len(self._buf) - self._start - self._maxsize
         if excess > 0:
             self._start += excess
@@ -41,6 +50,17 @@ class RingBuffer:
     def snapshot(self) -> bytes:
         """Contenuto corrente, dal piu' vecchio conservato al piu' recente."""
         return bytes(memoryview(self._buf)[self._start:])
+
+    def snapshot_with_offset(self) -> tuple[bytes, int]:
+        """Snapshot e contatore letti insieme (nessun await in mezzo)."""
+        return self.snapshot(), self._total
+
+    def since(self, offset: int) -> bytes:
+        """Byte scritti dopo `offset`; se il ring ne ha gia' scartati, quanto resta."""
+        n = min(self._total - offset, len(self))
+        if n <= 0:
+            return b""
+        return bytes(memoryview(self._buf)[len(self._buf) - n:])
 
     def clear(self) -> None:
         self._buf.clear()

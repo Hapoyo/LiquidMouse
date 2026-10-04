@@ -61,3 +61,14 @@ def resolve_hotkey_vks(keys) -> list[int]:
 def normalize_text(text: str) -> str:
     """Testo pronto per l'invio come scan-code Unicode."""
     return text.translate(SMART_QUOTES)
+
+
+def utf16_units(text: str) -> list[int]:
+    """Unita' UTF-16 del testo, nell'ordine in cui KEYEVENTF_UNICODE le vuole.
+
+    `ord(c)` troncato a 16 bit rompeva ogni carattere fuori dal BMP (emoji):
+    U+1F600 diventava U+F600. SendInput accetta una unita' per volta, quindi
+    la coppia surrogata va mandata come due eventi consecutivi.
+    """
+    raw = text.encode("utf-16-le", errors="surrogatepass")
+    return [int.from_bytes(raw[i:i + 2], "little") for i in range(0, len(raw), 2)]

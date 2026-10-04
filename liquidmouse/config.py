@@ -15,6 +15,7 @@ import os
 import pathlib
 import secrets
 import shutil
+import threading
 
 from liquidmouse.events import log_message
 from liquidmouse.security.auth import hash_pin
@@ -70,6 +71,7 @@ class Config:
         self._migra = path is None
         self.path = path or get_config_path()
         self.data: dict = {}
+        self._lock = threading.RLock()
 
     def load(self) -> dict:
         """Carica la config, generando il PIN se assente. Ritorna `self.data`."""
@@ -102,12 +104,23 @@ class Config:
     def save(self) -> None:
         """Scrive la config. Non solleva: un errore qui non deve impedire
         l'avvio, il PIN resterebbe comunque valido per questa sessione."""
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump(self.data, f, indent=2)
-        except Exception as e:
-            log_message(f"Errore salvataggio config: {e}", color=COLOR_ERROR)
+        # File temporaneo + os.replace: aprire config.json in "w" lo tronca, e
+        # un crash a metà lasciava un file vuoto (PIN dei telefoni perso). Il
+        # lock evita due save concorrenti (loop e executor) sullo stesso
+        # temporaneo e un dict mutato mentre json.dump lo scorre.
+        temporaneo = self.path.with_name(self.path.name + ".tmp")
+        with self._lock:
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                with open(temporaneo, "w", encoding="utf-8") as f:
+                    json.dump(self.data, f, indent=2)
+                os.replace(temporaneo, self.path)
+            except Exception as e:
+                log_message(f"Errore salvataggio config: {e}", color=COLOR_ERROR)
+                try:
+                    temporaneo.unlink()
+                except OSError:
+                    pass
 
     def get(self, key: str, default=None):
         return self.data.get(key, default)

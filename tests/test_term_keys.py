@@ -28,7 +28,8 @@ richiede_node = pytest.mark.skipif(shutil.which("node") is None, reason="node no
 def _contratto() -> str:
     js = APP_JS.read_text(encoding="utf-8")
     assert INIZIO in js and FINE in js, "blocco contratto dei tasti non trovato in app.js"
-    return js[js.index(INIZIO):js.index(FINE)]
+    inizio = js.index(INIZIO)
+    return js[inizio:js.index(FINE, inizio)]
 
 
 def _node(espressione: str):

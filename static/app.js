@@ -195,6 +195,36 @@
         return /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/.test(s);
     }
 
+    // --- TASTIERA: contratto (tests/test_kbd_diff.py) ---
+    // Cosa mandare al PC quando il campo nascosto passa da `prev` a `val`:
+    // si cancella la parte tolta e si scrive la nuova coda, dopo il prefisso
+    // comune. Il confronto per sola lunghezza perdeva le sostituzioni della
+    // correzione automatica ("teh" -> "the"). Si lavora per punti di codice:
+    // un'emoji e' un solo backspace e una coppia surrogata non si spezza.
+    function diffTastiera(prev, val) {
+        const a = Array.from(prev), b = Array.from(val);
+        let i = 0;
+        while (i < a.length && i < b.length && a[i] === b[i]) i++;
+        return { del: a.length - i, add: b.slice(i).join('') };
+    }
+    // --- fine contratto ---
+
+    // --- AUTH: contratto (tests/test_auth_client.py) ---
+    // Dopo un PIN errato o un blocco nessuna riconnessione automatica (timer o
+    // risveglio del telefono) deve rimandare lo stesso PIN: al quinto errore il
+    // server blocca l'IP per 30 minuti. Si riabilita solo da un gesto
+    // dell'utente: "connetti" o la modifica del PIN.
+    function makeAuthGate() {
+        let failed = false;
+        return {
+            fail() { failed = true; },
+            reset() { failed = false; },
+            canAutoReconnect() { return !failed; },
+        };
+    }
+    // --- fine contratto ---
+    const authGate = makeAuthGate();
+
     function connectServer(ip) {
         const _ip = ip.trim();
         if (!_ip) { alert('Inserire un indirizzo IP valido.'); return; }
@@ -287,9 +317,11 @@
                     return;
                 } else if (msg.type === 'auth_fail') {
                     const rem = msg.remaining > 0 ? ` (${msg.remaining} tentativi rimasti)` : '';
+                    authGate.fail();
                     stopWithError(`pin errato${rem}`);
                     return;
                 } else if (msg.type === 'auth_blocked') {
+                    authGate.fail();
                     stopWithError('bloccato — riprova tra 30 min');
                     return;
                 } else if (msg.type === 'pong' && pingTimestamp > 0) {
@@ -388,14 +420,17 @@
         }
     }
 
-    connectBtn.addEventListener('click', () => { reconnectAttempts = 0; connectServer(ipInput.value); });
-    ipInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') { reconnectAttempts = 0; connectServer(ipInput.value); } });
+    connectBtn.addEventListener('click', () => { authGate.reset(); reconnectAttempts = 0; connectServer(ipInput.value); });
+    ipInput.addEventListener('keyup', (e) => { if (e.key === 'Enter') { authGate.reset(); reconnectAttempts = 0; connectServer(ipInput.value); } });
+    // Un PIN corretto a mano è un nuovo tentativo deliberato.
+    pinInput.addEventListener('input', () => authGate.reset());
 
     // Gestisce il risveglio dello smartphone (sleep/wake)
     // Forza sempre la riconnessione: dopo sleep la WebSocket può risultare
-    // OPEN ma essere in realtà morta (stale), quindi chiudiamo e ricreiamo
+    // OPEN ma essere in realtà morta (stale), quindi chiudiamo e ricreiamo.
+    // Non dopo un errore di PIN (authGate): rimanderebbe lo stesso PIN.
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
+        if (document.visibilityState === 'visible' && authGate.canAutoReconnect()) {
             const ipToConnect = ipInput.value || loadIP();
             if (ipToConnect) {
                 reconnectAttempts = 0;
@@ -764,17 +799,17 @@
     hiddenInput.addEventListener('input', (e) => {
         if (!ws || ws.readyState !== WebSocket.OPEN) return;
         const val = hiddenInput.value;
-        if (val.length > previousValue.length) {
-            const added = val.substring(previousValue.length);
-            ws.send(JSON.stringify({ type: 'text', char: added })); updateTextDisplay(added);
-        } else if (val.length < previousValue.length) {
-            const del = previousValue.length - val.length;
+        const { del, add } = diffTastiera(previousValue, val);
+        if (del > 0) {
             // Un solo messaggio con il conteggio, non uno per carattere.
             // Prima il server scartava tutti i backspace successivi al
             // primo per via del debounce anti-autorepeat da 80ms: cancellare
             // cinque caratteri ne cancellava uno solo.
             ws.send(JSON.stringify({ type: 'key', key: 'backspace', count: del }));
             updateTextDisplay('⌫'.repeat(Math.min(del, 8)));
+        }
+        if (add) {
+            ws.send(JSON.stringify({ type: 'text', char: add })); updateTextDisplay(add);
         }
         previousValue = val;
     });
@@ -1080,13 +1115,14 @@
     termKbdInput.addEventListener('input', () => {
         if (!ws || ws.readyState !== WebSocket.OPEN || !termSessionId) return;
         const val = termKbdInput.value;
-        if (val.length > termKbdPrev.length) {
-            const added = val.substring(termKbdPrev.length);
+        const { del, add } = diffTastiera(termKbdPrev, val);
+        // '' come nel keydown di Backspace e nei test dei tasti: non si
+        // passa a 0x7f senza provare cmd e PowerShell su Windows.
+        if (del > 0) termSend(''.repeat(del));
+        if (add) {
             // Un solo carattere dopo ctrl/alt della barra: ctrl+r, alt+f...
             // Un blocco più lungo (incolla, suggerimento) passa così com'è.
-            termSend(added.length === 1 ? withMods(added, null, consumeTermMods()) : added);
-        } else if (val.length < termKbdPrev.length) {
-            termSend('\b'.repeat(termKbdPrev.length - val.length));
+            termSend(add.length === 1 && del === 0 ? withMods(add, null, consumeTermMods()) : add);
         }
         termKbdPrev = val;
     });

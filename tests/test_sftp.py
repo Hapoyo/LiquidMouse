@@ -71,9 +71,23 @@ class TestProfili:
 
     def test_password_vuota_conserva_quella_salvata(self, mgr, config):
         prima = config.data["sftp_profiles"][0]["secret"]
-        mgr.save_profile("pc", "127.0.0.1", 22, "altro", "")
+        mgr.save_profile("pc", "127.0.0.1", 22, "jack", "")
         assert config.data["sftp_profiles"][0]["secret"] == prima
-        assert config.data["sftp_profiles"][0]["user"] == "altro"
+
+    @pytest.mark.parametrize("host, porta, utente", [
+        ("10.0.0.5", 22, "jack"), ("127.0.0.1", 2222, "jack"), ("127.0.0.1", 22, "altro"),
+    ])
+    def test_cambiando_destinazione_senza_password_il_segreto_si_azzera(
+            self, mgr, config, host, porta, utente):
+        # Altrimenti la password salvata per un host verrebbe presentata a un
+        # altro (un client potrebbe farla recapitare a un server che controlla).
+        mgr.save_profile("pc", host, porta, utente, "")
+        assert config.data["sftp_profiles"][0]["secret"] == ""
+        assert mgr.list_profiles()[0]["has_password"] is False
+
+    def test_cambiando_destinazione_con_nuova_password_la_salva(self, mgr, config):
+        mgr.save_profile("pc", "10.0.0.5", 22, "jack", "nuova")
+        assert config.data["sftp_profiles"][0]["secret"] == FakeProtector().protect("nuova")
 
     def test_senza_cifratura_rifiuta_di_salvare_una_password(self, config):
         m = SftpManager(config, protector=None)
@@ -203,3 +217,36 @@ class TestOperazioni:
         assert client.files["/home/nuovo.bin"] == b"12345"
         assert mgr.exists(1, "/home/nuovo.bin")
         assert not mgr.exists(1, "/home/no")
+
+
+class TestScritturaAtomica:
+    """L'upload scrive su `nome.part` e rinomina alla fine: un telefono che cade
+    a metà non lascia più un file troncato al posto dell'originale."""
+
+    @pytest.fixture(autouse=True)
+    def _collegato(self, mgr):
+        mgr.connect(1, "pc")
+
+    def test_il_file_compare_solo_alla_chiusura(self, mgr, client):
+        fh = mgr.open_write(1, "/home/nuovo.bin")
+        fh.write(b"123")
+        assert "/home/nuovo.bin" not in client.files
+        fh.close()
+        assert client.files["/home/nuovo.bin"] == b"123"
+        assert "/home/nuovo.bin.part" not in client.files
+
+    def test_sovrascrive_un_file_esistente_alla_chiusura(self, mgr, client):
+        fh = mgr.open_write(1, "/home/a.txt")
+        fh.write(b"nuovo")
+        assert client.files["/home/a.txt"] == b"ciao"   # intatto fino alla fine
+        fh.close()
+        assert client.files["/home/a.txt"] == b"nuovo"
+        assert "/home/a.txt.part" not in client.files
+
+    def test_abort_lascia_l_originale_e_toglie_il_parziale(self, mgr, client):
+        fh = mgr.open_write(1, "/home/a.txt")
+        fh.write(b"meta")
+        fh.abort()
+        assert client.files["/home/a.txt"] == b"ciao"
+        assert "/home/a.txt.part" not in client.files
+        fh.abort()   # idempotente

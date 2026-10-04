@@ -5,6 +5,7 @@ from liquidmouse.input.keymap import (
     normalize_text,
     resolve_hotkey_vks,
     resolve_vk,
+    utf16_units,
 )
 
 
@@ -78,3 +79,17 @@ class TestNormalizeText:
 
     def test_empty(self):
         assert normalize_text("") == ""
+
+
+class TestUtf16Units:
+    def test_bmp_resta_invariato(self):
+        assert utf16_units("aè€") == [0x61, 0xE8, 0x20AC]
+
+    def test_fuori_dal_bmp_diventa_coppia_surrogata(self):
+        assert utf16_units("😀") == [0xD83D, 0xDE00]
+
+    def test_misto_mantiene_l_ordine(self):
+        assert utf16_units("a😀b") == [0x61, 0xD83D, 0xDE00, 0x62]
+
+    def test_vuoto(self):
+        assert utf16_units("") == []

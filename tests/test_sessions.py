@@ -126,3 +126,139 @@ class TestChiusuraDallElenco:
         assert finto.closed >= 1
         # Il client riceve l'elenco aggiornato, senza la sessione chiusa.
         assert any('"term_sessions"' in p and session.id not in p for p in ws.inviati if isinstance(p, str))
+
+
+class _PtyViva(FintoPty):
+    """PTY che resta in vita (nessun output) finché non viene chiuso."""
+
+    def __init__(self):
+        super().__init__([])
+
+    def read(self, size):
+        if self.closed:
+            raise EOFError("chiuso")
+        return b""
+
+    def isalive(self):
+        return not self.closed
+
+
+class TestTettoSessioni:
+    def test_oltre_il_massimo_create_rifiuta(self, monkeypatch):
+        monkeypatch.setattr(sessions_mod, "make_pty", lambda argv, cwd: _PtyViva())
+        monkeypatch.setattr(sessions_mod, "resolve_argv", lambda cmd: [cmd])
+
+        async def scenario():
+            manager = SessionManager()
+            for _ in range(sessions_mod.MAX_SESSIONS):
+                manager.create("cmd.exe")
+            with pytest.raises(RuntimeError, match="troppe sessioni"):
+                manager.create("cmd.exe")
+            n = len(manager.list_sessions())
+            for s in manager.list_sessions():
+                manager.kill(s["id"])
+            return n
+
+        assert asyncio.run(scenario()) == sessions_mod.MAX_SESSIONS
+
+    def test_chiusa_una_sessione_se_ne_puo_creare_un_altra(self, monkeypatch):
+        monkeypatch.setattr(sessions_mod, "make_pty", lambda argv, cwd: _PtyViva())
+        monkeypatch.setattr(sessions_mod, "resolve_argv", lambda cmd: [cmd])
+
+        async def scenario():
+            manager = SessionManager()
+            create = [manager.create("cmd.exe") for _ in range(sessions_mod.MAX_SESSIONS)]
+            manager.kill(create[0].id)
+            manager.create("cmd.exe")      # non solleva
+            n = len(manager.list_sessions())
+            for s in manager.list_sessions():
+                manager.kill(s["id"])
+            return n
+
+        assert asyncio.run(scenario()) == sessions_mod.MAX_SESSIONS
+
+    def test_term_create_riporta_l_errore_al_client(self, monkeypatch):
+        from liquidmouse.net.protocol import ClientConnection, dispatch
+        monkeypatch.setattr(sessions_mod, "make_pty", lambda argv, cwd: _PtyViva())
+        monkeypatch.setattr(sessions_mod, "resolve_argv", lambda cmd: [cmd])
+
+        async def scenario():
+            manager = SessionManager()
+            for _ in range(sessions_mod.MAX_SESSIONS):
+                manager.create("cmd.exe")
+            ws = FintoWs()
+            await dispatch(ClientConnection(ws, "192.168.1.30", manager), '{"type":"term_create"}')
+            for s in manager.list_sessions():
+                manager.kill(s["id"])
+            return ws
+
+        ws = asyncio.run(scenario())
+        assert any('"term_error"' in p and "troppe sessioni" in p for p in ws.inviati)
+
+
+class _WsLento(FintoWs):
+    """ws la cui prima send resta sospesa finché il test non la sblocca."""
+
+    def __init__(self):
+        super().__init__()
+        self.sblocca = asyncio.Event()
+        self.in_invio = asyncio.Event()
+        self._prima = True
+
+    async def send(self, payload):
+        if self._prima:
+            self._prima = False
+            self.in_invio.set()
+            await self.sblocca.wait()
+        await super().send(payload)
+
+
+def _payload_output(ws):
+    from liquidmouse.net.frames import decode_term_output
+    return b"".join(decode_term_output(p)[1] for p in ws.inviati if isinstance(p, bytes))
+
+
+class TestAttachSenzaRace:
+    def _manager_con_sessione(self, monkeypatch):
+        monkeypatch.setattr(sessions_mod, "make_pty", lambda argv, cwd: _PtyViva())
+        monkeypatch.setattr(sessions_mod, "resolve_argv", lambda cmd: [cmd])
+        manager = SessionManager()
+        return manager, manager.create("cmd.exe")
+
+    def test_output_durante_lo_snapshot_non_si_perde_ne_si_duplica(self, monkeypatch):
+        async def scenario():
+            manager, session = self._manager_con_sessione(monkeypatch)
+            session.output.append(b"vecchio ")
+            ws = _WsLento()
+            task = asyncio.create_task(manager.attach(session.id, ws))
+            await ws.in_invio.wait()
+            # Output arrivato mentre lo snapshot e' ancora in volo.
+            session.output.append(b"nuovo1 ")
+            await manager._broadcast_output(session, b"nuovo1 ")
+            ws.sblocca.set()
+            await task
+            # Dopo l'attach l'output live passa normalmente.
+            session.output.append(b"live")
+            await manager._broadcast_output(session, b"live")
+            manager.kill(session.id)
+            return ws
+
+        ws = asyncio.run(scenario())
+        assert _payload_output(ws) == b"vecchio nuovo1 live"
+
+    def test_client_lento_non_blocca_l_attach_degli_altri(self, monkeypatch):
+        async def scenario():
+            manager, session = self._manager_con_sessione(monkeypatch)
+            session.output.append(b"x")
+            lento = _WsLento()
+            veloce = FintoWs()
+            t1 = asyncio.create_task(manager.attach(session.id, lento))
+            await lento.in_invio.wait()
+            await asyncio.wait_for(manager.attach(session.id, veloce), 1)
+            lento.sblocca.set()
+            await t1
+            manager.kill(session.id)
+            return veloce
+
+        veloce = asyncio.run(scenario())
+        assert _payload_output(veloce) == b"x"
