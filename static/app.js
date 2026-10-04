@@ -20,11 +20,72 @@
     let ws = null;
     let pingInterval = null;   // a scope modulo: pulito da closeWS() (no leak)
 
+    // --- MOTION: animazioni (motion.dev, static/vendor/motion.js) ---
+    // Solo abbellimento. Se motion.js non si carica o il sistema chiede meno
+    // movimento, anima() non fa nulla e ritorna null: la pagina resta
+    // identica, e senza Motion tornano le animazioni CSS di riserva (app.css,
+    // html:not(.motion)). Mai sul percorso del touchpad: lì ogni millisecondo
+    // è latenza del cursore. Unico punto che tocca il global `Motion`.
+    const MotionLib = (window.Motion && typeof window.Motion.animate === 'function')
+        ? window.Motion : null;
+    const menoMovimento = window.matchMedia
+        ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+    if (MotionLib) document.documentElement.classList.add('motion');
+
+    // Due tempi per tutto il client: una molla corta per ciò che entra, una
+    // curva rapida per dissolvenze e uscite. Sotto i 300 ms: niente attese.
+    const MOLLA = { type: 'spring', bounce: 0.2, visualDuration: 0.26 };
+    const RAPIDA = { duration: 0.18, ease: [0.22, 1, 0.36, 1] };
+    const SCAGLIONI_MAX = 12;   // oltre, gli elementi compaiono senza attesa
+
+    function anima(el, keyframes, opzioni) {
+        if (!MotionLib || menoMovimento.matches || !el) return null;
+        if (el.length === 0) return null;
+        try { return MotionLib.animate(el, keyframes, opzioni); } catch (_) { return null; }
+    }
+    // Ingresso scaglionato dei figli di un elenco appena ridisegnato.
+    function animaElenco(contenitore) {
+        if (!MotionLib) return null;
+        const figli = Array.from(contenitore.children).slice(0, SCAGLIONI_MAX);
+        return anima(figli, { opacity: [0, 1], y: [8, 0] },
+                     { ...MOLLA, delay: MotionLib.stagger(0.03) });
+    }
+    // Dopo un'animazione mancata (Motion assente, meno movimento attivato a
+    // metà) gli stili inline lasciati da quella precedente vanno tolti, o un
+    // pannello resterebbe trasparente.
+    function pulisciStile(el) { el.style.opacity = ''; el.style.transform = ''; }
+
+    // Pressione: il pannello si abbassa sotto il dito e torna con una molla.
+    // Delegato su document e solo su pointerdown/up, mai su pointermove; il
+    // touchpad non è nell'elenco.
+    const PREMIBILI = '.menu-btn-item, #btn-menu, .tkey, .session-card-btn, ' +
+        '.session-card-close, .fbtn, #term-back, #files-back, .config-btn';
+    let premuto = null;
+    function rilascia() {
+        if (premuto) anima(premuto, { scale: 1 }, { type: 'spring', bounce: 0.45, visualDuration: 0.2 });
+        premuto = null;
+    }
+    if (MotionLib) {
+        document.addEventListener('pointerdown', (e) => {
+            const el = e.target.closest && e.target.closest(PREMIBILI);
+            if (!el) return;
+            premuto = el;
+            anima(el, { scale: 0.95 }, { duration: 0.08, ease: 'easeOut' });
+        }, { passive: true });
+        ['pointerup', 'pointercancel'].forEach(tipo =>
+            document.addEventListener(tipo, rilascia, { passive: true }));
+    }
+
     // Colore della riga di stato: una classe CSS (ok / warn / err) invece di un
-    // colore scritto qui, così la palette resta solo in app.css.
+    // colore scritto qui, così la palette resta solo in app.css. Si anima solo
+    // al cambio di tipo, non a ogni pong (uno ogni 5 s).
     function setStatus(text, kind) {
+        const prima = statusDiv.className;
         statusDiv.textContent = text;
         statusDiv.className = kind || '';
+        if (statusDiv.className === prima) return;
+        if (kind === 'err') anima(statusDiv, { x: [0, -5, 5, -3, 0], opacity: [0.4, 1] }, { duration: 0.34 });
+        else anima(statusDiv, { opacity: [0.35, 1] }, { duration: 0.3 });
     }
 
     function loadPIN() { return localStorage.getItem('liquidMousePIN') || ''; }
@@ -79,12 +140,20 @@
         // La sessione terminal resta attaccata al cambio tab: xterm conserva
         // lo stato e il server continua a inviare output. Niente detach qui
         // (era la causa della duplicazione: re-attach → replay del ring).
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
         const content = document.getElementById('content-' + name);
         const btn = document.getElementById('tab-' + name);
+        const giaAperta = btn && btn.classList.contains('active');
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
         if (content) content.classList.add('active');
         if (btn) btn.classList.add('active');
+        if (!giaAperta) {
+            // Solo opacità sulla cartella: una trasformazione la renderebbe il
+            // riferimento dei figli position:fixed (menu, configurazione,
+            // input della tastiera), che durante l'animazione si sposterebbero.
+            anima(content, { opacity: [0, 1] }, RAPIDA);
+            if (btn) anima(btn.querySelectorAll('.tab-num, .tab-name'), { y: [3, 0] }, MOLLA);
+        }
         document.body.classList.toggle('term-open', name === 'terminal');
         if (name === 'terminal') onTerminalTabOpen();
         if (name === 'files') onFilesTabOpen();
@@ -295,7 +364,15 @@
         closeWS();
         resetLocks();
         setStatus(text, 'err');
+        mostraConfig();
+    }
+
+    function mostraConfig() {
+        if (!configPanel.classList.contains('hidden')) return;
         configPanel.classList.remove('hidden');
+        const contenuto = configPanel.querySelector('.config-content');
+        anima(configPanel, { opacity: [0, 1] }, RAPIDA);
+        if (!anima(contenuto, { opacity: [0, 1], y: [14, 0] }, MOLLA)) pulisciStile(contenuto);
     }
 
     function handleDisconnect(ip) {
@@ -307,7 +384,7 @@
             setTimeout(() => connectServer(ip), delay);
         } else {
             setStatus('disconnesso', 'err');
-            configPanel.classList.remove('hidden');
+            mostraConfig();
         }
     }
 
@@ -367,7 +444,7 @@
                 ipInput.value = shouldConnectIP;
                 connectServer(shouldConnectIP);
             } else {
-                configPanel.classList.remove('hidden');
+                mostraConfig();
             }
         }, 300); // Ritardo essenziale per iOS/Android QR Scanner
     });
@@ -556,11 +633,27 @@
         if (active) el.classList.add('lock-active'); else el.classList.remove('lock-active');
     }
 
-    btnMenu.addEventListener('click', () => menuOverlay.classList.add('visible'));
+    // Con Motion l'opacità del velo è inline e la classe .visible decide solo
+    // se riceve i tocchi: così si chiude subito al tatto ma sfuma a vista.
+    function openMenu() {
+        if (menuOverlay.classList.contains('visible')) return;
+        menuOverlay.classList.add('visible');
+        if (!anima(menuOverlay, { opacity: [0, 1] }, RAPIDA)) { pulisciStile(menuOverlay); return; }
+        anima(menuOverlay.querySelectorAll('.menu-btn-item'),
+              { opacity: [0, 1], scale: [0.92, 1], y: [10, 0] },
+              { ...MOLLA, delay: MotionLib.stagger(0.018) });
+        anima(menuOverlay.querySelector('.sens-box'), { opacity: [0, 1], y: [8, 0] },
+              { ...MOLLA, delay: 0.12 });
+    }
+    function closeMenu() {
+        if (!menuOverlay.classList.contains('visible')) return;
+        menuOverlay.classList.remove('visible');
+        if (!anima(menuOverlay, { opacity: 0 }, { duration: 0.14, ease: 'easeIn' })) pulisciStile(menuOverlay);
+    }
+    btnMenu.addEventListener('click', openMenu);
     menuOverlay.addEventListener('click', (e) => {
-        if (e.target === menuOverlay) menuOverlay.classList.remove('visible');
+        if (e.target === menuOverlay) closeMenu();
     });
-    function closeMenu() { menuOverlay.classList.remove('visible'); }
 
     // Helper: registra touchend (no 300ms delay iOS) con fallback click per mouse/desktop.
     // e.preventDefault() su touchend impedisce il click sintetico successivo.
@@ -635,12 +728,31 @@
     let displayedText = ''; let displayTimeout;
     let previousValue = '';
 
+    let testoUscita = null;   // animazione di chiusura in corso, interrompibile
+
     function updateTextDisplay(char) {
         displayedText = (char.length > 1) ? char : (char === '⌫' ? displayedText.slice(0, -1) : (char === '↵' ? displayedText + '\n' : displayedText + char));
         textDisplay.textContent = displayedText;
+        // Un carattere che arriva mentre il pannello sfuma lo riporta su
+        // senza farlo rientrare da capo.
+        const entra = !textDisplay.classList.contains('active');
+        if (testoUscita) { testoUscita.stop(); testoUscita = null; pulisciStile(textDisplay); }
         textDisplay.classList.add('active');
+        if (entra && !anima(textDisplay, { opacity: [0, 1], y: [-8, 0] }, MOLLA)) pulisciStile(textDisplay);
         clearTimeout(displayTimeout);
-        displayTimeout = setTimeout(() => { textDisplay.classList.remove('active'); displayedText = ''; }, 3000);
+        displayTimeout = setTimeout(nascondiTesto, 3000);
+    }
+    function nascondiTesto() {
+        const chiudi = () => {
+            testoUscita = null;
+            textDisplay.classList.remove('active');
+            pulisciStile(textDisplay);
+            displayedText = '';
+        };
+        const a = anima(textDisplay, { opacity: 0, y: -6 }, { duration: 0.16, ease: 'easeIn' });
+        if (!a) { chiudi(); return; }
+        testoUscita = a;
+        a.then(() => { if (testoUscita === a) chiudi(); });
     }
 
     addMenuTap('btn-keyboard', () => {
@@ -848,10 +960,16 @@
         }
     }
 
+    function mostraBanner(banner) {
+        const entra = !banner.classList.contains('visible');
+        banner.classList.add('visible');
+        if (entra && !anima(banner, { opacity: [0, 1], y: [-6, 0] }, MOLLA)) pulisciStile(banner);
+    }
+
     function showTermError(msg) {
         const banner = document.getElementById('term-error-banner');
         banner.textContent = msg;
-        banner.classList.add('visible');
+        mostraBanner(banner);
         setTimeout(() => banner.classList.remove('visible'), 5000);
     }
 
@@ -1034,6 +1152,7 @@
                 if (!closeBtn.classList.contains('confirm')) {
                     closeBtn.classList.add('confirm');
                     closeBtn.textContent = 'chiudi?';
+                    anima(closeBtn, { scale: [0.88, 1] }, MOLLA);
                     annulla = setTimeout(() => {
                         closeBtn.classList.remove('confirm');
                         closeBtn.textContent = '×';
@@ -1043,6 +1162,8 @@
                 clearTimeout(annulla);
                 if (!ws || ws.readyState !== WebSocket.OPEN) return;
                 closeBtn.disabled = true;
+                // In attesa che il PC confermi: la scheda sbiadisce.
+                anima(card, { opacity: 0.45 }, RAPIDA);
                 chiuseDaQui.add(s.id);
                 ws.send(JSON.stringify({type: 'term_kill', id: s.id}));
             });
@@ -1068,6 +1189,7 @@
             ws.send(JSON.stringify({type: 'term_create', cmd: 'cmd.exe'}));
         });
         list.appendChild(newCard);
+        animaElenco(list);
     }
 
     // "‹ sessioni": torna all'elenco senza chiudere né sganciare la sessione,
@@ -1083,8 +1205,14 @@
     function attachSession(sid) {
         document.getElementById('term-title').textContent = `${termSessionCmd || 'sessione'} · ${sid}`;
         document.getElementById('session-picker').style.display = 'none';
-        document.getElementById('terminal-active').classList.add('visible');
-        document.getElementById('tab-terminal-dot').style.display = 'block';
+        const attivo = document.getElementById('terminal-active');
+        const dot = document.getElementById('tab-terminal-dot');
+        // Solo opacità: dentro c'è #term-kbd-input, fixed (vedi switchTab).
+        if (!attivo.classList.contains('visible')) anima(attivo, { opacity: [0, 1] }, RAPIDA);
+        attivo.classList.add('visible');
+        if (dot.style.display === 'none')
+            anima(dot, { scale: [0, 1] }, { type: 'spring', bounce: 0.5, visualDuration: 0.3 });
+        dot.style.display = 'block';
         // Il server, su term_attach, re-invia l'intero ring buffer. Azzeriamo
         // xterm PRIMA del replay così lo schermo si ricostruisce senza
         // duplicare l'output (causa storica del "terminal che non si aggiorna").
@@ -1143,13 +1271,15 @@
     }
     function filesError(text) {
         filesEl.banner.textContent = text;
-        filesEl.banner.classList.add('visible');
+        mostraBanner(filesEl.banner);
         clearTimeout(filesError.t);
         filesError.t = setTimeout(() => filesEl.banner.classList.remove('visible'), 6000);
     }
     function filesShow(browser) {
+        const cambia = filesEl.browser.classList.contains('visible') !== browser;
         filesEl.browser.classList.toggle('visible', browser);
         filesEl.profiles.style.display = browser ? 'none' : '';
+        if (cambia) anima(browser ? filesEl.browser : filesEl.profiles, { opacity: [0, 1] }, RAPIDA);
     }
     function filesReset() {
         filesConnected = false;
@@ -1170,9 +1300,16 @@
         let timer = null;
         b.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (b.classList.contains('confirm')) { clearTimeout(timer); action(); return; }
+            if (b.classList.contains('confirm')) {
+                clearTimeout(timer);
+                const riga = b.closest('.session-card');
+                if (riga) anima(riga, { opacity: 0.45 }, RAPIDA);
+                action();
+                return;
+            }
             b.classList.add('confirm');
             b.textContent = 'sicuro?';
+            anima(b, { scale: [0.88, 1] }, MOLLA);
             timer = setTimeout(() => { b.classList.remove('confirm'); b.textContent = label; }, 3000);
         });
         return b;
@@ -1207,6 +1344,7 @@
             card.append(label, actions);
             filesEl.profileList.append(card);
         });
+        animaElenco(filesEl.profileList);
     }
 
     // "2 attive", "1 salvato": il conteggio a destra dei titoli (vuoto se zero).
@@ -1295,6 +1433,8 @@
             e.className = 'file-empty'; e.textContent = 'elenco troncato';
             filesEl.list.append(e);
         }
+        filesEl.list.scrollTop = 0;
+        animaElenco(filesEl.list);
     }
 
     function startDownload(msg) {

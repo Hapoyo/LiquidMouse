@@ -391,6 +391,11 @@ html:not(.motion) #text-display.active { animation: slideDown 0.2s ease-out; }
     transform: translateY(0);
     opacity: 1;
 }
+/* Con Motion il velo e i tasti li anima openMenu()/closeMenu() (app.js):
+   le transizioni CSS si fermano, se no le due animazioni si sommano. */
+html.motion #menu-overlay,
+html.motion .arrow-grid { transition: none; }
+html.motion .arrow-grid { transform: none; opacity: 1; }
 .menu-btn-item {
     aspect-ratio: 1;
     background: var(--panel);
@@ -400,7 +405,7 @@ html:not(.motion) #text-display.active { animation: slideDown 0.2s ease-out; }
     text-align: center;
     cursor: pointer;
 }
-.menu-btn-item:active { transform: scale(0.95); }
+html:not(.motion) .menu-btn-item:active { transform: scale(0.95); }
 .menu-btn-item svg { width: 24px; height: 24px; }
 .menu-btn-item .key {
     font-family: var(--font-num);
@@ -553,6 +558,7 @@ html:not(.motion) #text-display.active { animation: slideDown 0.2s ease-out; }
     background:
         linear-gradient(var(--amber), var(--amber)) left bottom / var(--p) 2px no-repeat,
         linear-gradient(var(--line), var(--line)) left bottom / 100% 2px no-repeat;
+    transition: background-size 0.2s ease-out;
 }
 #files-progress:empty { display: none; }
 #files-list {
@@ -792,8 +798,13 @@ body.kbd-open.term-open #content-terminal {
 }
 body.kbd-open #bottom-bar { padding-bottom: 6px; }
 
+/* Stessa specificità delle regole di riserva (html:not(.motion) ...), se no
+   queste vincerebbero. Le animazioni di Motion le spegne anima() in app.js. */
 @media (prefers-reduced-motion: reduce) {
     #status::after { animation: none; }
-    .tab-content.active, #text-display.active { animation: none; }
-    #menu-overlay, .arrow-grid { transition: none; }
+    html:not(.motion) .tab-content.active,
+    html:not(.motion) #text-display.active { animation: none; }
+    #menu-overlay, .arrow-grid, #files-progress { transition: none; }
+    html:not(.motion) .fluid-pressed,
+    html:not(.motion) .menu-btn-item:active { transform: none; }
 }
