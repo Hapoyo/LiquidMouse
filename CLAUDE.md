@@ -29,7 +29,9 @@ liquidmouse/
                          font privati). Unico pacchetto che importa tkinter/pystray/PIL/qrcode
 static/                  index.html, app.css, app.js, icon.ico
 static/fonts/            Space Grotesk Medium, Space Mono (sottoinsieme latino) + OFL
-static/vendor/           xterm.js, xterm.css: non modificare
+static/vendor/           xterm.js, xterm.css, motion.js (Motion 14.0.0 UMD, global `Motion`)
+                         + LICENSE-motion.txt: non modificare; per aggiornare Motion
+                         copiare `dist/motion.js` del pacchetto npm `motion`
 tests/                   pytest, girano su Linux senza Windows né schermo
 tools/anteprime.py       rigenera le immagini di docs/img (client in Chromium, finestra Tk
                          sotto Xvfb, dati dimostrativi e WebSocket finto)
@@ -45,10 +47,14 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 
 ## 3. Comandi
 - Test: `pip install pytest websockets && python -m pytest` (node serve ai test dei contratti JS)
+  Su Windows: `PYTHONUTF8=1 py -3.13 -m pytest` (senza, l'output UTF-8 di node letto in cp1252
+  fa fallire test_files_client_contract sui nomi accentati)
 - Core senza GUI: i moduli elencati in `.github/workflows/test.yml` devono importarsi su Linux
 - Avvio da sorgente (Windows): `py -3.13 -m pip install websockets pystray Pillow qrcode cryptography pywinpty miniupnpc paramiko` poi `py -3.13 server.pyw`
 - Smoke test (Windows, server avviato): `py -3.13 test_server.py`
 - Anteprime del README: `xvfb-run -s "-screen 0 1920x1080x24 -dpi 192" python tools/anteprime.py`
+  (su Windows funziona `--solo client`, con `PYTHONUTF8=1`; Motion non segue `page.clock`,
+  quindi le pagine emulano prefers-reduced-motion e mostrano gli stati finali)
   (servono playwright, Pillow, qrcode e tkinter; qui tkinter c'è solo in `/usr/bin/python3.12`
   dopo `apt install python3-tk`). Rigenerarle quando cambia l'aspetto di client o finestra.
 - Build locale: `py -3.13 build.py` (`--pre` archivia una candidate in pre-release/)
@@ -84,6 +90,11 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Client: app.js è uno script classico (non modulo: gli onclick inline vogliono globali),
   caricato con defer. Colori della riga di stato via classi (`setStatus(text, kind)`).
 - Valori dal client = non fidati: passare da `clamp_int` e dalle whitelist.
+- Animazioni del client: solo tramite `anima()` in app.js (unico punto che legge
+  `window.Motion`; null se Motion manca o con prefers-reduced-motion). Senza Motion
+  valgono le riserve CSS `html:not(.motion) ...`. Mai animazioni sul percorso del
+  touchpad; sulla cartella (`.tab-content`) e su `#terminal-active` solo opacità: una
+  trasformazione sposterebbe i figli `position: fixed` (tests/test_motion_client.py).
 
 ## 6. Elenchi da tenere allineati (i test li controllano)
 | Cosa | Dove |
