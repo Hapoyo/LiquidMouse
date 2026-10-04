@@ -14,6 +14,7 @@ import time
 from collections.abc import Awaitable, Callable
 
 from liquidmouse.events import log_message
+from liquidmouse.executors import SFTP
 from liquidmouse.input.win32 import (
     hotkey, key_down, key_press, key_text, key_up,
     mouse_button, mouse_click, mouse_move, mouse_scroll,
@@ -295,7 +296,7 @@ async def _sftp(ctx: ClientConnection, fn, *args):
         await ctx.send_json({"type": "sftp_error", "msg": "file manager non disponibile"})
         return None
     try:
-        return await asyncio.get_running_loop().run_in_executor(None, fn, *args)
+        return await asyncio.get_running_loop().run_in_executor(SFTP, fn, *args)
     except SftpError as e:
         await ctx.send_json({"type": "sftp_error", "msg": str(e), "code": e.code})
     return None

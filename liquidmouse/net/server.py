@@ -25,6 +25,7 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response
 
 from liquidmouse.events import log_message
+from liquidmouse.executors import NET, SFTP
 from liquidmouse.net.addresses import is_loopback, is_private_ip
 from liquidmouse.net.protocol import ClientConnection, dispatch
 from liquidmouse.net.sftp import CHUNK, SftpError
@@ -429,7 +430,7 @@ class NetworkServices:
             return connection.respond(HTTPStatus.FORBIDDEN, "Forbidden\n")
         try:
             corpo, nome = await asyncio.get_running_loop().run_in_executor(
-                None, self._read_download, ticket)
+                SFTP, self._read_download, ticket)
         except SftpError as e:
             return connection.respond(HTTPStatus.GONE, f"{e}\n")
         headers = download_headers(nome, len(corpo)) + [("Connection", "close")]
@@ -597,7 +598,7 @@ class NetworkServices:
             log_message(f"WebSocket Server crash: {e}", color=COLOR_ERROR)
         finally:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self.upnp.cleanup)
+            await loop.run_in_executor(NET, self.upnp.cleanup)
             if self.tunnel is not None:
                 self.tunnel.stop()
 

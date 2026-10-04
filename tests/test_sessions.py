@@ -58,6 +58,7 @@ async def _esegui_fino_all_uscita(manager, ws):
         await asyncio.sleep(0.01)
         if not session.alive:
             break
+    await asyncio.sleep(0.05)       # i task di invio consegnano l'ultimo frame
     return session
 
 
@@ -240,6 +241,7 @@ class TestAttachSenzaRace:
             # Dopo l'attach l'output live passa normalmente.
             session.output.append(b"live")
             await manager._broadcast_output(session, b"live")
+            await asyncio.sleep(0.02)        # il task di invio del viewer smaltisce la coda
             manager.kill(session.id)
             return ws
 

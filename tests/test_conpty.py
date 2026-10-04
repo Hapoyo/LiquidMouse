@@ -179,6 +179,46 @@ class TestSenzaDuplicato:
         _nessun_doppione(k32)
 
 
+class TestScrittura:
+    def test_la_scrittura_parziale_viene_completata(self, k32):
+        scritti = []
+
+        def write_file(h, data, size, p_n, ov):
+            n = min(3, size)            # la pipe accetta al massimo 3 byte per volta
+            scritti.append(bytes(data[:n]))
+            p_n._obj.value = n
+            return 1
+
+        k32.WriteFile = write_file
+        pty = conpty.ConPTY(["cmd.exe"], cwd=".")
+        pty.write("abcdefgh")
+        assert b"".join(scritti) == b"abcdefgh"
+        assert len(scritti) == 3
+
+    def test_errore_di_scrittura_viene_sollevato(self, k32):
+        k32.WriteFile = lambda *a: 0
+        k32.GetLastError = lambda: 232
+        pty = conpty.ConPTY(["cmd.exe"], cwd=".")
+        with pytest.raises(OSError, match="232"):
+            pty.write("x")
+
+    def test_zero_byte_scritti_non_gira_all_infinito(self, k32):
+        def write_file(h, data, size, p_n, ov):
+            p_n._obj.value = 0
+            return 1
+
+        k32.WriteFile = write_file
+        pty = conpty.ConPTY(["cmd.exe"], cwd=".")
+        with pytest.raises(OSError):
+            pty.write("x")
+
+    def test_dopo_la_chiusura_non_scrive(self, k32):
+        pty = conpty.ConPTY(["cmd.exe"], cwd=".")
+        pty.close()
+        with pytest.raises(OSError, match="chiuso"):
+            pty.write("x")
+
+
 def test_il_modulo_non_usa_windll_fuori_da_windows():
     # Il modulo si importa in CI su Linux: l'unico accesso a windll resta
     # quello protetto dal controllo di piattaforma.

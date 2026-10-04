@@ -206,8 +206,19 @@ class ConPTY:
     def write(self, data) -> None:
         if isinstance(data, str):
             data = data.encode("utf-8", errors="replace")
-        n = _wt.DWORD(0)
-        _k32.WriteFile(self._stdin_w, data, len(data), ctypes.byref(n), None)
+        # WriteFile può scrivere meno di quanto chiesto (pipe quasi piena): il
+        # resto va riprovato, altrimenti si perdono tasti in mezzo a un incolla.
+        # Gli errori salgono: prima erano ignorati e l'input spariva in silenzio.
+        while data:
+            h = self._stdin_w
+            if not h:
+                raise OSError("ConPTY chiuso")
+            n = _wt.DWORD(0)
+            if not _k32.WriteFile(h, data, len(data), ctypes.byref(n), None):
+                raise OSError(f"WriteFile err {_k32.GetLastError()}")
+            if n.value == 0:
+                raise OSError("WriteFile non ha scritto nulla")
+            data = data[n.value:]
 
     def isalive(self) -> bool:
         if not self._hproc:
