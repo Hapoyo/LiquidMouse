@@ -63,6 +63,29 @@ class TestReload:
         assert pin_matches(data["pin_plain"], data["pin_hash"])
 
 
+class TestSaveAtomico:
+    def test_non_lascia_file_temporanei(self, tmp_path):
+        cfg = _config_at(tmp_path)
+        cfg.load()
+        cfg.save()
+        assert [f.name for f in cfg.path.parent.iterdir()] == ["config.json"]
+
+    def test_un_errore_di_scrittura_non_distrugge_la_config_esistente(self, tmp_path, monkeypatch):
+        # Prima si apriva config.json in "w" (troncandolo) e poi si scriveva:
+        # un crash a metà lasciava un file vuoto e il PIN dei telefoni andava perso.
+        cfg = _config_at(tmp_path)
+        cfg.load()
+        prima = cfg.path.read_text(encoding="utf-8")
+
+        def rotto(*a, **k):
+            raise OSError("disco pieno")
+        monkeypatch.setattr("liquidmouse.config.json.dump", rotto)
+        cfg.data["x"] = 1
+        cfg.save()  # non deve sollevare
+        assert cfg.path.read_text(encoding="utf-8") == prima
+        assert [f.name for f in cfg.path.parent.iterdir()] == ["config.json"]
+
+
 class TestSaveIsNonFatal:
     def test_unwritable_path_does_not_raise(self, tmp_path):
         # La config vive sotto %APPDATA%: se non è scrivibile l'app deve
