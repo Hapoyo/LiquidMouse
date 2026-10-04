@@ -1,6 +1,6 @@
 # Liquid Mouse
 
-> v2.8.0 «Cyber» · 2026-09-29
+> v2.9.0 «Cyber» · 2026-10-04
 
 Turn your phone into a wireless touchpad, keyboard and terminal for a Windows PC.
 Nothing to install on the phone: the PC serves the client as a web page, you scan a QR code

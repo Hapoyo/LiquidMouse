@@ -3,7 +3,7 @@
 All notable changes to Liquid Mouse. Versions follow `liquidmouse/version.py`; each one is
 published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its executable.
 
-## Unreleased
+## 2.9.0 — 2026-10-04
 
 - **Cleaner phone client** — same "cyber" filing-cabinet theme, tighter hierarchy: tab number
   and name aligned left with the open tab's number in amber; the session list starts at the
