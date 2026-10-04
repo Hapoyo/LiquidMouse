@@ -991,6 +991,7 @@
         const list = document.getElementById('session-list');
         list.innerHTML = '';
         const alive = sessions.filter(s => s.alive);
+        document.getElementById('session-count').textContent = contaAttive(alive.length, 'attiva', 'attive');
 
         alive.forEach(s => {
             const age = Math.round((Date.now()/1000 - s.created_at) / 60);
@@ -1179,6 +1180,8 @@
 
     function renderProfiles(profiles) {
         filesEl.profileList.replaceChildren();
+        document.getElementById('files-profile-count').textContent =
+            contaAttive(profiles.length, 'salvato', 'salvati');
         profiles.forEach(p => {
             const card = document.createElement('div');
             card.className = 'session-card existing';
@@ -1206,6 +1209,30 @@
         });
     }
 
+    // "2 attive", "1 salvato": il conteggio a destra dei titoli (vuoto se zero).
+    function contaAttive(n, uno, molti) {
+        return n ? `${n} ${n === 1 ? uno : molti}` : '';
+    }
+
+    // Icona a tratto come quelle del menu (stroke="currentColor"): il glifo ✎
+    // non esiste in Space Mono e il telefono lo pescava da un font emoji.
+    function iconaSvg(d) {
+        const ns = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '2');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.setAttribute('aria-hidden', 'true');
+        const path = document.createElementNS(ns, 'path');
+        path.setAttribute('d', d);
+        svg.append(path);
+        return svg;
+    }
+    const ICONA_MATITA = 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z';
+
     function fmtDate(t) {
         if (!t) return '';
         const d = new Date(t * 1000);
@@ -1224,12 +1251,19 @@
         }
         msg.entries.forEach(f => {
             const row = document.createElement('div');
-            row.className = 'session-card existing file-row';
+            row.className = 'session-card file-row' + (f.dir ? ' is-dir' : '');
             const label = document.createElement('div');
             label.className = 'session-card-label';
             const name = document.createElement('div');
             name.className = 'name';
-            name.textContent = (f.dir ? '▸ ' : '') + f.name;
+            if (f.dir) {
+                const mark = document.createElement('span');
+                mark.className = 'dir-mark';
+                mark.setAttribute('aria-hidden', 'true');
+                mark.textContent = '▸';
+                name.append(mark);
+            }
+            name.append(f.name);
             const meta = document.createElement('div');
             meta.className = 'meta';
             meta.textContent = [f.dir ? 'cartella' : formatSize(f.size), fmtDate(f.mtime)]
@@ -1243,8 +1277,8 @@
             actions.className = 'session-card-actions';
             const ren = document.createElement('button');
             ren.className = 'session-card-close';
-            ren.textContent = '✎';
-            ren.setAttribute('aria-label', 'rinomina');
+            ren.append(iconaSvg(ICONA_MATITA));
+            ren.setAttribute('aria-label', `rinomina ${f.name}`);
             ren.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const nuovo = prompt('nuovo nome', f.name);
@@ -1286,6 +1320,7 @@
             return;
         }
         uploadBusy = true;
+        filesEl.progress.style.setProperty('--p', '0%');
         filesEl.progress.textContent = `carico ${file.name}...`;
         filesSend({ type: 'sftp_ticket', direction: 'up', path: filesPath,
                     name: file.name, overwrite: overwrite === true });
@@ -1296,9 +1331,10 @@
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/sftp/up?t=' + encodeURIComponent(msg.token));
         xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable)
-                filesEl.progress.textContent =
-                    `carico ${file.name} ${Math.round(100 * e.loaded / e.total)}%`;
+            if (!e.lengthComputable) return;
+            const pct = Math.round(100 * e.loaded / e.total);
+            filesEl.progress.textContent = `carico ${file.name} // ${pct}%`;
+            filesEl.progress.style.setProperty('--p', `${pct}%`);
         };
         xhr.onload = () => {
             if (xhr.status === 200) uploadDone = true;
