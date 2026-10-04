@@ -118,3 +118,31 @@ class TestNonEspostiPiu:
         # Prima il percorso LAN serviva l'intera directory su 0.0.0.0 senza
         # autenticazione: server.pyw e il config.json col PIN inclusi.
         assert _get(base_url, path)[0] == 404
+
+
+class TestTimeout:
+    """Una connessione che non completa la richiesta non deve occupare un
+    thread per sempre (slowloris sulla 8000, aperta alla LAN)."""
+
+    def test_il_handler_ha_un_timeout(self):
+        from liquidmouse.net.server import HTTP_TIMEOUT_SECS
+        handler = make_http_handler(StaticFiles(str(ROOT)))
+        assert handler.timeout == HTTP_TIMEOUT_SECS and 0 < HTTP_TIMEOUT_SECS <= 60
+
+    def test_richiesta_a_meta_viene_chiusa(self, monkeypatch):
+        import socket
+        import liquidmouse.net.server as server_mod
+        monkeypatch.setattr(server_mod, "HTTP_TIMEOUT_SECS", 0.3)
+        srv = ThreadingHTTPServer(
+            ("127.0.0.1", 0), make_http_handler(StaticFiles(str(ROOT))))
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            with socket.create_connection(srv.server_address, timeout=5) as c:
+                c.sendall(b"GET / HTTP/1.1\r\nHost: x\r\n")   # niente riga vuota finale
+                # Il server chiude da solo: recv ritorna b"" (o una risposta
+                # d'errore) invece di restare appeso fino al timeout del test.
+                c.settimeout(3)
+                dati = c.recv(4096)
+                assert dati == b"" or dati.startswith(b"HTTP/1.")
+        finally:
+            srv.shutdown()

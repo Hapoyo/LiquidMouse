@@ -37,6 +37,11 @@ from liquidmouse.theme import COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_OK
 AUTH_TIMEOUT_SECS = 10.0
 WS_PING_INTERVAL = 20
 WS_PING_TIMEOUT = 10
+# Timeout di lettura/scrittura delle connessioni HTTP sulla 8000 (aperta alla
+# LAN): senza, un client che apre il socket e non finisce la richiesta (o non
+# legge la risposta) terrebbe un thread per sempre (slowloris). Vale per ogni
+# singola operazione sul socket, non per l'intero trasferimento.
+HTTP_TIMEOUT_SECS = 30
 # Rinnovo dei mapping UPnP. Auto-ripara il remoto dopo un riavvio del router
 # (che azzera il NAT) e recupera i casi in cui l'UPnP viene abilitato a server
 # già avviato.
@@ -111,6 +116,7 @@ def make_http_handler(static, sftp=None, transfers=None):
 
     class _StaticHTTPHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+        timeout = HTTP_TIMEOUT_SECS
 
         def do_GET(self):
             if urlsplit(self.path).path == SFTP_DOWNLOAD_PATH:

@@ -31,6 +31,11 @@ TERM_INPUT_MAX = 8192
 TERM_COLS_MIN, TERM_COLS_MAX = 20, 240
 TERM_ROWS_MIN, TERM_ROWS_MAX = 5, 60
 SFTP_TEXT_MAX = 1024
+# Testo di un singolo messaggio 'text' (una digitazione, un incolla) e tasti di
+# una combinazione: oltre questi tetti un client compromesso potrebbe battere
+# megabyte di testo o premere decine di tasti in un colpo solo.
+KEY_TEXT_MAX = 1024
+HOTKEY_KEYS_MAX = 6
 
 # Il client ripete il backspace a raffica quando il tasto resta premuto: senza
 # freno, una pressione lunga cancella l'intera riga in pochi millisecondi.
@@ -155,8 +160,8 @@ async def _drag(ctx: ClientConnection, data: dict) -> None:
 @handles('text')
 async def _text(ctx: ClientConnection, data: dict) -> None:
     char = data.get('char', '')
-    if char:
-        key_text(char)
+    if char and isinstance(char, str):
+        key_text(char[:KEY_TEXT_MAX])
 
 
 @handles('key')
@@ -196,7 +201,9 @@ async def _key_toggle(ctx: ClientConnection, data: dict) -> None:
 async def _hotkey(ctx: ClientConnection, data: dict) -> None:
     keys = data.get('keys', [])
     if isinstance(keys, list):
-        hotkey(*keys)
+        # Prima si scartano i token non stringa, poi si applica il tetto: così
+        # la spazzatura non consuma i posti dei tasti veri.
+        hotkey(*[k for k in keys if isinstance(k, str)][:HOTKEY_KEYS_MAX])
 
 
 @handles('ping')

@@ -24,6 +24,9 @@ from liquidmouse.theme import COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED
 # Attesa quando il PTY non ha dati ma il processo è vivo. Riguarda solo il
 # backend pywinpty, che ritorna b"" invece di bloccare.
 IDLE_POLL_SECS = 0.01
+# Tetto alle sessioni aperte: ogni sessione è un processo, un PTY e 64 KB di
+# ring buffer, e `term_create` è libero per ogni client autenticato.
+MAX_SESSIONS = 8
 
 
 @dataclass
@@ -49,6 +52,10 @@ class SessionManager:
         """Avvia una sessione. Richiede un event loop attivo: il read loop viene
         agganciato subito come task."""
         loop = asyncio.get_running_loop()
+        with self._dict_lock:
+            piene = len(self._sessions) >= MAX_SESSIONS
+        if piene:
+            raise RuntimeError(f"troppe sessioni (max {MAX_SESSIONS}): chiudine una")
         sid = uuid.uuid4().hex[:8]
         argv = resolve_argv(cmd)
         home = os.path.expanduser("~")
