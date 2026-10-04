@@ -87,3 +87,33 @@ class TestCostoAmmortizzato:
         assert len(rb) == 1024
         # Il buffer interno non deve crescere senza controllo.
         assert len(rb._buf) <= 3 * rb.maxsize
+
+
+class TestContatoreMonotono:
+    """`total` cresce sempre e `since` restituisce il delta dopo un offset."""
+
+    def test_total_non_scende_quando_il_ring_scarta(self):
+        rb = RingBuffer(maxsize=4)
+        rb.append(b"abcdef")
+        assert rb.total == 6
+        assert rb.snapshot() == b"cdef"
+
+    def test_snapshot_con_offset_e_atomico(self):
+        rb = RingBuffer(maxsize=100)
+        rb.append(b"abc")
+        assert rb.snapshot_with_offset() == (b"abc", 3)
+
+    def test_since_restituisce_solo_il_nuovo(self):
+        rb = RingBuffer(maxsize=100)
+        rb.append(b"abc")
+        _, off = rb.snapshot_with_offset()
+        rb.append(b"de")
+        rb.append(b"f")
+        assert rb.since(off) == b"def"
+        assert rb.since(rb.total) == b""
+
+    def test_since_oltre_il_ring_restituisce_quanto_resta(self):
+        rb = RingBuffer(maxsize=4)
+        rb.append(b"ab")
+        rb.append(b"cdefgh")
+        assert rb.since(2) == b"efgh"

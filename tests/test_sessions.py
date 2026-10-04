@@ -194,3 +194,71 @@ class TestTettoSessioni:
 
         ws = asyncio.run(scenario())
         assert any('"term_error"' in p and "troppe sessioni" in p for p in ws.inviati)
+
+
+class _WsLento(FintoWs):
+    """ws la cui prima send resta sospesa finché il test non la sblocca."""
+
+    def __init__(self):
+        super().__init__()
+        self.sblocca = asyncio.Event()
+        self.in_invio = asyncio.Event()
+        self._prima = True
+
+    async def send(self, payload):
+        if self._prima:
+            self._prima = False
+            self.in_invio.set()
+            await self.sblocca.wait()
+        await super().send(payload)
+
+
+def _payload_output(ws):
+    from liquidmouse.net.frames import decode_term_output
+    return b"".join(decode_term_output(p)[1] for p in ws.inviati if isinstance(p, bytes))
+
+
+class TestAttachSenzaRace:
+    def _manager_con_sessione(self, monkeypatch):
+        monkeypatch.setattr(sessions_mod, "make_pty", lambda argv, cwd: _PtyViva())
+        monkeypatch.setattr(sessions_mod, "resolve_argv", lambda cmd: [cmd])
+        manager = SessionManager()
+        return manager, manager.create("cmd.exe")
+
+    def test_output_durante_lo_snapshot_non_si_perde_ne_si_duplica(self, monkeypatch):
+        async def scenario():
+            manager, session = self._manager_con_sessione(monkeypatch)
+            session.output.append(b"vecchio ")
+            ws = _WsLento()
+            task = asyncio.create_task(manager.attach(session.id, ws))
+            await ws.in_invio.wait()
+            # Output arrivato mentre lo snapshot e' ancora in volo.
+            session.output.append(b"nuovo1 ")
+            await manager._broadcast_output(session, b"nuovo1 ")
+            ws.sblocca.set()
+            await task
+            # Dopo l'attach l'output live passa normalmente.
+            session.output.append(b"live")
+            await manager._broadcast_output(session, b"live")
+            manager.kill(session.id)
+            return ws
+
+        ws = asyncio.run(scenario())
+        assert _payload_output(ws) == b"vecchio nuovo1 live"
+
+    def test_client_lento_non_blocca_l_attach_degli_altri(self, monkeypatch):
+        async def scenario():
+            manager, session = self._manager_con_sessione(monkeypatch)
+            session.output.append(b"x")
+            lento = _WsLento()
+            veloce = FintoWs()
+            t1 = asyncio.create_task(manager.attach(session.id, lento))
+            await lento.in_invio.wait()
+            await asyncio.wait_for(manager.attach(session.id, veloce), 1)
+            lento.sblocca.set()
+            await t1
+            manager.kill(session.id)
+            return veloce
+
+        veloce = asyncio.run(scenario())
+        assert _payload_output(veloce) == b"x"

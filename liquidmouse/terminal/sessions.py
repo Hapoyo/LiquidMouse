@@ -36,6 +36,9 @@ class PTYSession:
     pty: object
     output: RingBuffer = field(default_factory=RingBuffer)
     subscribers: set = field(default_factory=set)   # ws attivi (telefono + finestra PC)
+    # ws appena agganciati che stanno ricevendo lo snapshot: il broadcast li
+    # salta, il delta lo manda attach() per tenere l'ordine dei byte.
+    catching_up: set = field(default_factory=set)
     created_at: float = 0.0
     alive: bool = True
 
@@ -43,7 +46,6 @@ class PTYSession:
 class SessionManager:
     def __init__(self) -> None:
         self._sessions: dict[str, PTYSession] = {}
-        self._attach_lock = asyncio.Lock()
         # _sessions è mutato dal loop asyncio e letto dal thread Tk (pannello
         # sessioni e menu tray). Prima la race era solo mitigata con un list().
         self._dict_lock = threading.Lock()
@@ -76,18 +78,40 @@ class SessionManager:
             return self._sessions.get(sid)
 
     async def attach(self, sid: str, ws) -> None:
-        """Aggancia `ws` e gli rimanda la schermata conservata."""
-        async with self._attach_lock:
-            session = self.get(sid)
-            if not session:
-                raise RuntimeError("sessione non trovata")
-            buf = session.output.snapshot()
-            if buf:
-                # Un solo frame invece di uno ogni 4 KB: il replay di un buffer
-                # pieno costava fino a 16 invii separati, ognuno con un await, e
-                # il terminale si ridisegnava a scatti.
-                await ws.send(encode_term_output(sid, buf))
-            session.subscribers.add(ws)
+        """Aggancia `ws` e gli rimanda la schermata conservata.
+
+        Snapshot e contatore si prendono insieme e il ws entra fra i subscriber
+        senza await in mezzo: l'output che arriva mentre lo snapshot e' in volo
+        non va perso (prima il subscriber veniva aggiunto dopo l'await). Fino
+        al raggiungimento del live il broadcast salta il ws, e qui si manda il
+        delta accumulato dopo l'offset. Nessun lock tenuto durante gli invii:
+        un client lento non blocca l'attach degli altri.
+        """
+        session = self.get(sid)
+        if not session:
+            raise RuntimeError("sessione non trovata")
+        buf, offset = session.output.snapshot_with_offset()
+        session.subscribers.add(ws)
+        session.catching_up.add(ws)
+        try:
+            # Un solo frame invece di uno ogni 4 KB: il replay di un buffer
+            # pieno costava fino a 16 invii separati, ognuno con un await, e
+            # il terminale si ridisegnava a scatti.
+            while True:
+                if buf:
+                    await ws.send(encode_term_output(sid, buf))
+                # since() e total si leggono senza await in mezzo; se non c'e'
+                # delta si esce nello stesso istante e il finally rimette il ws
+                # nel live: nessun byte cade fra i due.
+                buf = session.output.since(offset)
+                if not buf:
+                    break
+                offset = session.output.total
+        except BaseException:
+            session.subscribers.discard(ws)
+            raise
+        finally:
+            session.catching_up.discard(ws)
 
     def detach(self, sid: str, ws) -> None:
         s = self.get(sid)
@@ -156,6 +180,8 @@ class SessionManager:
             return
         dead = []
         for sub in list(session.subscribers):
+            if sub in session.catching_up:
+                continue
             try:
                 await sub.send(payload)
             except Exception:
