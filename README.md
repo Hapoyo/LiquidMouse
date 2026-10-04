@@ -103,7 +103,7 @@ allow it, otherwise the phone can't reach the PC.
 ```bash
 git clone https://github.com/Hapoyo/LiquidMouse.git
 cd LiquidMouse
-py -3.13 -m pip install websockets pystray Pillow qrcode cryptography pywinpty miniupnpc paramiko
+py -3.13 -m pip install -r requirements.txt
 py -3.13 server.pyw
 ```
 

@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Le dipendenze di requirements.txt ricevono una PR quando esce una versione
+  # nuova: i test (anche su Windows) dicono subito se qualcosa si rompe.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
