@@ -2,7 +2,9 @@
 
 import pytest
 
-from liquidmouse.terminal.commands import TERM_ALLOWED_CMDS, resolve_argv
+from liquidmouse.terminal.commands import (
+    SHELLS, TERM_ALLOWED_CMDS, available_shells, resolve_argv,
+)
 
 
 def _which(mapping):
@@ -69,3 +71,31 @@ class TestRisoluzione:
         argv = resolve_argv("wsl", which=_which({}),
                             isabs=lambda p: False, exists=lambda p: False)
         assert argv == ["wsl"]
+
+
+class TestShellOfferte:
+    def test_la_whitelist_deriva_dall_elenco_delle_shell(self):
+        assert TERM_ALLOWED_CMDS == {cmd for cmd, _ in SHELLS}
+
+    def test_cmd_c_e_sempre_e_per_prima(self):
+        assert available_shells(which=lambda c: None) == [{"cmd": "cmd.exe", "label": "cmd"}]
+
+    def test_solo_quelle_installate_nell_ordine_dell_elenco(self):
+        installate = {"pwsh.exe", "bash", "powershell.exe"}
+        shells = available_shells(which=lambda c: "/bin/" + c if c in installate else None)
+        assert [s["cmd"] for s in shells] == ["cmd.exe", "powershell.exe", "pwsh.exe", "bash"]
+
+    def test_tutte_installate(self):
+        shells = available_shells(which=lambda c: c)
+        assert [s["cmd"] for s in shells] == [c for c, _ in SHELLS]
+
+    @pytest.mark.parametrize("cmd", [c for c, _ in SHELLS])
+    def test_ogni_shell_offerta_passa_la_whitelist(self, cmd):
+        # Il client invia esattamente `cmd`: resolve_argv non deve rifiutarlo.
+        assert resolve_argv(cmd, which=lambda c: c, isabs=lambda p: False,
+                            exists=lambda p: False) == [cmd]
+
+    def test_le_etichette_sono_testo_semplice_e_uniche(self):
+        etichette = [label for _, label in SHELLS]
+        assert len(set(etichette)) == len(etichette)
+        assert all(l.isalnum() and l == l.lower() for l in etichette)

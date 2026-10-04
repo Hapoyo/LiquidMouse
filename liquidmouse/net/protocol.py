@@ -21,6 +21,7 @@ from liquidmouse.input.win32 import (
 )
 from liquidmouse.net.sftp import SftpError, join_path, validate_name
 from liquidmouse.net.transfers import DOWNLOAD, REMOTE_DOWNLOAD_MAX, UPLOAD
+from liquidmouse.terminal.commands import available_shells
 from liquidmouse.theme import COLOR_ERROR, COLOR_MUTED
 
 # --- limiti del protocollo ---------------------------------------------------
@@ -118,6 +119,9 @@ class ClientConnection:
         await self.send_json({
             "type": "term_sessions",
             "sessions": self.sessions.list_sessions(),
+            # Per il selettore "nuova sessione" del client: stessa fonte della
+            # whitelist di term_create (terminal/commands.py).
+            "shells": available_shells(),
         })
 
     def release_all(self) -> None:
