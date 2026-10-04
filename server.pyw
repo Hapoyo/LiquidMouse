@@ -53,7 +53,7 @@ _config = Config(protector=_protector)
 _auth_guard = AuthGuard()
 _trusted_peer = TrustedPeer()
 _session_manager = SessionManager()
-_static = StaticFiles(BASE_DIR)
+_static = StaticFiles(BASE_DIR, version=VERSION)
 # File manager: profili SSH nella config, password cifrate con DPAPI.
 _sftp = SftpManager(_config, protector=_protector)
 _transfers = TransferRegistry()

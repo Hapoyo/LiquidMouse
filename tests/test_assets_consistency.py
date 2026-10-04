@@ -99,15 +99,20 @@ class TestRiferimentiNellaPagina:
 
     def test_gli_script_sono_deferiti(self):
         # xterm.js sono 283 KB render-blocking; app.js deve eseguire dopo di lui
-        # e dopo il parsing del markup, che contiene gli onclick inline.
+        # e dopo il parsing del markup (le linguette si legano da app.js).
         html = INDEX_HTML.read_text(encoding="utf-8")
         for script in re.findall(r"<script[^>]*src=[^>]*>", html):
             assert "defer" in script, f"script non deferito: {script}"
 
     def test_app_js_non_e_un_modulo(self):
-        # I 13 onclick= inline richiedono funzioni globali: con type="module"
-        # tutti i bottoni della barra del terminale smetterebbero di funzionare.
         html = INDEX_HTML.read_text(encoding="utf-8")
         assert 'src="app.js" defer' in html
         assert 'type="module"' not in html
-        assert "onclick=" in html
+
+    def test_nessun_handler_inline_nel_markup(self):
+        # La CSP (script-src 'self') blocca gli attributi on*=: un handler
+        # inline smetterebbe di funzionare solo nel browser, non nei test.
+        html = INDEX_HTML.read_text(encoding="utf-8")
+        assert not re.search(r"\son[a-z]+\s*=", html), "handler inline in index.html"
+        assert "javascript:" not in html
+        assert 'data-tab="terminal"' in html

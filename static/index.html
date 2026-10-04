@@ -26,14 +26,14 @@
 <body>
 
     <div id="tab-bar">
-        <button class="tab-btn active" id="tab-touchpad" onclick="switchTab('touchpad')">
+        <button class="tab-btn active" id="tab-touchpad" data-tab="touchpad">
             <span class="tab-num">001</span><span class="tab-name">touchpad</span>
         </button>
-        <button class="tab-btn" id="tab-terminal" onclick="switchTab('terminal')">
+        <button class="tab-btn" id="tab-terminal" data-tab="terminal">
             <span class="tab-num">002</span><span class="tab-name">terminale</span>
             <span class="tab-dot" id="tab-terminal-dot" style="display:none"></span>
         </button>
-        <button class="tab-btn" id="tab-files" onclick="switchTab('files')">
+        <button class="tab-btn" id="tab-files" data-tab="files">
             <span class="tab-num">003</span><span class="tab-name">file</span>
         </button>
     </div>

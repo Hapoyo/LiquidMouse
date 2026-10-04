@@ -12,6 +12,8 @@ import pytest
 
 pytest.importorskip("websockets")
 
+from websockets.datastructures import Headers
+
 from liquidmouse.net.server import NetworkServices, download_headers, make_http_handler
 from liquidmouse.net.sftp import SftpManager
 from liquidmouse.net.transfers import DOWNLOAD, UPLOAD, TransferRegistry
@@ -41,7 +43,7 @@ def transfers():
 
 @pytest.fixture
 def base(sftp, transfers):
-    static = SimpleNamespace(get=lambda path: None)
+    static = SimpleNamespace(get=lambda path: None, serve=lambda *a, **k: None)
     srv = ThreadingHTTPServer(("127.0.0.1", 0), make_http_handler(static, sftp, transfers))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{srv.server_address[1]}"
@@ -117,7 +119,7 @@ class TestUpload:
 
 class _Conn:
     def respond(self, status, text):
-        return SimpleNamespace(status_code=int(status), body=text.encode())
+        return SimpleNamespace(status_code=int(status), body=text.encode(), headers=Headers())
 
 
 def _request(path, upgrade=""):
@@ -128,7 +130,7 @@ def _request(path, upgrade=""):
 def services(sftp, transfers):
     return NetworkServices(
         config={}, auth_guard=None, trusted_peer=None, sessions=None,
-        static=SimpleNamespace(get=lambda p: None), tls=None, upnp=None,
+        static=SimpleNamespace(get=lambda p: None, serve=lambda *a, **k: None), tls=None, upnp=None,
         local_ip="127.0.0.1", sftp=sftp, transfers=transfers)
 
 

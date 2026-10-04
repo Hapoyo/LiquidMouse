@@ -1,9 +1,9 @@
 // Liquid Mouse — logica del client.
 // Estratto da index.html, dove era inline.
 //
-// Caricato come script classico e NON come modulo: il markup usa attributi
-// onclick= inline, che richiedono funzioni globali. Con type="module" tutti
-// i bottoni della barra del terminale smetterebbero di funzionare.
+// Caricato come script classico (defer) e non come modulo. Nel markup non ci
+// sono più attributi onclick= inline (la CSP vieta gli script inline): gli
+// eventi si legano qui.
 //
 // Il formato dei frame binari deve restare allineato a
 // liquidmouse/net/frames.py — vedi CLAUDE.md.
@@ -158,6 +158,12 @@
         if (name === 'terminal') onTerminalTabOpen();
         if (name === 'files') onFilesTabOpen();
     }
+
+    // Niente onclick= inline nel markup: la CSP (net/static.py) non ammette script
+    // inline, quindi le linguette si legano qui con data-tab.
+    document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
 
     function loadIP() { return localStorage.getItem('liquidMouseIP') || ''; }
     function saveIP(ip) { localStorage.setItem('liquidMouseIP', ip); }
