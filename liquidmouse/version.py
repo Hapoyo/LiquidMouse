@@ -7,5 +7,5 @@ Questo file è letto anche fuori da Python (regex, senza importarlo):
 Non aggiungere logica qui: deve restare parsabile con una regex banale.
 """
 
-VERSION = "2.8.0"
-CODENAME = "Cyber"    # 2.8.0: file manager SFTP
+VERSION = "2.9.0"
+CODENAME = "Cyber"    # 2.9.0: gui più pulita e Motion
