@@ -11,5 +11,5 @@ Pillow>=10.0
 qrcode>=7.4
 cryptography>=42.0
 pywinpty>=2.0
-miniupnpc>=2.2
+miniupnpc>=2.3.3
 paramiko>=3.0
