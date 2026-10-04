@@ -16,6 +16,9 @@
          usato solo dentro initXterm(), invocata dall'apertura del tab o dal
          gestore di `load`, entrambi successivi agli script deferiti. -->
     <script src="xterm.js" defer></script>
+    <!-- Motion (motion.dev, UMD → global `Motion`): prima di app.js, che lo
+         usa solo tramite anima() e funziona anche se manca. -->
+    <script src="motion.js" defer></script>
     <link rel="stylesheet" href="app.css">
     <script src="app.js" defer></script>
 </head>

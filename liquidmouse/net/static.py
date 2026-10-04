@@ -28,6 +28,10 @@ STATIC_ROUTES: dict[str, tuple[str, str]] = {
     "/app.js":     ("static/app.js",     "application/javascript; charset=utf-8"),
     "/xterm.js":   ("static/vendor/xterm.js",  "application/javascript; charset=utf-8"),
     "/xterm.css":  ("static/vendor/xterm.css", "text/css; charset=utf-8"),
+    # Motion (motion.dev), build UMD che espone il global `Motion`: locale e
+    # non da CDN, perché il client gira anche in una LAN senza internet.
+    "/motion.js":  ("static/vendor/motion.js", "application/javascript; charset=utf-8"),
+    "/LICENSE-motion.txt": ("static/vendor/LICENSE-motion.txt", "text/plain; charset=utf-8"),
     "/icon.ico":   ("static/icon.ico",   "image/x-icon"),
     # Tema cyber: gli stessi TTF sono caricati anche da Tk (gui/effects.py).
     "/fonts/SpaceGrotesk-Medium.ttf": ("static/fonts/SpaceGrotesk-Medium.ttf", "font/ttf"),

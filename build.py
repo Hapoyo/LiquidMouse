@@ -44,6 +44,8 @@ def check_files():
         "static/app.js",
         "static/vendor/xterm.js",
         "static/vendor/xterm.css",
+        "static/vendor/motion.js",
+        "static/vendor/LICENSE-motion.txt",
         "static/icon.ico",
         "static/fonts/SpaceGrotesk-Medium.ttf",
         "static/fonts/SpaceMono-Regular.ttf",
