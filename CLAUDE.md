@@ -134,6 +134,12 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Tastiera del telefono: il body segue `visualViewport` (`--vv-h`, `--vv-top`) invece di
   100dvh; `kbd-open` sul body nasconde linguette e intestazione del terminale.
 - LAN senza PIN ma whitelist "primo arrivato" (reset dal menu tray); CGNAT 100.64/10 = remoto.
+  È una scelta di prodotto e resta il default. Opzione `lan_require_pin` (config, voce "PIN anche
+  dalla LAN" nel tray, letta a ogni connessione): la LAN passa da `_authorize_remote(lan=True)`,
+  il server manda `auth_required`, scarta fino a `LAN_PREAUTH_MAX` messaggi prima dell'`auth`
+  (il client chiama `_onAuthenticated` all'apertura) e non usa la whitelist; il loopback resta
+  fidato. Passo futuro: legare la whitelist a un token per dispositivo invece che all'IP (serve
+  un handshake LAN che oggi il client non ha).
 - Asset serviti da cache in memoria con ETag; qualunque path fuori whitelist → 404.
   `StaticFiles.serve` è l'unico punto che decide la risposta (porta 8000 e strada remota):
   gzip precalcolato al load (ETag `-gz` distinto, `Vary: Accept-Encoding`), `index.html`

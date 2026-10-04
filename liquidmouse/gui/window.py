@@ -101,6 +101,7 @@ _remote_qr_box      = None   # (x, y, lato) dell'area del QR remoto
 _lan_qr_item        = None   # immagine del QR LAN, rifatta se cambia l'IP
 _lan_qr_box         = None   # (x, y, lato) dell'immagine del QR LAN
 _lan_ip_max_w       = 0      # larghezza massima dell'indirizzo LAN, per il font
+_lan_hint_var       = None   # riga sotto l'indirizzo LAN ("apri dal telefono...")
 _sessions_win       = None
 
 # Scala del disegno rispetto a 96 dpi e famiglie di font effettive (quelle del
@@ -236,9 +237,11 @@ def update_lan_ui(ip: str) -> None:
 
 
 def _set_lan_ui(ip: str) -> None:
-    """Ridisegna indirizzo e QR LAN (eseguire sul thread Tk)."""
+    """Ridisegna indirizzo, suggerimento e QR LAN (eseguire sul thread Tk)."""
     ip_testo = f"{ip}:{HTTP_PORT}"
     try:
+        if _lan_hint_var is not None:
+            _lan_hint_var.set(LAN_HINT_PIN if lan_require_pin() else LAN_HINT)
         ip_label_var.set(ip_testo)
         ip_label_var.set_font(_fit_num(ip_testo, _lan_ip_max_w, 44, 20))
     except Exception as e:
@@ -254,9 +257,39 @@ def _set_lan_ui(ip: str) -> None:
         log_message(f"QR Error: {e}", color=COLOR_ERROR)
 
 
+LAN_HINT = "apri dal telefono sulla stessa wi-fi"
+LAN_HINT_PIN = "stessa wi-fi, serve il pin"
+
+
+def lan_require_pin() -> bool:
+    """True se l'opzione `lan_require_pin` della config è accesa."""
+    return bool(_deps is not None and _deps.config.get('lan_require_pin'))
+
+
 def _lan_qr_url(ip: str) -> str:
     # Il parametro v cambia a ogni disegno: il telefono non riusa una pagina in cache.
-    return f"http://{ip}:{HTTP_PORT}/?v={int(time.time())}"
+    url = f"http://{ip}:{HTTP_PORT}/?v={int(time.time())}"
+    if lan_require_pin():
+        # Come il QR remoto: il client legge ?pin= e lo manda all'handshake.
+        url += f"&pin={_deps.config.get('pin_plain', '')}"
+    return url
+
+
+def toggle_lan_require_pin(icon=None, item=None) -> None:
+    """Voce del tray: accende/spegne il PIN anche dalla LAN.
+
+    Vale dalle connessioni successive (il server legge l'opzione a ogni
+    handshake); chi è già dentro resta collegato fino alla disconnessione.
+    Lo stato è nella config, quindi sopravvive al riavvio.
+    """
+    nuovo = not lan_require_pin()
+    _deps.config['lan_require_pin'] = nuovo
+    _deps.config.save()
+    log_message("PIN richiesto anche dalla LAN" if nuovo
+                else "LAN senza PIN (primo dispositivo che si collega)",
+                color=COLOR_ACCENT)
+    if root is not None and ip_label_var is not None:
+        root.after(0, lambda: _set_lan_ui(_deps.local_ip))
 
 
 def _set_remote_label(testo: str, colore: str) -> None:
@@ -391,6 +424,8 @@ def run_tray_service():
         pystray.MenuItem(lambda item: _get_remote_tray_label(), None, enabled=False),
         pystray.MenuItem('Sessioni terminal', lambda icon, item: root.after(0, _open_sessions_panel)),
         pystray.MenuItem('Reset connessione locale', lambda icon, item: _deps.reset_trusted()),
+        pystray.MenuItem('PIN anche dalla LAN', toggle_lan_require_pin,
+                         checked=lambda item: lan_require_pin()),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem('Esci', terminate_application),
     )
@@ -462,7 +497,7 @@ def _scegli_font() -> None:
 
 def setup_gui():
     global ip_label_var, status_var, status_label, _main_canvas, _status_dot
-    global _lan_qr_item, _lan_qr_box, _lan_ip_max_w
+    global _lan_qr_item, _lan_qr_box, _lan_ip_max_w, _lan_hint_var
     global _remote_status_var, _remote_status_label, _remote_title_var, _remote_qr_box, _scale
 
     root.title("Liquid Mouse")
@@ -567,8 +602,9 @@ def setup_gui():
     _lan_ip_max_w = qx1 - L - GAP * 2
     ip_label_var = _text(c, L - P(2), y0 + P(78), "",
                          _fit_num(ip_testo, _lan_ip_max_w, 44, 20), COLOR_TEXT, "sw")
-    _text(c, L, y0 + P(90), "apri dal telefono sulla stessa wi-fi",
-          _f_label(11), COLOR_MUTED)
+    _lan_hint_var = _text(c, L, y0 + P(90),
+                          LAN_HINT_PIN if lan_require_pin() else LAN_HINT,
+                          _f_label(11), COLOR_MUTED)
     # Barra arancio come la barra della giornata di PiDash: separa l'host
     # dalla fila dei pannelli.
     bar_y = y0 + P(122)
