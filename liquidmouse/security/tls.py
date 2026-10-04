@@ -123,7 +123,11 @@ class SelfSignedCert:
             atexit.register(self._cleanup_temps)
             self._atexit_registered = True
 
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # Lo stesso oggetto per tutta la vita del processo: i server HTTPS/WSS
+        # già in ascolto lo hanno in uso, e quando l'IP locale cambia basta
+        # ricaricarci dentro il nuovo certificato perché le prossime
+        # connessioni lo usino, senza riavviare nulla.
+        ctx = self._context or ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(cf.name, kf.name)
         self._context = ctx
         return ctx

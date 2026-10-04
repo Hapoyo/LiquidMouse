@@ -47,6 +47,10 @@ HTTP_TIMEOUT_SECS = 30
 # (che azzera il NAT) e recupera i casi in cui l'UPnP viene abilitato a server
 # già avviato.
 UPNP_KEEPALIVE_SECS = 600
+# Ogni quanto il keepalive controlla se l'IP locale è cambiato (wifi diverso,
+# DHCP rinnovato con un altro indirizzo): costa una connect UDP senza traffico,
+# quindi si può fare molto più spesso del rinnovo UPnP.
+IP_CHECK_SECS = 30
 # Chiave anti brute force per chi arriva dal tunnel senza l'header di
 # Cloudflare (in pratica solo un processo locale).
 TUNNEL_GUARD_KEY = "tunnel"
@@ -247,7 +251,8 @@ class NetworkServices:
     def __init__(self, *, config, auth_guard, trusted_peer, sessions, static,
                  tls, upnp, local_ip: str, tunnel=None,
                  on_remote_change=None, on_session_created=None,
-                 sftp=None, transfers=None) -> None:
+                 sftp=None, transfers=None,
+                 ip_provider=None, on_local_ip_change=None) -> None:
         self.config = config
         self.auth_guard = auth_guard
         self.trusted_peer = trusted_peer
@@ -259,6 +264,11 @@ class NetworkServices:
         if tunnel is not None:
             tunnel.on_change = self._on_tunnel_change
         self.local_ip = local_ip
+        # Callable senza argomenti che ritorna l'IP LAN attuale (server.pyw passa
+        # get_local_ip); None = nessun controllo, come nei test. `on_local_ip_change`
+        # è il sink con cui la GUI aggiorna QR e indirizzo: il core non la importa.
+        self._ip_provider = ip_provider
+        self.on_local_ip_change = on_local_ip_change
         self.on_remote_change = on_remote_change
         self.on_session_created = on_session_created
         self.sftp = sftp
@@ -519,12 +529,62 @@ class NetworkServices:
         if primo or nuovo != precedente[0]:
             self._set_remote_mode(nuovo)
 
+    async def _refresh_local_ip(self) -> bool:
+        """Rivaluta l'IP LAN; se è cambiato aggiorna certificato e GUI.
+
+        Prima `local_ip` era calcolato una volta sola all'avvio: cambiando rete
+        il QR LAN, il SAN del certificato e il mapping UPnP restavano quelli
+        vecchi fino al riavvio. Ritorna True se l'IP è cambiato (il chiamante
+        rifà allora la scelta remota, che riapre il mapping verso il nuovo IP).
+        """
+        if self._ip_provider is None:
+            return False
+        nuovo = self._ip_provider()
+        # 127.0.0.1 = rete assente, non un indirizzo a cui passare: si resta
+        # sull'ultimo noto e si riprova al prossimo giro.
+        if not nuovo or nuovo == self.local_ip or is_loopback(nuovo):
+            return False
+        log_message(f"Indirizzo LAN cambiato: {self.local_ip} → {nuovo}", color=COLOR_ACCENT)
+        self.local_ip = nuovo
+        # Stesso SSLContext: i server HTTPS/WSS già in ascolto lo hanno in uso,
+        # e tls.context_for ricarica il nuovo certificato dentro quell'oggetto.
+        # La generazione RSA può durare secondi: fuori dall'event loop.
+        # Se all'avvio il TLS non c'era, i server HTTPS non esistono: generare ora
+        # un contesto farebbe dichiarare attivo un remoto su una porta chiusa.
+        if self._ssl_ctx is not None:
+            ctx = await asyncio.get_running_loop().run_in_executor(
+                NET, self.tls.context_for, nuovo)
+            if ctx is not None:
+                self._ssl_ctx = ctx
+            else:
+                log_message("Certificato TLS non rigenerato per il nuovo IP: resta il vecchio",
+                            color=COLOR_ERROR)
+        if self.on_local_ip_change:
+            try:
+                self.on_local_ip_change(nuovo)
+            except Exception as e:
+                log_message(f"Aggiornamento GUI dopo il cambio IP: {e}", color=COLOR_ERROR)
+        return True
+
     async def _remote_keepalive(self) -> None:
+        trascorso = 0.0
         while True:
-            await asyncio.sleep(UPNP_KEEPALIVE_SECS)
+            # Un solo ciclo: controlla spesso l'IP, rinnova UPnP/tunnel ogni
+            # UPNP_KEEPALIVE_SECS o subito se l'IP è cambiato.
+            passo = min(IP_CHECK_SECS, UPNP_KEEPALIVE_SECS)
+            await asyncio.sleep(passo)
+            trascorso += passo
             # Un'eccezione qui (router che risponde male, tunnel che non parte)
             # ucciderebbe il task in silenzio e il remoto non si ripareriebbe
             # più fino al riavvio: si registra e si riprova al giro dopo.
+            try:
+                cambiato = await self._refresh_local_ip()
+            except Exception as e:
+                cambiato = False
+                log_message(f"Controllo dell'IP locale fallito: {e}", color=COLOR_ERROR)
+            if not cambiato and trascorso < UPNP_KEEPALIVE_SECS:
+                continue
+            trascorso = 0.0
             try:
                 await self._refresh_remote()
             except Exception as e:
@@ -535,67 +595,81 @@ class NetworkServices:
 
     async def start_websocket_server(self) -> None:
         log_message("Protocolli di comunicazione inizializzati.", color=COLOR_MUTED)
-        ssl_ctx = self.tls.context_for(self.local_ip)
-        self._ssl_ctx = ssl_ctx
-
-        # Un errore nella scelta della strada remota non deve impedire l'avvio
-        # dei server locali: il telefono in LAN funziona comunque.
-        try:
-            await self._refresh_remote(primo=True)
-        except Exception as e:
-            log_message(f"Accesso remoto non avviato: {e}", color=COLOR_ERROR)
-        asyncio.get_running_loop().create_task(self._remote_keepalive())
-
-        servers = [
-            (PORT, websockets.serve(self.handler, "0.0.0.0", PORT,
-                                    ping_interval=WS_PING_INTERVAL,
-                                    ping_timeout=WS_PING_TIMEOUT,
-                                    origins=ALLOWED_ORIGINS)),
-        ]
-        if ssl_ctx:
-            # Porta unica remota: pagina + WSS su HTTPS_PORT.
-            servers.append((HTTPS_PORT,
-                websockets.serve(self.handler, "0.0.0.0", HTTPS_PORT, ssl=ssl_ctx,
-                                 ping_interval=WS_PING_INTERVAL,
-                                 ping_timeout=WS_PING_TIMEOUT,
-                                 origins=ALLOWED_ORIGINS,
-                                 process_request=self.https_process_request)))
-            # Legacy: WSS dedicato per client pre-porta-unica ancora in giro.
-            servers.append((WSS_PORT,
-                websockets.serve(self.handler, "0.0.0.0", WSS_PORT, ssl=ssl_ctx,
-                                 ping_interval=WS_PING_INTERVAL,
-                                 ping_timeout=WS_PING_TIMEOUT,
-                                 origins=ALLOWED_ORIGINS)))
-        if self.tunnel is not None:
-            # Origine del tunnel: solo loopback, pagina + WS insieme come la
-            # 8443. Il TLS lo termina Cloudflare, qui arriva in chiaro.
-            servers.append((TUNNEL_PORT,
-                websockets.serve(self._tunnel_handler, "127.0.0.1", TUNNEL_PORT,
-                                 ping_interval=WS_PING_INTERVAL,
-                                 ping_timeout=WS_PING_TIMEOUT,
-                                 origins=ALLOWED_ORIGINS,
-                                 process_request=self.https_process_request)))
-
+        loop = asyncio.get_running_loop()
+        keepalive = None
         try:
             async with contextlib.AsyncExitStack() as stack:
                 avviati = 0
-                for porta, srv in servers:
-                    # Una porta occupata ferma solo il suo server: prima
-                    # l'OSError smontava anche quelli già avviati e il log
-                    # accusava sempre la 8765.
-                    try:
-                        await stack.enter_async_context(srv)
-                    except OSError as e:
-                        log_message(f"ERRORE CRITICO: Porta {porta} occupata! ({e})",
-                                    color=COLOR_ERROR)
-                        continue
-                    avviati += 1
+
+                async def avvia(servers) -> int:
+                    """Una porta occupata ferma solo il suo server: prima
+                    l'OSError smontava anche quelli già avviati e il log
+                    accusava sempre la 8765."""
+                    ok = 0
+                    for porta, srv in servers:
+                        try:
+                            await stack.enter_async_context(srv)
+                        except OSError as e:
+                            log_message(f"ERRORE CRITICO: Porta {porta} occupata! ({e})",
+                                        color=COLOR_ERROR)
+                            continue
+                        ok += 1
+                    return ok
+
+                # 1. Server che non hanno bisogno di TLS né di UPnP: il touchpad
+                # in LAN è disponibile subito. Prima la generazione RSA (secondi
+                # al primo avvio) e la discovery UPnP (fino a 2 s) venivano
+                # prima e tenevano il telefono su "in attesa".
+                lan = [
+                    (PORT, websockets.serve(self.handler, "0.0.0.0", PORT,
+                                            ping_interval=WS_PING_INTERVAL,
+                                            ping_timeout=WS_PING_TIMEOUT,
+                                            origins=ALLOWED_ORIGINS)),
+                ]
+                if self.tunnel is not None:
+                    # Origine del tunnel: solo loopback, pagina + WS insieme come
+                    # la 8443. Il TLS lo termina Cloudflare, qui arriva in chiaro.
+                    lan.append((TUNNEL_PORT,
+                        websockets.serve(self._tunnel_handler, "127.0.0.1", TUNNEL_PORT,
+                                         ping_interval=WS_PING_INTERVAL,
+                                         ping_timeout=WS_PING_TIMEOUT,
+                                         origins=ALLOWED_ORIGINS,
+                                         process_request=self.https_process_request)))
+                avviati += await avvia(lan)
+
+                # 2. Certificato (fuori dall'event loop) e server HTTPS/WSS.
+                ssl_ctx = await loop.run_in_executor(NET, self.tls.context_for, self.local_ip)
+                self._ssl_ctx = ssl_ctx
+                if ssl_ctx:
+                    # Porta unica remota: pagina + WSS su HTTPS_PORT.
+                    remoti = [(HTTPS_PORT,
+                        websockets.serve(self.handler, "0.0.0.0", HTTPS_PORT, ssl=ssl_ctx,
+                                         ping_interval=WS_PING_INTERVAL,
+                                         ping_timeout=WS_PING_TIMEOUT,
+                                         origins=ALLOWED_ORIGINS,
+                                         process_request=self.https_process_request)),
+                        # Legacy: WSS dedicato per client pre-porta-unica ancora in giro.
+                        (WSS_PORT,
+                        websockets.serve(self.handler, "0.0.0.0", WSS_PORT, ssl=ssl_ctx,
+                                         ping_interval=WS_PING_INTERVAL,
+                                         ping_timeout=WS_PING_TIMEOUT,
+                                         origins=ALLOWED_ORIGINS))]
+                    avviati += await avvia(remoti)
+
                 if avviati:
+                    # 3. Strada remota, a server già in ascolto. Un errore qui non
+                    # deve impedire l'avvio: il telefono in LAN funziona comunque.
+                    try:
+                        await self._refresh_remote(primo=True)
+                    except Exception as e:
+                        log_message(f"Accesso remoto non avviato: {e}", color=COLOR_ERROR)
+                    keepalive = loop.create_task(self._remote_keepalive())
                     await asyncio.Future()
         except Exception as e:
             log_message(f"WebSocket Server crash: {e}", color=COLOR_ERROR)
         finally:
-            loop = asyncio.get_running_loop()
+            if keepalive is not None:
+                keepalive.cancel()
             await loop.run_in_executor(NET, self.upnp.cleanup)
             if self.tunnel is not None:
                 self.tunnel.stop()
