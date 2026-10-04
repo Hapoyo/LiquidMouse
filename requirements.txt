@@ -5,7 +5,7 @@
 # - paramiko 3: file manager SFTP (import pigro).
 # pywinpty e miniupnpc sono facoltativi a runtime (ripiego ConPTY via ctypes, UPnP
 # assente = solo tunnel), ma la build dell'EXE li include.
-websockets>=14.0
+websockets>=17.1
 pystray>=0.19
 Pillow>=10.0
 qrcode>=7.4
