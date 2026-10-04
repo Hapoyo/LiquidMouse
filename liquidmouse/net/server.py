@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import ipaddress
 import json
+import re
 import threading
 from http import HTTPStatus
 from urllib.parse import parse_qs, quote, urlsplit
@@ -43,6 +44,21 @@ UPNP_KEEPALIVE_SECS = 600
 # Chiave anti brute force per chi arriva dal tunnel senza l'header di
 # Cloudflare (in pratica solo un processo locale).
 TUNNEL_GUARD_KEY = "tunnel"
+
+# Origin ammessi nell'handshake WebSocket. Un browser manda sempre l'Origin
+# della pagina che apre il socket: senza filtro, una pagina qualunque aperta
+# sul telefono o sul PC (anche su internet) potrebbe collegarsi a ws://<ip>:8765
+# e, dal loopback o dalla LAN, essere trattata come client fidato. Valgono solo
+# le pagine servite da noi: localhost/127.0.0.1 (finestra terminale sul PC), un
+# IPv4 numerico (LAN e IP pubblico UPnP) e il tunnel. Hostname arbitrari no:
+# sono la via del DNS rebinding. None = client non browser (nessun header, come
+# test_server.py), che non è un vettore di attacco da pagina web.
+_ORIGIN_HOST = (r"(?:localhost|\d{1,3}(?:\.\d{1,3}){3}"
+                r"|[a-z0-9-]+\.trycloudflare\.com)")
+ALLOWED_ORIGINS = [
+    None,
+    re.compile(rf"https?://{_ORIGIN_HOST}(?::\d{{1,5}})?", re.IGNORECASE),
+]
 
 
 def tunnel_client_ip(headers) -> str:
@@ -503,7 +519,8 @@ class NetworkServices:
         servers = [
             websockets.serve(self.handler, "0.0.0.0", PORT,
                              ping_interval=WS_PING_INTERVAL,
-                             ping_timeout=WS_PING_TIMEOUT),
+                             ping_timeout=WS_PING_TIMEOUT,
+                             origins=ALLOWED_ORIGINS),
         ]
         if ssl_ctx:
             # Porta unica remota: pagina + WSS su HTTPS_PORT.
@@ -511,13 +528,15 @@ class NetworkServices:
                 websockets.serve(self.handler, "0.0.0.0", HTTPS_PORT, ssl=ssl_ctx,
                                  ping_interval=WS_PING_INTERVAL,
                                  ping_timeout=WS_PING_TIMEOUT,
+                                 origins=ALLOWED_ORIGINS,
                                  process_request=self.https_process_request)
             )
             # Legacy: WSS dedicato per client pre-porta-unica ancora in giro.
             servers.append(
                 websockets.serve(self.handler, "0.0.0.0", WSS_PORT, ssl=ssl_ctx,
                                  ping_interval=WS_PING_INTERVAL,
-                                 ping_timeout=WS_PING_TIMEOUT)
+                                 ping_timeout=WS_PING_TIMEOUT,
+                                 origins=ALLOWED_ORIGINS)
             )
         if self.tunnel is not None:
             # Origine del tunnel: solo loopback, pagina + WS insieme come la
@@ -526,6 +545,7 @@ class NetworkServices:
                 websockets.serve(self._tunnel_handler, "127.0.0.1", TUNNEL_PORT,
                                  ping_interval=WS_PING_INTERVAL,
                                  ping_timeout=WS_PING_TIMEOUT,
+                                 origins=ALLOWED_ORIGINS,
                                  process_request=self.https_process_request)
             )
 

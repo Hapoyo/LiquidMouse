@@ -233,3 +233,78 @@ class TestPinSulTunnel:
         # La finestra terminale sul PC continua a entrare senza PIN.
         ws = _FakeWs([])
         assert asyncio.run(self._services().authorize(ws, "127.0.0.1"))
+
+
+# --- controllo Origin sui WebSocket ----------------------------------------
+
+import socket
+
+from websockets.asyncio.client import connect as ws_connect
+from websockets.asyncio.server import serve as serve_reale
+from websockets.exceptions import InvalidStatus
+
+
+class _CatturaServe:
+    """Sostituisce websockets.serve registrando gli argomenti di ogni chiamata."""
+
+    def __init__(self):
+        self.chiamate = []
+
+    def __call__(self, *a, **k):
+        self.chiamate.append(k)
+        return _FakeServeCtx()
+
+
+class TestOriginDeiWebSocket:
+    def test_tutti_e_quattro_i_serve_filtrano_l_origin(self, monkeypatch):
+        cattura = _CatturaServe()
+        monkeypatch.setattr(server_mod.websockets, "serve", cattura)
+        services = NetworkServices(
+            config={}, auth_guard=None, trusted_peer=None, sessions=None,
+            static=None, tls=_FakeTls(object()), upnp=_FakeUpnp(None),
+            local_ip="192.168.1.10", tunnel=_FakeTunnel())
+        asyncio.run(_avvia_e_ferma(services))
+        assert len(cattura.chiamate) == 4
+        for k in cattura.chiamate:
+            assert k["origins"] is server_mod.ALLOWED_ORIGINS
+
+    async def _tenta(self, origin):
+        """Handshake reale su loopback con l'Origin dato. Ritorna lo status
+        HTTP del rifiuto, o 101 se la connessione è stata accettata."""
+        async def handler(ws):
+            await ws.close()
+
+        async with serve_reale(handler, "127.0.0.1", 0,
+                                    origins=server_mod.ALLOWED_ORIGINS) as srv:
+            porta = srv.sockets[0].getsockname()[1]
+            headers = {"Origin": origin} if origin is not None else {}
+            try:
+                async with ws_connect(f"ws://127.0.0.1:{porta}",
+                                      additional_headers=headers):
+                    return 101
+            except InvalidStatus as e:
+                return e.response.status_code
+
+    @pytest.mark.parametrize("origin", [
+        None,                                  # client non browser (test_server.py)
+        "http://127.0.0.1:8000",               # finestra terminale sul PC
+        "http://localhost:8000",
+        "http://192.168.1.10:8000",            # pagina in LAN
+        "https://203.0.113.5:8443",            # pagina remota via UPnP
+        "https://203.0.113.5",                 # porta opzionale
+        "https://a-b-c.trycloudflare.com",     # tunnel
+    ])
+    def test_origin_ammessi(self, origin):
+        assert asyncio.run(self._tenta(origin)) == 101
+
+    @pytest.mark.parametrize("origin", [
+        "https://evil.example",
+        "http://evil.example:8000",
+        "http://127.0.0.1.evil.example",       # prefisso numerico, host altrui
+        "https://trycloudflare.com.evil.example",
+        "https://evil.com/.trycloudflare.com",
+        "ftp://127.0.0.1",
+        "null",
+    ])
+    def test_origin_rifiutati_con_403(self, origin):
+        assert asyncio.run(self._tenta(origin)) == 403
