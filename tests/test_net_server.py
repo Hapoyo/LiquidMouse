@@ -229,6 +229,20 @@ class TestPinSulTunnel:
         assert ok
         assert ws.inviati[-1]["type"] == "auth_ok"
 
+    @pytest.mark.parametrize("payload", [
+        "[1, 2]", "123", "null", '{"type": "auth", "pin": 123}',
+        '{"type": "auth", "pin": null}', '{"type": "auth", "pin": ["1234"]}',
+    ])
+    def test_payload_malformato_conta_come_tentativo_fallito(self, payload):
+        # Un JSON non-dict o un PIN non stringa faceva sollevare l'handshake:
+        # la connessione cadeva con traceback e il tentativo non veniva contato.
+        services = self._services()
+        ws = _FakeWs([payload])
+        ok = asyncio.run(services.authorize(ws, "198.51.100.7", via_tunnel=True))
+        assert not ok and ws.chiuso
+        assert ws.inviati[0]["type"] == "auth_fail"
+        assert services.auth_guard.remaining("198.51.100.7") < 5
+
     def test_loopback_diretto_resta_fidato(self):
         # La finestra terminale sul PC continua a entrare senza PIN.
         ws = _FakeWs([])

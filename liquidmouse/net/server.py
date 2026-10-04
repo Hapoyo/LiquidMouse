@@ -188,6 +188,7 @@ def make_http_handler(static, sftp=None, transfers=None):
                 self.close_connection = True
                 self.send_error(HTTPStatus.GONE, str(e))
                 return
+            completo = False
             try:
                 rimasti = totale
                 while rimasti > 0:
@@ -196,11 +197,16 @@ def make_http_handler(static, sftp=None, transfers=None):
                         raise ConnectionError("upload interrotto")
                     fh.write(blocco)
                     rimasti -= len(blocco)
+                fh.close()   # qui il file parziale diventa quello definitivo
+                completo = True
             except (OSError, ConnectionError):
                 self.close_connection = True
                 return
             finally:
-                fh.close()
+                if not completo:
+                    # Un upload interrotto non deve lasciare un file troncato
+                    # al posto dell'originale: si scarta il parziale.
+                    fh.abort()
             corpo = b'{"ok":true}'
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/json")
@@ -330,10 +336,18 @@ class NetworkServices:
             except Exception:
                 await websocket.close()
                 return False
-            if data.get('type') != 'auth':
+            if not isinstance(data, dict):
+                # Un JSON che non è un oggetto (lista, numero) non è un client
+                # vero: conta come tentativo fallito invece di far cadere
+                # l'handshake con un'eccezione non contata dal guard.
+                pin = None
+            elif data.get('type') != 'auth':
                 await websocket.close()
                 return False
-            if not pin_matches(data.get('pin', ''), self.config.get('pin_hash', '')):
+            else:
+                pin = data.get('pin', '')
+            if not isinstance(pin, str) or not pin_matches(
+                    pin, self.config.get('pin_hash', '')):
                 guard.record_fail(client_ip)
                 rimasti = guard.remaining(client_ip)
                 await websocket.send(json.dumps({

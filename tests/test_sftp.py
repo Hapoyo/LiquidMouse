@@ -217,3 +217,36 @@ class TestOperazioni:
         assert client.files["/home/nuovo.bin"] == b"12345"
         assert mgr.exists(1, "/home/nuovo.bin")
         assert not mgr.exists(1, "/home/no")
+
+
+class TestScritturaAtomica:
+    """L'upload scrive su `nome.part` e rinomina alla fine: un telefono che cade
+    a metà non lascia più un file troncato al posto dell'originale."""
+
+    @pytest.fixture(autouse=True)
+    def _collegato(self, mgr):
+        mgr.connect(1, "pc")
+
+    def test_il_file_compare_solo_alla_chiusura(self, mgr, client):
+        fh = mgr.open_write(1, "/home/nuovo.bin")
+        fh.write(b"123")
+        assert "/home/nuovo.bin" not in client.files
+        fh.close()
+        assert client.files["/home/nuovo.bin"] == b"123"
+        assert "/home/nuovo.bin.part" not in client.files
+
+    def test_sovrascrive_un_file_esistente_alla_chiusura(self, mgr, client):
+        fh = mgr.open_write(1, "/home/a.txt")
+        fh.write(b"nuovo")
+        assert client.files["/home/a.txt"] == b"ciao"   # intatto fino alla fine
+        fh.close()
+        assert client.files["/home/a.txt"] == b"nuovo"
+        assert "/home/a.txt.part" not in client.files
+
+    def test_abort_lascia_l_originale_e_toglie_il_parziale(self, mgr, client):
+        fh = mgr.open_write(1, "/home/a.txt")
+        fh.write(b"meta")
+        fh.abort()
+        assert client.files["/home/a.txt"] == b"ciao"
+        assert "/home/a.txt.part" not in client.files
+        fh.abort()   # idempotente

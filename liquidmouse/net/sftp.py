@@ -166,6 +166,63 @@ def paramiko_connector(host: str, port: int, user: str, password: str,
     return SftpSession("", client, ssh), seen.get("fp", "")
 
 
+PARZIALE = ".part"
+
+
+class _ScritturaAtomica:
+    """File remoto scritto su un parziale e rinominato alla chiusura.
+
+    Aprire direttamente il file di destinazione in "wb" lo tronca subito: un
+    telefono che perde la connessione a metà upload lasciava un file monco al
+    posto dell'originale.
+    """
+
+    def __init__(self, client, dest: str, fh) -> None:
+        self._client, self._dest, self._fh = client, dest, fh
+        self._finito = False
+
+    def write(self, dati: bytes):
+        return self._fh.write(dati)
+
+    def close(self) -> None:
+        """Chiude il parziale e lo rinomina sul file di destinazione."""
+        if self._finito:
+            return
+        self._finito = True
+        parziale = self._dest + PARZIALE
+        try:
+            self._fh.close()
+            # posix_rename sostituisce la destinazione; il rename SFTP v3
+            # classico fallirebbe se il file esiste già.
+            posix = getattr(self._client, "posix_rename", None)
+            if posix is not None:
+                posix(parziale, self._dest)
+            else:
+                if SftpManager._exists(self._client, self._dest):
+                    self._client.remove(self._dest)
+                self._client.rename(parziale, self._dest)
+        except (OSError, IOError):
+            self._rimuovi(parziale)
+            raise
+
+    def abort(self) -> None:
+        """Scarta il parziale. Idempotente, non solleva."""
+        if self._finito:
+            return
+        self._finito = True
+        try:
+            self._fh.close()
+        except (OSError, IOError):
+            pass
+        self._rimuovi(self._dest + PARZIALE)
+
+    def _rimuovi(self, parziale: str) -> None:
+        try:
+            self._client.remove(parziale)
+        except (OSError, IOError, KeyError):
+            pass
+
+
 class SftpManager:
     """Profili (nella config) e connessioni aperte, una per client.
 
@@ -359,7 +416,11 @@ class SftpManager:
             raise SftpError(f"file non leggibile: {e}") from e
 
     def open_write(self, owner: int, path: str):
+        """File in scrittura: i dati vanno su `nome.part` e solo `close()` li
+        sostituisce al file vero; `abort()` scarta il parziale."""
+        client = self._get(owner).client
+        dest = validate_path(path)
         try:
-            return self._get(owner).client.open(validate_path(path), "wb")
+            return _ScritturaAtomica(client, dest, client.open(dest + PARZIALE, "wb"))
         except (OSError, IOError) as e:
             raise SftpError(f"file non scrivibile: {e}") from e
