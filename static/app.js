@@ -518,6 +518,39 @@
     // la sensibilita'. Vale sempre meno di un pixel per asse.
     let pendingX = 0, pendingY = 0;
     let twoFingerScrollAcc = 0;
+    let twoFingerScrollAccX = 0;   // scroll orizzontale, stessa logica del verticale
+
+    // --- GESTI: contratto (estratto ed eseguito da tests con node) ---
+    // Decisioni pure dei gesti del touchpad, senza DOM né timer: il resto sta
+    // nei gestori touch qui sotto, che non animano nulla (latenza del cursore).
+    const MULTI_TAP_MAX_MS = 300;    // più largo del tap a un dito: le dita non atterrano insieme
+    const MULTI_TAP_MAX_MOVE = 14;   // px di spostamento oltre cui non è più un tap
+    const DRAG_WINDOW_MS = 300;      // secondo tocco entro questo tempo dal tap = tap-e-trascina
+    const DRAG_NEAR_PX = 40;         // ...e abbastanza vicino al primo
+    const SCROLL_GAIN = 0.375;
+    // Pulsante prodotto da un gesto a più dita finito: due dita = destro, tre =
+    // centrale; null se è durato troppo o le dita si sono mosse (era uno scroll).
+    function multiTapButton(maxTouches, durationMs, maxMovePx) {
+        if (maxTouches < 2 || durationMs >= MULTI_TAP_MAX_MS || maxMovePx > MULTI_TAP_MAX_MOVE) return null;
+        return maxTouches === 2 ? 'right' : (maxTouches === 3 ? 'middle' : null);
+    }
+    // Il tocco che inizia ora può diventare un trascinamento col sinistro premuto?
+    function dragArmed(lastTapEnd, now, distPx, dragLocked) {
+        return !dragLocked && lastTapEnd > 0 && (now - lastTapEnd) < DRAG_WINDOW_MS && distPx <= DRAG_NEAR_PX;
+    }
+    // Scroll a due dita da uno spostamento del punto medio. Positivo = su (v) e
+    // verso destra (h), come il verticale di sempre ("naturale": il contenuto
+    // segue le dita). Vince l'asse dominante: il tremolio dell'altro si scarta,
+    // salvo un vero movimento diagonale.
+    function scrollDelta(dx, dy) {
+        const ax = Math.abs(dx), ay = Math.abs(dy);
+        const forte = Math.max(ax, ay);
+        return {
+            v: ay < forte * 0.6 ? 0 : dy * SCROLL_GAIN,
+            h: ax < forte * 0.6 ? 0 : -dx * SCROLL_GAIN,
+        };
+    }
+    // --- fine contratto ---
 
     // Invio coalescizzato una volta per frame, ma schedulato SOLO quando c'è
     // input pendente. Da fermo non gira alcun loop a 60fps → meno CPU/batteria
@@ -543,12 +576,15 @@
                 pendingX -= sx; pendingY -= sy;
             }
         }
-        if (Math.abs(twoFingerScrollAcc) >= 1) {
-            const amount = Math.round(twoFingerScrollAcc / 1.5);
-            if (amount !== 0) {
-                ws.send(JSON.stringify({ type: 'scroll', amount: amount }));
-                twoFingerScrollAcc -= amount * 1.5;
-            }
+        // Verticale e orizzontale viaggiano nello stesso messaggio; ognuno solo
+        // se non nullo, quindi il verticale puro resta {type, amount} come prima.
+        const amount = Math.abs(twoFingerScrollAcc) >= 1 ? Math.round(twoFingerScrollAcc / 1.5) : 0;
+        const hAmount = Math.abs(twoFingerScrollAccX) >= 1 ? Math.round(twoFingerScrollAccX / 1.5) : 0;
+        if (amount !== 0 || hAmount !== 0) {
+            const msg = { type: 'scroll' };
+            if (amount !== 0) { msg.amount = amount; twoFingerScrollAcc -= amount * 1.5; }
+            if (hAmount !== 0) { msg.h = hAmount; twoFingerScrollAccX -= hAmount * 1.5; }
+            ws.send(JSON.stringify(msg));
         }
     }
     function scheduleSend() {
@@ -559,19 +595,55 @@
     let lastX = 0, lastY = 0, touchActive = false;
     let twoFingerLastY = 0;
 
-    // --- GESTURE: TAP-TO-CLICK, DOUBLE-TAP, LONG-PRESS ---
+    // --- GESTI: tap, tap-e-trascina, due/tre dita, long-press ---
+    // Un dito: tap = click sinistro, tap seguito da un tocco con movimento =
+    // trascinamento (sinistro premuto), pressione lunga = click destro. Due dita:
+    // scroll (verticale e orizzontale) o, se è un tap, click destro. Tre dita: tap
+    // = click centrale. Le decisioni pure sono nel blocco "GESTI: contratto".
     const TAP_MAX_MS   = 200;
     const TAP_MAX_MOVE = 10;
     const LONG_PRESS_MS = 650;
 
     let tapStartTime = 0, tapStartX = 0, tapStartY = 0;
     let tapMoved = false, longPressTimer = null;
+    // Gesto in corso (dal primo dito giù all'ultimo su): dita massime, spostamento
+    // massimo di ciascuna dal punto di partenza, inizio.
+    let gestureStart = 0, gestureMaxTouches = 0, gestureMaxMove = 0;
+    const gestureOrigin = {};
+    let twoFingerLastX = 0;
+    // Tap-e-trascina: fine/posizione dell'ultimo tap a un dito, e stato del trascinamento.
+    let lastTapEnd = 0, lastTapX = 0, lastTapY = 0;
+    let dragCandidate = false, tapDragging = false;
+
+    function resetGesture() {
+        gestureMaxTouches = 0; gestureMaxMove = 0;
+        for (const k in gestureOrigin) delete gestureOrigin[k];
+        dragCandidate = false;
+    }
+
+    function endTapDrag() {
+        if (!tapDragging) return;
+        tapDragging = false;
+        sendDrag('up');
+    }
 
     pad.addEventListener('touchstart', (e) => {
         e.preventDefault();
 
-        if (e.touches.length === 2) {
-            // Due dita: prepara scroll, disabilita movimento cursore
+        if (e.touches.length === 1) {
+            // Primo dito di un nuovo gesto.
+            resetGesture();
+            gestureStart = Date.now();
+        }
+        gestureMaxTouches = Math.max(gestureMaxTouches, e.touches.length);
+        for (const t of e.changedTouches) gestureOrigin[t.identifier] = { x: t.clientX, y: t.clientY };
+
+        if (e.touches.length >= 2) {
+            // Più dita: prepara scroll, disabilita movimento cursore. Un
+            // trascinamento in corso finisce (il secondo dito non è un suo gesto).
+            endTapDrag();
+            dragCandidate = false;
+            twoFingerLastX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
             twoFingerLastY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
             touchActive = false;
             clearTimeout(longPressTimer);
@@ -588,6 +660,8 @@
         tapStartX = lastX;
         tapStartY = lastY;
         tapMoved = false;
+        dragCandidate = dragArmed(lastTapEnd, tapStartTime,
+                                  Math.hypot(lastX - lastTapX, lastY - lastTapY), locks.drag);
 
         longPressTimer = setTimeout(() => {
             if (!tapMoved) {
@@ -601,9 +675,18 @@
     pad.addEventListener('touchmove', (e) => {
         e.preventDefault();
 
+        for (const t of e.touches) {
+            const o = gestureOrigin[t.identifier];
+            if (o) gestureMaxMove = Math.max(gestureMaxMove, Math.hypot(t.clientX - o.x, t.clientY - o.y));
+        }
+
         if (e.touches.length === 2) {
+            const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
             const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-            twoFingerScrollAcc += (midY - twoFingerLastY) * 0.375;
+            const d = scrollDelta(midX - twoFingerLastX, midY - twoFingerLastY);
+            twoFingerScrollAcc += d.v;
+            twoFingerScrollAccX += d.h;
+            twoFingerLastX = midX;
             twoFingerLastY = midY;
             scheduleSend();
             return;
@@ -615,6 +698,11 @@
         if (Math.abs(cx - tapStartX) > TAP_MAX_MOVE || Math.abs(cy - tapStartY) > TAP_MAX_MOVE) {
             tapMoved = true;
             clearTimeout(longPressTimer);
+            if (dragCandidate && !tapDragging) {
+                // Pulsante giù prima dei movimenti: i messaggi viaggiano in ordine.
+                tapDragging = true;
+                sendDrag('down');
+            }
         }
 
         moveX += (cx - lastX); moveY += (cy - lastY);
@@ -622,27 +710,60 @@
         scheduleSend();
     }, { passive: false });
 
-    pad.addEventListener('touchend', () => {
+    pad.addEventListener('touchend', (e) => {
         touchActive = false;
         clearTimeout(longPressTimer);
+        if (e.touches.length > 0) return;   // restano dita giù: il gesto non è finito
 
-        const duration = Date.now() - tapStartTime;
-        if (duration < TAP_MAX_MS && !tapMoved && tapStartTime > 0) {
+        if (tapDragging) {
+            endTapDrag();
+            lastTapEnd = 0;
+            tapStartTime = 0;
+            resetGesture();
+            return;
+        }
+
+        const now = Date.now();
+        if (gestureMaxTouches >= 2) {
+            const btn = multiTapButton(gestureMaxTouches, now - gestureStart, gestureMaxMove);
+            if (btn) {
+                sendClick(btn);
+                if (navigator.vibrate) navigator.vibrate(30);
+            }
+            lastTapEnd = 0;
+            tapStartTime = 0;
+            resetGesture();
+            return;
+        }
+
+        if (now - tapStartTime < TAP_MAX_MS && !tapMoved && tapStartTime > 0) {
             // Tap rapido = click sinistro (il doppio tap produce due click = double-click OS)
             sendClick('left');
+            lastTapEnd = now; lastTapX = tapStartX; lastTapY = tapStartY;
+        } else {
+            lastTapEnd = 0;
         }
         tapStartTime = 0;
+        resetGesture();
     }, { passive: false });
 
     pad.addEventListener('touchcancel', () => {
         touchActive = false;
         clearTimeout(longPressTimer);
+        endTapDrag();               // un trascinamento interrotto non deve restare premuto
         tapStartTime = 0;
+        lastTapEnd = 0;
+        resetGesture();
     }, { passive: false });
 
     // --- CLICK ---
     const sendClick = (btn) => {
         if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'click', btn: btn }));
+    };
+    // Pulsante sinistro giù/su per il tap-e-trascina (stesso messaggio del blocco
+    // "trascina" del menu: il server rilascia comunque alla disconnessione).
+    const sendDrag = (state) => {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'drag', state: state }));
     };
 
     // --- MENU E LOCKS ---
