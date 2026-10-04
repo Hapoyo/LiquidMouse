@@ -72,6 +72,11 @@ Security and robustness pass from a full code review, plus follow-ups.
 - **LAN touchpad is available sooner** — the LAN WebSocket (and the tunnel origin) now open
   first; the RSA key generation (first start only), the UPnP discovery and the remote servers
   follow, so the phone no longer waits on "connecting" for those few seconds.
+- **Choose the terminal shell** — the "nuova sessione" card now has a drop-down instead of the
+  single `cmd` button: `cmd.exe`, PowerShell, `pwsh`, WSL, `bash` and `claude`, limited to those
+  found on the PC. The list comes from the server (`shells` in `term_sessions`, same source as
+  the command whitelist, which stays the authority), so the client never offers or sends
+  anything the server would refuse; the last choice is remembered on the phone.
 
 ## 2.9.0 — 2026-10-04
 

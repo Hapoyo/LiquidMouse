@@ -334,10 +334,12 @@
                     const rtt = Date.now() - pingTimestamp;
                     setStatus(`connesso ${rtt}ms`, rtt < 50 ? 'ok' : rtt < 150 ? 'warn' : 'err');
                 } else if (msg.type === 'term_sessions') {
+                    termShells = parseShells(msg.shells);
                     renderSessionPicker(msg.sessions);
                 } else if (msg.type === 'term_created') {
                     termSessionId = msg.id;
-                    termSessionCmd = 'cmd.exe';
+                    termSessionCmd = termPendingCmd || termShellChoice;
+                    termPendingCmd = '';
                     attachSession(msg.id);
                 } else if (msg.type === 'term_closed') {
                     // NB: qui siamo in una catena if/else dentro una funzione, non in un
@@ -1147,6 +1149,41 @@
         }
     });
 
+    // --- SHELL: contratto (estratto ed eseguito da tests con node) ---
+    // L'elenco delle shell arriva dal server (`shells` in term_sessions, dalla
+    // stessa fonte della whitelist): qui non se ne nomina nessuna. La whitelist
+    // del server resta l'autorità; questi controlli evitano solo di proporre o
+    // inviare ciò che certamente verrebbe rifiutato.
+    const SHELL_DEFAULT = [{ cmd: 'cmd.exe', label: 'cmd' }];
+    function parseShells(raw) {
+        if (!Array.isArray(raw)) return SHELL_DEFAULT;
+        const out = [];
+        for (const s of raw) {
+            if (s && typeof s.cmd === 'string' && typeof s.label === 'string'
+                && /^[A-Za-z0-9._-]{1,32}$/.test(s.cmd)
+                && s.label.length > 0 && s.label.length <= 32
+                && !out.some(o => o.cmd === s.cmd)) {
+                out.push({ cmd: s.cmd, label: s.label });
+            }
+        }
+        return out.length ? out : SHELL_DEFAULT;
+    }
+    function pickShell(shells, preferred) {
+        return shells.some(s => s.cmd === preferred) ? preferred : shells[0].cmd;
+    }
+    function termCreateMessage(shells, cmd) {
+        return shells.some(s => s.cmd === cmd) ? { type: 'term_create', cmd: cmd } : null;
+    }
+    // --- fine contratto ---
+
+    let termShells = SHELL_DEFAULT;
+    let termPendingCmd = '';       // shell richiesta con "avvia", per l'intestazione
+    // Ultima shell scelta, ricordata fra una visita e l'altra (solo comodità).
+    let termShellChoice = (() => {
+        try { return localStorage.getItem('liquidMouseShell') || 'cmd.exe'; }
+        catch (_) { return 'cmd.exe'; }
+    })();
+
     function renderSessionPicker(sessions) {
         const list = document.getElementById('session-list');
         list.innerHTML = '';
@@ -1222,14 +1259,40 @@
 
         const newCard = document.createElement('div');
         newCard.className = 'session-card new-session';
-        newCard.innerHTML = `
-            <div class="session-card-label">
-                <div class="name-new">nuova sessione</div>
-            </div>
-            <button class="session-card-btn btn-new btn-cmd">cmd</button>`;
-        newCard.querySelector('.btn-cmd').addEventListener('click', () => {
-            ws.send(JSON.stringify({type: 'term_create', cmd: 'cmd.exe'}));
+        const newLabel = document.createElement('label');
+        newLabel.className = 'session-card-label name-new';
+        newLabel.htmlFor = 'shell-select';
+        newLabel.textContent = 'nuova sessione // shell';
+
+        // Select nativo: sul telefono apre il selettore del sistema, ed è già
+        // accessibile (etichetta, tastiera, screen reader).
+        const shellSelect = document.createElement('select');
+        shellSelect.id = 'shell-select';
+        shellSelect.className = 'shell-select';
+        termShells.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.cmd;
+            opt.textContent = s.label;
+            shellSelect.appendChild(opt);
         });
+        shellSelect.value = pickShell(termShells, termShellChoice);
+        shellSelect.addEventListener('change', () => { termShellChoice = shellSelect.value; });
+
+        const startBtn = document.createElement('button');
+        startBtn.className = 'session-card-btn btn-new';
+        startBtn.textContent = 'avvia';
+        startBtn.addEventListener('click', () => {
+            const msg = termCreateMessage(termShells, shellSelect.value);
+            if (!msg || !ws || ws.readyState !== WebSocket.OPEN) return;
+            termShellChoice = msg.cmd;
+            termPendingCmd = msg.cmd;
+            try { localStorage.setItem('liquidMouseShell', msg.cmd); } catch (_) {}
+            ws.send(JSON.stringify(msg));
+        });
+
+        newCard.appendChild(newLabel);
+        newCard.appendChild(shellSelect);
+        newCard.appendChild(startBtn);
         list.appendChild(newCard);
         animaElenco(list);
     }
