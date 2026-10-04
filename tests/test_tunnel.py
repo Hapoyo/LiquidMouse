@@ -1,11 +1,20 @@
 """CloudflareTunnel: individuazione di cloudflared, lettura dell'indirizzo e
 ciclo di vita del processo, senza rete né processi reali."""
 
+import hashlib
+import io
+import json
 import threading
 
+import pytest
+
 from liquidmouse.net.tunnel import (
+    CLOUDFLARED_ASSET,
     CLOUDFLARED_EXE,
+    MIN_BINARY_BYTES,
     CloudflareTunnel,
+    download_cloudflared,
+    fetch_release_asset,
     parse_tunnel_url,
 )
 
@@ -165,3 +174,102 @@ def test_start_e_stop(tmp_path):
     t._thread.join(5)
     assert not t.running
     assert proc.terminato
+
+
+class _Risposta:
+    """Corpo HTTP finto, usabile come context manager e da copyfileobj."""
+
+    def __init__(self, dati: bytes):
+        self._io = io.BytesIO(dati)
+
+    def read(self, n=-1):
+        return self._io.read(n)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+class TestDownloadVerificato:
+    """cloudflared parte con i permessi dell'utente: va controllato contro lo
+    SHA-256 pubblicato dalla release prima di metterlo dove verrà lanciato."""
+
+    DATI = b"MZ" + b"x" * (MIN_BINARY_BYTES + 10)
+
+    def _scarica(self, tmp_path, sha, dati=None):
+        dati = self.DATI if dati is None else dati
+        dest = tmp_path / "bin" / CLOUDFLARED_EXE
+        download_cloudflared(
+            dest, fetch_asset=lambda: ("https://example/x.exe", sha),
+            opener=lambda url, timeout: _Risposta(dati))
+        return dest
+
+    def test_hash_corretto_installa(self, tmp_path):
+        dest = self._scarica(tmp_path, hashlib.sha256(self.DATI).hexdigest())
+        assert dest.read_bytes() == self.DATI
+        assert not dest.with_name(dest.name + ".part").exists()
+
+    def test_hash_diverso_non_installa(self, tmp_path):
+        with pytest.raises(OSError, match="SHA-256"):
+            self._scarica(tmp_path, "0" * 64)
+        assert not (tmp_path / "bin" / CLOUDFLARED_EXE).exists()
+        assert not (tmp_path / "bin" / (CLOUDFLARED_EXE + ".part")).exists()
+
+    def test_hash_diverso_non_sostituisce_il_file_esistente(self, tmp_path):
+        dest = tmp_path / "bin" / CLOUDFLARED_EXE
+        dest.parent.mkdir()
+        dest.write_bytes(b"vecchio")
+        with pytest.raises(OSError):
+            self._scarica(tmp_path, "0" * 64)
+        assert dest.read_bytes() == b"vecchio"
+
+    def test_maiuscole_nell_hash_sono_ammesse(self, tmp_path):
+        self._scarica(tmp_path, hashlib.sha256(self.DATI).hexdigest().upper())
+
+    def test_troppo_piccolo(self, tmp_path):
+        piccolo = b"<html>403</html>"
+        with pytest.raises(OSError, match="incompleto"):
+            self._scarica(tmp_path, hashlib.sha256(piccolo).hexdigest(), piccolo)
+
+
+class TestAssetDellaRelease:
+    def _release(self, assets):
+        corpo = json.dumps({"tag_name": "2026.9.3", "assets": assets}).encode()
+        return lambda url, timeout: _Risposta(corpo)
+
+    def test_legge_url_e_digest(self):
+        sha = "ab" * 32
+        url, atteso = fetch_release_asset(opener=self._release([
+            {"name": "cloudflared-windows-amd64.msi", "digest": "sha256:" + "11" * 32,
+             "browser_download_url": "https://x/msi"},
+            {"name": CLOUDFLARED_ASSET, "digest": "sha256:" + sha,
+             "browser_download_url": "https://x/exe"},
+        ]))
+        assert (url, atteso) == ("https://x/exe", sha)
+
+    def test_senza_digest_rifiuta(self):
+        with pytest.raises(OSError, match="SHA-256"):
+            fetch_release_asset(opener=self._release([
+                {"name": CLOUDFLARED_ASSET, "digest": None,
+                 "browser_download_url": "https://x/exe"}]))
+
+    def test_asset_assente(self):
+        with pytest.raises(OSError, match="non trovato"):
+            fetch_release_asset(opener=self._release([]))
+
+    def test_url_non_https_rifiutato(self):
+        with pytest.raises(OSError):
+            fetch_release_asset(opener=self._release([
+                {"name": CLOUDFLARED_ASSET, "digest": "sha256:" + "ab" * 32,
+                 "browser_download_url": "http://x/exe"}]))
+
+
+class TestPrecedenzaBinario:
+    def test_il_file_in_appdata_batte_il_path(self, tmp_path):
+        # Un cloudflared nel PATH puo' essere sostituito da chiunque scriva in
+        # quella cartella; quello in %APPDATA% e' stato verificato da noi.
+        (tmp_path / CLOUDFLARED_EXE).write_bytes(b"x")
+        t = _tunnel(tmp_path, which=lambda nome: "/usr/bin/cloudflared")
+        assert t.binary() == str(tmp_path / CLOUDFLARED_EXE)

@@ -8,11 +8,14 @@ tunnel: gratis, senza account). Il traffico arriva sul PC in chiaro su
 127.0.0.1:TUNNEL_PORT; il TLS lo termina Cloudflare con un certificato valido,
 quindi sul telefono niente avviso.
 
-L'eseguibile non è nel bundle (sono decine di MB): si usa quello nel PATH o
-lo si scarica una volta in %APPDATA%/LiquidMouse/bin.
+L'eseguibile non è nel bundle (sono decine di MB): si usa quello in
+%APPDATA%/LiquidMouse/bin, altrimenti quello nel PATH, altrimenti lo si scarica
+lì una volta, verificando lo SHA-256 della release.
 """
 
 import atexit
+import hashlib
+import json
 import os
 import pathlib
 import re
@@ -26,8 +29,11 @@ from collections.abc import Callable
 from liquidmouse.events import log_message
 from liquidmouse.theme import COLOR_ERROR, COLOR_MUTED, COLOR_OK
 
-CLOUDFLARED_URL = ("https://github.com/cloudflare/cloudflared/releases/latest/"
-                   "download/cloudflared-windows-amd64.exe")
+# L'API della release dice nome, URL e SHA-256 dell'asset: si scarica da lì
+# (stessa release dell'hash, niente corsa fra "latest" e il file) e si verifica.
+CLOUDFLARED_RELEASE_API = ("https://api.github.com/repos/cloudflare/cloudflared/"
+                           "releases/latest")
+CLOUDFLARED_ASSET = "cloudflared-windows-amd64.exe"
 CLOUDFLARED_EXE = "cloudflared.exe"
 # Sotto questa soglia il download è una pagina d'errore, non l'eseguibile.
 MIN_BINARY_BYTES = 1_000_000
@@ -58,21 +64,56 @@ def error_line(riga: str) -> str | None:
     return _LOG_PREFIX_RE.sub("", testo) or None
 
 
-def download_cloudflared(dest: pathlib.Path, url: str = CLOUDFLARED_URL,
-                         timeout: float = 60) -> None:
-    """Scarica cloudflared in `dest`. Solleva OSError se non riesce.
+def fetch_release_asset(api_url: str = CLOUDFLARED_RELEASE_API, timeout: float = 30,
+                        opener=urllib.request.urlopen) -> tuple[str, str]:
+    """(URL, SHA-256 atteso) dell'eseguibile Windows nell'ultima release.
 
-    Scrive in un .part e rinomina alla fine: un download interrotto non deve
-    lasciare un eseguibile troncato che al prossimo avvio verrebbe lanciato.
+    Solleva OSError se la release non lo elenca o non pubblica l'hash: senza
+    hash non c'è nulla con cui verificare, e un eseguibile non verificabile non
+    si lancia.
     """
+    try:
+        with opener(api_url, timeout=timeout) as risposta:
+            release = json.loads(risposta.read())
+        assets = release["assets"]
+    except (ValueError, KeyError, TypeError) as e:
+        raise OSError(f"risposta della release non valida: {e}") from e
+    for asset in assets:
+        if not isinstance(asset, dict) or asset.get("name") != CLOUDFLARED_ASSET:
+            continue
+        digest = asset.get("digest")
+        url = asset.get("browser_download_url")
+        if not isinstance(digest, str) or not digest.startswith("sha256:")                 or len(digest) != len("sha256:") + 64:
+            raise OSError("la release non pubblica lo SHA-256 di cloudflared")
+        if not isinstance(url, str) or not url.startswith("https://"):
+            raise OSError("URL di download di cloudflared non valido")
+        return url, digest[len("sha256:"):].lower()
+    raise OSError(f"{CLOUDFLARED_ASSET} non trovato nella release")
+
+
+def download_cloudflared(dest: pathlib.Path, timeout: float = 60, *,
+                         fetch_asset: Callable[[], tuple[str, str]] = fetch_release_asset,
+                         opener=urllib.request.urlopen) -> None:
+    """Scarica cloudflared in `dest` verificandone lo SHA-256. Solleva OSError
+    se non riesce o se l'hash non corrisponde.
+
+    Scrive in un .part e rinomina alla fine: un download interrotto o con hash
+    sbagliato non deve lasciare un eseguibile che al prossimo avvio verrebbe
+    lanciato, né sostituire uno buono già presente.
+    """
+    url, atteso = fetch_asset()
     dest.parent.mkdir(parents=True, exist_ok=True)
     parziale = dest.with_name(dest.name + ".part")
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as risposta, \
-                open(parziale, "wb") as f:
-            shutil.copyfileobj(risposta, f)
+        sha = hashlib.sha256()
+        with opener(url, timeout=timeout) as risposta, open(parziale, "wb") as f:
+            while blocco := risposta.read(1 << 16):
+                sha.update(blocco)
+                f.write(blocco)
         if parziale.stat().st_size < MIN_BINARY_BYTES:
             raise OSError("download incompleto")
+        if sha.hexdigest() != atteso.lower():
+            raise OSError("SHA-256 di cloudflared diverso da quello della release")
         os.replace(parziale, dest)
     finally:
         try:
@@ -127,11 +168,13 @@ class CloudflareTunnel:
     def binary(self) -> str | None:
         """Percorso di cloudflared, scaricandolo se serve. None se non disponibile
         (il motivo va in `status`)."""
+        # Prima il nostro, scaricato e verificato: un cloudflared nel PATH vive
+        # in cartelle che altri programmi possono sovrascrivere.
+        if self._bin_path.is_file():
+            return str(self._bin_path)
         trovato = self._which("cloudflared")
         if trovato:
             return trovato
-        if self._bin_path.is_file():
-            return str(self._bin_path)
         if not self._can_download:
             self._set(None, "cloudflared non trovato")
             return None
