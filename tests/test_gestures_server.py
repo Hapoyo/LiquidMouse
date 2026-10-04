@@ -2,6 +2,7 @@
 whitelist dei pulsanti. Win32 è sostituito da un finto `user32`."""
 
 import asyncio
+import ctypes
 import json
 
 import pytest
@@ -79,8 +80,9 @@ class TestWin32:
     def test_scroll_orizzontale_negativo_e_a_sinistra(self, user32):
         win32.mouse_hscroll(-2)
         (_, dati), = user32.chiamate[0]
-        # mouseData è un DWORD: -240 si rappresenta in complemento a due.
-        assert dati == (-2 * win32.WHEEL_DELTA) & 0xFFFFFFFF
+        # mouseData è un c_ulong (32 bit su Windows, 64 su Linux): lo stesso valore
+        # che il codice produce per lo scroll verticale, in complemento a due.
+        assert dati == ctypes.c_ulong(-2 * win32.WHEEL_DELTA).value
 
     def test_scroll_verticale_invariato(self, user32):
         win32.mouse_scroll(2)
