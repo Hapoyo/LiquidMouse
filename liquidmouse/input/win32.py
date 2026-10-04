@@ -9,7 +9,7 @@ non fanno nulla invece di sollevare.
 import ctypes
 import sys
 
-from liquidmouse.input.keymap import VK_MAP, normalize_text, resolve_hotkey_vks, resolve_vk
+from liquidmouse.input.keymap import VK_MAP, normalize_text, resolve_hotkey_vks, resolve_vk, utf16_units
 
 _user32 = ctypes.windll.user32 if sys.platform == "win32" else None
 
@@ -149,8 +149,7 @@ def key_up(key):
 def key_text(text):
     text = normalize_text(text)
     inputs = []
-    for c in text:
-        sc = ord(c)
+    for sc in utf16_units(text):
         inputs += [
             _ki(scan=sc, flags=KEYEVENTF_UNICODE),
             _ki(scan=sc, flags=KEYEVENTF_UNICODE | KEYEVENTF_KEYUP),
