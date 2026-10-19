@@ -302,7 +302,7 @@ class TestOriginDeiWebSocket:
                 return e.response.status_code
 
     @pytest.mark.parametrize("origin", [
-        None,                                  # client non browser (test_server.py)
+        None,                                  # client non browser (tools/test_server.py)
         "http://127.0.0.1:8000",               # finestra terminale sul PC
         "http://localhost:8000",
         "http://192.168.1.10:8000",            # pagina in LAN

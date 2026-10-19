@@ -185,7 +185,7 @@ stubs.
 pip install pytest websockets
 python -m pytest                 # 566 tests, the same ones CI runs on every push
 py -3.13 server.pyw              # run from source (Windows)
-py -3.13 test_server.py          # smoke test against the running server (Windows)
+py -3.13 tools/test_server.py    # smoke test against the running server (Windows)
 py -3.13 build.py                # build EXE/LiquidMouse.exe  (--pre: archive a candidate)
 ```
 
@@ -252,7 +252,7 @@ The UPnP reasons, shown when the tunnel isn't running:
 self-signed. Accept it once; the tunnel address has a valid certificate.
 
 **Stuck on "In attesa…"** — reload the page (an old client may be cached). If it persists,
-run `py -3.13 test_server.py` on the PC and check the browser console.
+run `py -3.13 tools/test_server.py` on the PC and check the browser console.
 
 ## 9. Documentation
 

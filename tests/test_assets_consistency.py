@@ -89,7 +89,7 @@ class TestRiferimentiNellaPagina:
 
     def test_il_css_e_il_js_sono_file_separati(self):
         # Lo split è la ragione per cui questi controlli esistono: se il JS
-        # tornasse inline, test_client_js in test_server.py scansionerebbe di
+        # tornasse inline, test_client_js in tools/test_server.py scansionerebbe di
         # nuovo la pagina e questi test andrebbero rivisti.
         html = INDEX_HTML.read_text(encoding="utf-8")
         assert "<style>" not in html

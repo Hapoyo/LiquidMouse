@@ -2,7 +2,7 @@
 🧪 LiquidMouse — smoke test del server
 Da eseguire con il server avviato (py -3.13 server.pyw oppure EXE/LiquidMouse.exe):
 
-    py -3.13 test_server.py
+    py -3.13 tools/test_server.py
 
 Verifica: porte in ascolto, pagina servita (HTTP e HTTPS porta unica),
 canale comandi WS/WSS (ping→pong), assenza dell'errore JS che uccideva
@@ -107,7 +107,10 @@ def test_ws():
 def test_version():
     print("\n[4/4] Versione dichiarata")
     try:
-        src = open(os.path.join("liquidmouse", "version.py"), encoding="utf-8").read()
+        # Dalla posizione del file e non dalla cartella corrente: lo script sta
+        # in tools/ e si lancia da qualunque directory.
+        radice = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        src = open(os.path.join(radice, "liquidmouse", "version.py"), encoding="utf-8").read()
         m = re.search(r'VERSION\s*=\s*"([^"]+)"', src)
         check("VERSION presente in liquidmouse/version.py", bool(m), m.group(1) if m else "")
     except OSError as e:

@@ -35,13 +35,13 @@ static/vendor/           xterm.js, xterm.css, motion.js (Motion 14.0.0 UMD, glob
                          + LICENSE-motion.txt: non modificare; per aggiornare Motion
                          copiare `dist/motion.js` del pacchetto npm `motion`
 tests/                   pytest, girano su Linux senza Windows né schermo
+tools/test_server.py     smoke test da lanciare con il server avviato (solo Windows)
 tools/anteprime.py       rigenera le immagini di docs/img (client in Chromium, finestra Tk
                          sotto Xvfb, dati dimostrativi e WebSocket finto)
 docs/img/                schermate, GIF, copertina e social preview del README (solo docs/img
                          è tracciata: il resto di docs/ resta locale, vedi .gitignore)
 README.md, CHANGELOG.md  in inglese, stile PiDash (sezioni numerate); le novità vanno nel
                          CHANGELOG, non nel README
-test_server.py           smoke test da lanciare con il server avviato (solo Windows)
 build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 .github/workflows/       test.yml (ogni push e PR: Linux 3.12 e Windows 3.10/3.13), dependabot.yml, build.yml (EXE; release con pubblica=true
                          o con il push di un tag v*)
@@ -54,7 +54,7 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   fa fallire test_files_client_contract sui nomi accentati)
 - Core senza GUI: i moduli elencati in `.github/workflows/test.yml` devono importarsi su Linux
 - Avvio da sorgente (Windows): `py -3.13 -m pip install -r requirements.txt` poi `py -3.13 server.pyw`
-- Smoke test (Windows, server avviato): `py -3.13 test_server.py`
+- Smoke test (Windows, server avviato): `py -3.13 tools/test_server.py`
 - Anteprime del README: `xvfb-run -s "-screen 0 1920x1080x24 -dpi 192" python tools/anteprime.py`
   (su Windows funziona `--solo client`, con `PYTHONUTF8=1`; Motion non segue `page.clock`,
   quindi le pagine emulano prefers-reduced-motion e mostrano gli stati finali)
