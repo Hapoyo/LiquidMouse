@@ -94,6 +94,17 @@ class TestSetupGui:
             assert getattr(w, nome) is not None, nome
         assert w._remote_qr_box is not None
         assert w._lan_ip_max_w > 0
+        # PIN mascherato e pulsante "mostra" nel pannello arancio
+        assert w._pin_var is not None and w._pin_btn_text is not None
+        assert w._remote_qr_hint is not None
+        assert w._pin_max_w > 0
+
+    def test_il_pin_disegnato_e_mascherato_e_il_pulsante_dice_mostra(self, finestra):
+        w, root = finestra
+        w.setup_gui()
+        # _Qualunque non registra i testi: si controlla la funzione che li decide.
+        assert w._masked_pin("ab12cd34") == w.MASK_CHAR * 8
+        assert w.secrets_visible() is False
 
     def test_il_layout_resta_dentro_la_finestra(self, finestra):
         w, _ = finestra

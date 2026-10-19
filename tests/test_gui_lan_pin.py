@@ -51,14 +51,17 @@ class TestInterruttore:
         assert w.lan_require_pin() is False
         assert "lan_require_pin" not in cfg
 
-    def test_il_toggle_accende_salva_e_ridisegna(self, finestra):
+    def test_il_toggle_accende_salva_e_ridisegna(self, finestra, monkeypatch):
         w, cfg, suggerimento, qr = finestra
         w.toggle_lan_require_pin()
         assert cfg["lan_require_pin"] is True and cfg.salvataggi == 1
         assert w.lan_require_pin() is True
         assert suggerimento.testo == w.LAN_HINT_PIN
-        # Il QR LAN porta il PIN, come quello remoto.
-        assert qr and "#pin=abcd1234" in qr[-1]
+        # Il QR LAN porta il PIN, come quello remoto, ma solo mentre i
+        # segreti sono mostrati (vedi test_gui_segreti.py).
+        assert qr and "pin=" not in qr[-1]
+        monkeypatch.setattr(w, "_reveal_until", 1e18)
+        assert "#pin=abcd1234" in w._lan_qr_url("192.168.1.10")
 
     def test_il_toggle_spegne_e_toglie_il_pin_dal_qr(self, finestra):
         w, cfg, suggerimento, qr = finestra

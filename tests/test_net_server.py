@@ -437,3 +437,89 @@ class TestKeepalive:
         asyncio.run(prova())
         assert len(chiamate) >= 3, "il ciclo si è fermato al primo errore"
         assert any("rete assente" in m for m in messaggi), messaggi
+
+
+# --- PIN rigenerato: chiusura delle sessioni remote -------------------------
+
+class _WsChiudibile:
+    def __init__(self, ip):
+        self.remote_address = (ip, 50000)
+        self.chiusure = []
+        self.request = None
+
+    async def close(self, code=1000, reason=""):
+        self.chiusure.append((code, reason))
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+
+class TestRevocaDelleSessioni:
+    def _services(self):
+        return NetworkServices(
+            config={"pin_hash": hash_pin("1234")}, auth_guard=AuthGuard(),
+            trusted_peer=None, sessions=_SessioniFinte(), static=None, tls=None,
+            upnp=_FakeUpnp(None), local_ip="192.168.1.10")
+
+    def test_senza_loop_non_fa_nulla(self):
+        assert self._services().revoke_pin_sessions() == 0
+
+    def test_chiude_le_remote_e_lascia_il_loopback(self):
+        async def scenario():
+            s = self._services()
+            s._loop = asyncio.get_running_loop()
+            remota, locale = _WsChiudibile("198.51.100.7"), _WsChiudibile("127.0.0.1")
+            with s._conns_lock:
+                s._remote_conns.add(remota)
+            n = await asyncio.to_thread(s.revoke_pin_sessions)
+            await asyncio.sleep(0.05)
+            return n, remota, locale
+        n, remota, locale = asyncio.run(scenario())
+        assert n == 1
+        assert remota.chiusure == [(1008, "pin cambiato")]
+        assert locale.chiusure == []
+
+    def test_handler_traccia_le_remote_e_le_toglie_alla_chiusura(self):
+        async def scenario():
+            s = self._services()
+
+            async def si(ws, ip, via_tunnel=False):
+                return True
+            s.authorize = si
+            ws = _WsChiudibile("198.51.100.7")
+            visti = s._remote_conns = _InsiemeRegistrato()
+            await s.handler(ws)
+            return s, ws, visti
+        s, ws, visti = asyncio.run(scenario())
+        assert visti.aggiunti == [ws] and ws not in s._remote_conns
+
+    def test_il_loopback_non_viene_tracciato(self):
+        async def scenario():
+            s = self._services()
+
+            async def si(ws, ip, via_tunnel=False):
+                return True
+            s.authorize = si
+            ws = _WsChiudibile("127.0.0.1")
+            seen = s._remote_conns = _InsiemeRegistrato()
+            await s.handler(ws)
+            return seen.aggiunti
+        assert asyncio.run(scenario()) == []
+
+
+class _InsiemeRegistrato(set):
+    def __init__(self):
+        super().__init__()
+        self.aggiunti = []
+
+    def add(self, w):
+        self.aggiunti.append(w)
+        super().add(w)
+
+
+class _SessioniFinte:
+    def __getattr__(self, nome):
+        return lambda *a, **k: None

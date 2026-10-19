@@ -277,6 +277,12 @@ class NetworkServices:
         self.transfers = transfers
         self.remote_mode = "none"   # "upnp" | "tunnel" | "none"
         self._ssl_ctx = None
+        # Connessioni non loopback attive, per chiuderle quando il PIN cambia
+        # (`revoke_pin_sessions`). Aggiunte dal loop asyncio, lette dal thread
+        # della GUI: da cui il lock.
+        self._remote_conns: set = set()
+        self._conns_lock = threading.Lock()
+        self._loop = None
 
     @property
     def external_ip(self) -> str | None:
@@ -464,16 +470,40 @@ class NetworkServices:
                                on_session_created=self.on_session_created,
                                sftp=self.sftp, transfers=self.transfers,
                                remote=via_tunnel or not is_private_ip(client_ip))
+        tracciata = via_tunnel or not is_loopback(client_ip)
+        if tracciata:
+            with self._conns_lock:
+                self._remote_conns.add(websocket)
         try:
             async for message in websocket:
                 await dispatch(ctx, message)
         except websockets.exceptions.ConnectionClosed:
             log_message("In attesa di connessione...", color=COLOR_MUTED)
         finally:
+            if tracciata:
+                with self._conns_lock:
+                    self._remote_conns.discard(websocket)
             # Senza questo, un client che si disconnette con Ctrl premuto lascia
             # il modificatore giù sul PC. Sgancia anche le sessioni terminal,
             # così una riconnessione può riagganciarle.
             ctx.release_all()
+
+    def revoke_pin_sessions(self) -> int:
+        """Chiude le connessioni non loopback già autenticate (PIN cambiato).
+
+        Senza, chi aveva il vecchio PIN resterebbe dentro finché non si
+        disconnette. Il loopback (finestra terminale sul PC) è fidato a
+        prescindere dal PIN e non si tocca. Chiamabile da un altro thread.
+        Ritorna quante chiusure ha richiesto.
+        """
+        loop = self._loop
+        with self._conns_lock:
+            conns = list(self._remote_conns)
+        if loop is None:
+            return 0
+        for ws in conns:
+            asyncio.run_coroutine_threadsafe(ws.close(1008, "pin cambiato"), loop)
+        return len(conns)
 
     # --- HTTP -------------------------------------------------------------
 
@@ -668,6 +698,7 @@ class NetworkServices:
     async def start_websocket_server(self) -> None:
         log_message("Protocolli di comunicazione inizializzati.", color=COLOR_MUTED)
         loop = asyncio.get_running_loop()
+        self._loop = loop
         keepalive = None
         try:
             async with contextlib.AsyncExitStack() as stack:

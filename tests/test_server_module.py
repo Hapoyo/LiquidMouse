@@ -115,6 +115,33 @@ class TestEntrypoint:
         assert deps.sessions is server_module._session_manager
         assert deps.services() is None      # NetworkServices non ancora creato
         assert callable(deps.reset_trusted)
+        assert deps.regenerate_pin is server_module.regenerate_pin
+
+    def test_rigenera_pin_cambia_il_pin_e_chiude_le_sessioni(self, server_module, monkeypatch):
+        chiuse = []
+
+        class Servizi:
+            def revoke_pin_sessions(self):
+                chiuse.append(1)
+                return 2
+
+        class Cfg:
+            def regenerate_pin(self):
+                chiuse.append("pin")
+                return "nuovo"
+
+        monkeypatch.setattr(server_module, "_config", Cfg())
+        monkeypatch.setattr(server_module, "_services", Servizi())
+        server_module.regenerate_pin()
+        assert chiuse == ["pin", 1]
+
+    def test_rigenera_pin_prima_dei_servizi_non_solleva(self, server_module, monkeypatch):
+        class Cfg:
+            def regenerate_pin(self):
+                return "nuovo"
+
+        monkeypatch.setattr(server_module, "_config", Cfg())
+        server_module.regenerate_pin()
 
 
 class TestModuloGui:
@@ -238,8 +265,14 @@ class TestModuloGui:
         gui_window.update_remote_ui()
 
         assert status_var.value is not None
-        assert "203.0.113.5:9443" in status_var.value
+        # Di default l'IP esterno è mascherato (la porta no).
+        assert "203.0.113.5" not in status_var.value
+        assert ":9443" in status_var.value
         assert status_label.fg == gui_window.COLOR_OK
+
+        monkeypatch.setattr(gui_window, "_reveal_until", 1e18)
+        gui_window.update_remote_ui()
+        assert "203.0.113.5:9443" in status_var.value
 
     def test_remote_endpoint_del_tunnel(self, gui_window, monkeypatch):
         # Con CGNAT la strada è il tunnel: il QR deve puntare all'indirizzo

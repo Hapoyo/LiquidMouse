@@ -40,6 +40,14 @@ Security and robustness pass from a full code review, plus follow-ups.
   never sent in the HTTP request, so the PIN stays out of tunnel, router and proxy logs and out
   of `Referer`. The page reads it, stores it and wipes it from the address bar and history;
   `?pin=` from old QR codes and bookmarks still works.
+- **Secrets masked in the window** — the PIN, the remote QR (which contains the PIN), the
+  external IP and the tunnel address are hidden by default; the new button "mostra per 30 s" (or a
+  click on the QR placeholder) shows them for 30 seconds, "nascondi" hides them at once. The same
+  mask applies to the status line, the UPnP/CGNAT messages and the tray's "Remoto:" entry; LAN
+  addresses stay visible. With "PIN anche dalla LAN" the LAN QR carries the PIN only while shown.
+- **Tray: "Rigenera PIN"** — generates a new PIN, stores it encrypted (DPAPI), closes every
+  non-loopback connection that was authenticated with the old one and redraws the QR codes; the
+  old QR stops working.
 - **SFTP password no longer follows a changed host** — saving a profile with a different host,
   port or user and an empty password now drops the stored password instead of keeping it, so a
   client could not make the PC send it to another server.

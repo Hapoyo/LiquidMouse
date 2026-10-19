@@ -194,3 +194,23 @@ def test_default_protector_assente_fuori_da_windows(monkeypatch):
 
     monkeypatch.setattr(dpapi.sys, "platform", "linux")
     assert dpapi.default_protector() is None
+
+
+class TestRigeneraPin:
+    def test_pin_nuovo_hash_nuovo_e_vecchio_non_vale(self, tmp_path):
+        cfg = _cfg(tmp_path)
+        vecchio = cfg.load()["pin_plain"]
+        nuovo = cfg.regenerate_pin()
+        assert nuovo != vecchio
+        assert cfg["pin_plain"] == nuovo
+        assert pin_matches(nuovo, cfg["pin_hash"])
+        assert not pin_matches(vecchio, cfg["pin_hash"])
+
+    def test_su_disco_resta_cifrato_e_sopravvive_al_riavvio(self, tmp_path):
+        cfg = _cfg(tmp_path)
+        cfg.load()
+        nuovo = cfg.regenerate_pin()
+        grezzo = cfg.path.read_text(encoding="utf-8")
+        assert nuovo not in grezzo and "pin_plain" not in _su_disco(cfg)
+        assert "pin_secret" in _su_disco(cfg)
+        assert _cfg(tmp_path).load()["pin_plain"] == nuovo

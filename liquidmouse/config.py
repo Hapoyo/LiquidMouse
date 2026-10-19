@@ -145,6 +145,15 @@ class Config:
         self.data["pin_hash"] = hash_pin(pin)
         self.save()
 
+    def regenerate_pin(self) -> str:
+        """PIN nuovo al posto del vecchio; `save` lo riscrive cifrato (DPAPI).
+
+        Il vecchio PIN smette di valere subito: l'autenticazione legge
+        `pin_hash` a ogni handshake. Ritorna il nuovo PIN in chiaro."""
+        pin = secrets.token_urlsafe(PIN_BYTES)
+        self.set_pin(pin)
+        return pin
+
     def save(self) -> None:
         """Scrive la config. Non solleva: un errore qui non deve impedire
         l'avvio, il PIN resterebbe comunque valido per questa sessione."""

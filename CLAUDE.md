@@ -150,6 +150,15 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   (il client chiama `_onAuthenticated` all'apertura) e non usa la whitelist; il loopback resta
   fidato. Passo futuro: legare la whitelist a un token per dispositivo invece che all'IP (serve
   un handshake LAN che oggi il client non ha).
+- Segreti nella finestra: PIN, QR remoto, IP esterno e nome del tunnel sono mascherati finché
+  non si preme "mostra per 30 s" (`secrets_visible`, `_reveal_until` in `monotonic`;
+  `mask_sensitive` nasconde IP non LAN e `*.trycloudflare.com` anche nella riga di stato e nel
+  tray). Il QR porta il PIN nel fragment `#pin=` (il client accetta ancora `?pin=`). Voce tray
+  "Rigenera PIN": `Config.regenerate_pin` + `NetworkServices.revoke_pin_sessions` (chiude le
+  connessioni non loopback), cablate in `server.pyw`.
+- Origin/Host dell'handshake WebSocket: `net/origins.py`, letti a ogni handshake da
+  `NetworkServices._guarded` (loopback = solo localhost/127.0.0.1; LAN = IP locale attuale;
+  8443 = IP esterno e tunnel corrente; porta del tunnel = tunnel corrente). Origin assente passa.
 - Asset serviti da cache in memoria con ETag; qualunque path fuori whitelist → 404.
   `StaticFiles.serve` è l'unico punto che decide la risposta (porta 8000 e strada remota):
   gzip precalcolato al load (ETag `-gz` distinto, `Vary: Accept-Encoding`), `index.html`
