@@ -45,6 +45,12 @@ Security and robustness pass from a full code review, plus follow-ups.
   click on the QR placeholder) shows them for 30 seconds, "nascondi" hides them at once. The same
   mask applies to the status line, the UPnP/CGNAT messages and the tray's "Remoto:" entry; LAN
   addresses stay visible. With "PIN anche dalla LAN" the LAN QR carries the PIN only while shown.
+- **BEHAVIOUR CHANGE: the LAN asks for the PIN by default** — `lan_require_pin` is now on
+  unless you turned it off. Before, the first device to connect on the Wi-Fi was trusted without
+  any PIN, so anyone on the same network (guest, compromised device) could take the slot and drive
+  the PC. Existing configs without the key switch to the new default (an explicit choice is
+  kept); phones that already stored the PIN reconnect as before, new ones get the PIN prompt.
+  To restore the old first-come behaviour, untick **PIN anche dalla LAN** in the tray menu.
 - **Tray: "Rigenera PIN"** — generates a new PIN, stores it encrypted (DPAPI), closes every
   non-loopback connection that was authenticated with the old one and redraws the QR codes; the
   old QR stops working.

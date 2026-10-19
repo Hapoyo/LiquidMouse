@@ -23,6 +23,7 @@ import websockets
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
+from liquidmouse.config import LAN_REQUIRE_PIN_DEFAULT
 from liquidmouse.events import log_message
 from liquidmouse.executors import NET, SFTP
 from liquidmouse.net.addresses import is_loopback, is_private_ip
@@ -314,7 +315,7 @@ class NetworkServices:
         Tre percorsi: remoto → PIN obbligatorio; loopback → sempre fidato (serve
         alla finestra terminale aperta sul PC stesso); LAN → whitelist primo
         arrivato, oppure il PIN come dal remoto se la config ha `lan_require_pin`
-        (opzione letta a ogni connessione, di default spenta).
+        (opzione letta a ogni connessione, di default accesa).
 
         Nota: `is_private_ip` esclude il range CGNAT 100.64/10, quindi un client
         dietro il NAT condiviso dell'ISP conta come remoto e deve dare il PIN.
@@ -329,7 +330,7 @@ class NetworkServices:
             if is_loopback(client_ip):
                 log_message(f"Sessione locale: {client_ip}", color=COLOR_ACCENT)
                 return True
-            if self.config.get('lan_require_pin'):
+            if self.config.get('lan_require_pin', LAN_REQUIRE_PIN_DEFAULT):
                 # Il PIN prende il posto della whitelist: più dispositivi possono
                 # entrare, ma solo chi lo conosce. Stesso anti brute force del remoto.
                 return await self._authorize_remote(websocket, client_ip, lan=True)

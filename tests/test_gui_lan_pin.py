@@ -46,33 +46,35 @@ def finestra(gui_window, monkeypatch):
 
 
 class TestInterruttore:
-    def test_di_default_e_spento(self, finestra):
+    def test_di_default_e_acceso(self, finestra):
         w, cfg, _, _ = finestra
-        assert w.lan_require_pin() is False
-        assert "lan_require_pin" not in cfg
-
-    def test_il_toggle_accende_salva_e_ridisegna(self, finestra, monkeypatch):
-        w, cfg, suggerimento, qr = finestra
-        w.toggle_lan_require_pin()
-        assert cfg["lan_require_pin"] is True and cfg.salvataggi == 1
         assert w.lan_require_pin() is True
-        assert suggerimento.testo == w.LAN_HINT_PIN
-        # Il QR LAN porta il PIN, come quello remoto, ma solo mentre i
-        # segreti sono mostrati (vedi test_gui_segreti.py).
-        assert qr and "pin=" not in qr[-1]
-        monkeypatch.setattr(w, "_reveal_until", 1e18)
-        assert "#pin=abcd1234" in w._lan_qr_url("192.168.1.10")
+        assert "lan_require_pin" not in cfg     # il default non scrive nulla
 
-    def test_il_toggle_spegne_e_toglie_il_pin_dal_qr(self, finestra):
+    def test_il_toggle_spegne_salva_e_ridisegna(self, finestra):
         w, cfg, suggerimento, qr = finestra
         w.toggle_lan_require_pin()
-        w.toggle_lan_require_pin()
-        assert cfg["lan_require_pin"] is False and cfg.salvataggi == 2
+        assert cfg["lan_require_pin"] is False and cfg.salvataggi == 1
+        assert w.lan_require_pin() is False
         assert suggerimento.testo == w.LAN_HINT
         assert "pin=" not in qr[-1]
 
-    def test_senza_opzione_il_qr_lan_non_ha_il_pin(self, finestra):
-        w, *_ = finestra
+    def test_il_toggle_riaccende_e_il_qr_ha_il_pin_solo_se_mostrato(self, finestra, monkeypatch):
+        w, cfg, suggerimento, qr = finestra
+        w.toggle_lan_require_pin()
+        w.toggle_lan_require_pin()
+        assert cfg["lan_require_pin"] is True and cfg.salvataggi == 2
+        assert suggerimento.testo == w.LAN_HINT_PIN
+        # Il QR LAN porta il PIN, come quello remoto, ma solo mentre i
+        # segreti sono mostrati (vedi test_gui_segreti.py).
+        assert "pin=" not in qr[-1]
+        monkeypatch.setattr(w, "_reveal_until", 1e18)
+        assert "#pin=abcd1234" in w._lan_qr_url("192.168.1.10")
+
+    def test_con_l_opzione_spenta_il_qr_lan_non_ha_il_pin(self, finestra, monkeypatch):
+        w, cfg, *_ = finestra
+        cfg["lan_require_pin"] = False
+        monkeypatch.setattr(w, "_reveal_until", 1e18)
         assert "pin=" not in w._lan_qr_url("192.168.1.10")
 
     def test_la_voce_del_tray_esiste_con_lo_stato_spuntato(self, gui_window):

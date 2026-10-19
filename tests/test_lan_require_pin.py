@@ -1,7 +1,8 @@
 """Opzione `lan_require_pin`: il PIN anche dalla LAN, come dal remoto.
 
-Di default (opzione assente o False) la LAN resta com'era: nessun PIN, whitelist
-"primo arrivato". Il loopback (finestra terminale sul PC) è sempre fidato.
+Di default (opzione assente o True) la LAN chiede il PIN. Con l'opzione spenta dal
+tray (False) torna il vecchio comportamento: nessun PIN, whitelist "primo
+arrivato". Il loopback (finestra terminale sul PC) è sempre fidato.
 """
 
 import asyncio
@@ -50,19 +51,32 @@ def _autorizza(services, ws, ip):
     return asyncio.run(services.authorize(ws, ip))
 
 
-class TestDefaultInvariato:
-    def test_senza_opzione_la_lan_entra_senza_pin_e_senza_messaggi(self):
-        ws = _Ws([])
+class TestDefaultConPin:
+    def test_senza_opzione_la_lan_chiede_il_pin(self):
+        ws = _Ws([_auth("1234")])
         assert _autorizza(_services(), ws, "192.168.1.30")
-        assert ws.inviati == []             # nessun handshake nuovo sul default
+        assert [m["type"] for m in ws.inviati] == ["auth_required", "auth_ok"]
 
-    def test_opzione_false_come_assente(self):
+    def test_senza_opzione_e_senza_pin_la_lan_non_entra(self):
+        ws = _Ws([_auth("0000")])
+        assert not _autorizza(_services(), ws, "192.168.1.30")
+        assert ws.inviati[-1]["type"] == "auth_fail"
+
+    def test_il_default_e_acceso(self):
+        from liquidmouse.config import LAN_REQUIRE_PIN_DEFAULT
+        assert LAN_REQUIRE_PIN_DEFAULT is True
+
+
+class TestPrimoArrivatoSpento:
+    """Opzione spenta dal tray: torna il comportamento di prima."""
+
+    def test_opzione_false_la_lan_entra_senza_pin_e_senza_messaggi(self):
         ws = _Ws([])
         assert _autorizza(_services({"lan_require_pin": False}), ws, "192.168.1.30")
         assert ws.inviati == []
 
     def test_la_whitelist_primo_arrivato_resta(self):
-        s = _services()
+        s = _services({"lan_require_pin": False})
         assert _autorizza(s, _Ws([]), "192.168.1.30")
         altro = _Ws([])
         assert not _autorizza(s, altro, "192.168.1.31")
@@ -128,7 +142,7 @@ class TestPinInLan:
 
     def test_l_opzione_si_legge_a_ogni_connessione(self):
         # L'interruttore della GUI vale dalla connessione successiva, senza riavvio.
-        s = _services()
+        s = _services({"lan_require_pin": False})
         assert _autorizza(s, _Ws([]), "192.168.1.30")
         s.config["lan_require_pin"] = True
         ws = _Ws([_auth("1234")])

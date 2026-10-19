@@ -27,6 +27,7 @@ import pystray
 import qrcode
 from PIL import Image, ImageDraw, ImageTk
 
+from liquidmouse.config import LAN_REQUIRE_PIN_DEFAULT
 from liquidmouse.events import log_message
 from liquidmouse.gui.effects import apply_dwm_style, load_private_fonts
 from liquidmouse.net.addresses import is_loopback
@@ -408,7 +409,8 @@ LAN_HINT_PIN = "stessa wi-fi, serve il pin"
 
 def lan_require_pin() -> bool:
     """True se l'opzione `lan_require_pin` della config è accesa."""
-    return bool(_deps is not None and _deps.config.get('lan_require_pin'))
+    return bool(_deps is not None
+                and _deps.config.get('lan_require_pin', LAN_REQUIRE_PIN_DEFAULT))
 
 
 def _lan_qr_url(ip: str) -> str:
