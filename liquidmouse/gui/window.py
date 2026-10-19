@@ -170,10 +170,10 @@ def _remote_endpoint() -> tuple[str, str] | None:
         external_ip = servizi.external_ip
         porta = servizi.external_port
         return (f"UPnP  {external_ip}:{porta}",
-                f"https://{external_ip}:{porta}/?pin={pin}")
+                f"https://{external_ip}:{porta}/#pin={pin}")
     if servizi.remote_mode == 'tunnel' and servizi.tunnel_url:
         url = servizi.tunnel_url
-        return (f"Tunnel  {url.removeprefix('https://')}", f"{url}/?pin={pin}")
+        return (f"Tunnel  {url.removeprefix('https://')}", f"{url}/#pin={pin}")
     return None
 
 
@@ -271,8 +271,8 @@ def _lan_qr_url(ip: str) -> str:
     # Il parametro v cambia a ogni disegno: il telefono non riusa una pagina in cache.
     url = f"http://{ip}:{HTTP_PORT}/?v={int(time.time())}"
     if lan_require_pin():
-        # Come il QR remoto: il client legge ?pin= e lo manda all'handshake.
-        url += f"&pin={_deps.config.get('pin_plain', '')}"
+        # Come il QR remoto: il client legge #pin= e lo manda all'handshake.
+        url += f"#pin={_deps.config.get('pin_plain', '')}"
     return url
 
 

@@ -255,7 +255,7 @@ class TestModuloGui:
         ))
         etichetta, url = gui_window._remote_endpoint()
         assert etichetta == "Tunnel  foo-bar-baz.trycloudflare.com"
-        assert url == "https://foo-bar-baz.trycloudflare.com/?pin=abcd1234"
+        assert url == "https://foo-bar-baz.trycloudflare.com/#pin=abcd1234"
 
     def test_remote_endpoint_del_tunnel_senza_url_non_c_e(self, gui_window, monkeypatch):
         class FinteServizi:

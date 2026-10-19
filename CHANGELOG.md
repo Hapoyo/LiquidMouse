@@ -36,6 +36,10 @@ Security and robustness pass from a full code review, plus follow-ups.
   LAN IP (read each time, it changes with the network); port 8443 only the external IP and the
   current tunnel address; the tunnel port only the current tunnel address. A page on a stray IP,
   on another `trycloudflare.com` tunnel or on `localhost.evil.com` is refused with 403.
+- **PIN in the URL fragment** — the QR codes carry `#pin=` instead of `?pin=`: the fragment is
+  never sent in the HTTP request, so the PIN stays out of tunnel, router and proxy logs and out
+  of `Referer`. The page reads it, stores it and wipes it from the address bar and history;
+  `?pin=` from old QR codes and bookmarks still works.
 - **SFTP password no longer follows a changed host** — saving a profile with a different host,
   port or user and an empty password now drops the stored password instead of keeping it, so a
   client could not make the PC send it to another server.

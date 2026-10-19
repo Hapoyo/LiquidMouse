@@ -58,7 +58,7 @@ class TestInterruttore:
         assert w.lan_require_pin() is True
         assert suggerimento.testo == w.LAN_HINT_PIN
         # Il QR LAN porta il PIN, come quello remoto.
-        assert qr and "&pin=abcd1234" in qr[-1]
+        assert qr and "#pin=abcd1234" in qr[-1]
 
     def test_il_toggle_spegne_e_toglie_il_pin_dal_qr(self, finestra):
         w, cfg, suggerimento, qr = finestra
