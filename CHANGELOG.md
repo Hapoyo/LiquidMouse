@@ -7,6 +7,12 @@ published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its
 
 Security and robustness pass from a full code review, plus follow-ups.
 
+- **WebSocket compression off** — `permessage-deflate` is disabled on every WebSocket server
+  (all of them share one `_serve_kwargs` helper): touchpad messages are a few bytes, so
+  compressing them only added latency and CPU.
+- **Housekeeping** — the TLS certificate dates use a timezone-aware `datetime` instead of the
+  deprecated `utcnow()`, an unused import is gone from `net/sftp.py`, and the smoke test moved
+  to `tools/test_server.py` (run it as `py -3.13 tools/test_server.py`).
 - **Faster start-up animation** — the window's typewriter and fade-in now take about one second
   instead of over two (each text is written in at most ten steps and the fade has fewer frames);
   the final text and look are unchanged. `setup_gui` is split into one function per section.
