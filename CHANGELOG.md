@@ -7,6 +7,9 @@ published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its
 
 Security and robustness pass from a full code review, plus follow-ups.
 
+- **Faster start-up animation** — the window's typewriter and fade-in now take about one second
+  instead of over two (each text is written in at most ten steps and the fade has fewer frames);
+  the final text and look are unchanged. `setup_gui` is split into one function per section.
 - **Client split into four scripts** — `app.js` (1,800 lines) is now `app-core.js`
   (connection, authentication, animations, tabs), `app-touchpad.js`, `app-terminal.js` and
   `app-files.js`: still classic deferred scripts sharing the global scope, loaded in that order.
