@@ -20,7 +20,8 @@ liquidmouse/
   paths.py, ports.py     percorsi degli asset (anche nel bundle), porte 8000/8765/8443/8767
   net/                   server.py (servizi), protocol.py (messaggi), static.py (whitelist
                          asset), frames.py (frame binari), origins.py (Origin/Host del
-                         WebSocket per tipo di porta), upnp.py, tunnel.py
+                         WebSocket per tipo di porta), procguard.py (Job Object e pulizia di
+                         cloudflared), upnp.py, tunnel.py
                          (cloudflared), addresses.py, sftp.py (file manager: profili, paramiko,
                          DPAPI), transfers.py (biglietti monouso per /sftp/dl e /sftp/up)
   input/                 keymap.py (nomi tasto → VK), win32.py (SendInput)
@@ -137,7 +138,10 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   poi quello nel PATH, altrimenti si scarica lì verificando lo SHA-256 dell'API della release. Origine su 127.0.0.1:8767 (TUNNEL_PORT): lì ogni client
   arriva da loopback, quindi `via_tunnel` forza sempre il PIN, e l'anti brute force usa
   `CF-Connecting-IP` (altrimenti chiunque bloccherebbe il proprietario). Indirizzo
-  `*.trycloudflare.com` diverso a ogni avvio.
+  `*.trycloudflare.com` diverso a ogni avvio. cloudflared è legato al programma da un Job Object
+  KILL_ON_JOB_CLOSE (`net/procguard.py`: muore anche se il programma viene ucciso) e all'avvio si
+  chiudono i cloudflared orfani il cui eseguibile è esattamente quello di `bin/` (mai quelli nel
+  PATH o di altri).
   Se il modem rifiuta la 8443 esterna si provano le porte di `EXTERNAL_PORTS` (net/upnp.py),
   sempre verso la 8443 interna: il QR porta la porta esterna, il client usa quella della
   pagina. Mapping UPnP con lease `LEASE_SECS` (1800 s, ≥ 2× il keepalive di 600 s) rinnovata da

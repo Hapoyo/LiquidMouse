@@ -56,6 +56,7 @@ jobs:
               "liquidmouse.net.addresses",
               "liquidmouse.net.frames",
               "liquidmouse.net.origins",
+              "liquidmouse.net.procguard",
               "liquidmouse.net.protocol",
               "liquidmouse.net.server",
               "liquidmouse.net.sftp",

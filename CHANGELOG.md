@@ -57,6 +57,11 @@ Security and robustness pass from a full code review, plus follow-ups.
   answers error 725). At start-up a leftover mapping carrying our description (`LiquidMouse`) is
   removed, and on a port conflict only the description is compared, so another app's forward on
   the same PC is never deleted. Needs `miniupnpc` >= 2.2.8 (`leaseDuration` argument).
+- **cloudflared dies with the program** — the tunnel process is put in a Windows Job Object with
+  `KILL_ON_JOB_CLOSE`, so killing the program (task manager, crash, power-off) no longer leaves
+  `cloudflared.exe` running with the public address open; at start-up any leftover
+  `cloudflared.exe` whose path is exactly our `%APPDATA%/LiquidMouse/bin` copy is terminated
+  (one in the `PATH` or started by something else is never touched).
 - **Tray: "Rigenera PIN"** — generates a new PIN, stores it encrypted (DPAPI), closes every
   non-loopback connection that was authenticated with the old one and redraws the QR codes; the
   old QR stops working.
