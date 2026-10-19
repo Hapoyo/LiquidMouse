@@ -19,7 +19,9 @@ liquidmouse/
   executors.py           pool di thread dedicati (read/write PTY, SFTP, rete): mai run_in_executor(None)
   paths.py, ports.py     percorsi degli asset (anche nel bundle), porte 8000/8765/8443/8767
   net/                   server.py (servizi), protocol.py (messaggi), static.py (whitelist
-                         asset), frames.py (frame binari), upnp.py, tunnel.py
+                         asset), frames.py (frame binari), origins.py (Origin/Host del
+                         WebSocket per tipo di porta), procguard.py (Job Object e pulizia di
+                         cloudflared), upnp.py, tunnel.py
                          (cloudflared), addresses.py, sftp.py (file manager: profili, paramiko,
                          DPAPI), transfers.py (biglietti monouso per /sftp/dl e /sftp/up)
   input/                 keymap.py (nomi tasto → VK), win32.py (SendInput)
@@ -136,19 +138,37 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   poi quello nel PATH, altrimenti si scarica lì verificando lo SHA-256 dell'API della release. Origine su 127.0.0.1:8767 (TUNNEL_PORT): lì ogni client
   arriva da loopback, quindi `via_tunnel` forza sempre il PIN, e l'anti brute force usa
   `CF-Connecting-IP` (altrimenti chiunque bloccherebbe il proprietario). Indirizzo
-  `*.trycloudflare.com` diverso a ogni avvio.
+  `*.trycloudflare.com` diverso a ogni avvio. cloudflared è legato al programma da un Job Object
+  KILL_ON_JOB_CLOSE (`net/procguard.py`: muore anche se il programma viene ucciso) e all'avvio si
+  chiudono i cloudflared orfani il cui eseguibile è esattamente quello di `bin/` (mai quelli nel
+  PATH o di altri).
   Se il modem rifiuta la 8443 esterna si provano le porte di `EXTERNAL_PORTS` (net/upnp.py),
   sempre verso la 8443 interna: il QR porta la porta esterna, il client usa quella della
-  pagina. IP esterno del router privato/CGNAT = errore esplicito, niente QR UPnP.
+  pagina. Mapping UPnP con lease `LEASE_SECS` (1800 s, ≥ 2× il keepalive di 600 s) rinnovata da
+  ogni `setup_sync`; 725 = lease 0 di ripiego. Al primo setup si tolgono i residui con la
+  descrizione `LiquidMouse` su tutte le `EXTERNAL_PORTS`; in conflitto conta solo la descrizione.
+  `addportmapping(ext, proto, host, int, desc, remote, leaseDuration)`: argomento presente in miniupnpc 2.2.8 e 2.3.3 (sorgente verificato). IP esterno del router privato/CGNAT = errore esplicito, niente QR UPnP.
 - Tastiera del telefono: il body segue `visualViewport` (`--vv-h`, `--vv-top`) invece di
   100dvh; `kbd-open` sul body nasconde linguette e intestazione del terminale.
-- LAN senza PIN ma whitelist "primo arrivato" (reset dal menu tray); CGNAT 100.64/10 = remoto.
-  È una scelta di prodotto e resta il default. Opzione `lan_require_pin` (config, voce "PIN anche
-  dalla LAN" nel tray, letta a ogni connessione): la LAN passa da `_authorize_remote(lan=True)`,
-  il server manda `auth_required`, scarta fino a `LAN_PREAUTH_MAX` messaggi prima dell'`auth`
-  (il client chiama `_onAuthenticated` all'apertura) e non usa la whitelist; il loopback resta
-  fidato. Passo futuro: legare la whitelist a un token per dispositivo invece che all'IP (serve
+- LAN con PIN di default (CAMBIO DI COMPORTAMENTO, 2.9.x Unreleased): prima il default era la
+  whitelist "primo arrivato" senza PIN, ora `lan_require_pin` è acceso (`LAN_REQUIRE_PIN_DEFAULT`
+  in config.py; le config senza la chiave passano al default nuovo, una scelta esplicita resta).
+  Per tornare al "primo arrivato" si toglie la spunta a "PIN anche dalla LAN" nel tray (reset
+  dal menu tray); CGNAT 100.64/10 = remoto. L'opzione è letta a ogni connessione: la LAN passa da
+  `_authorize_remote(lan=True)`, il server manda `auth_required`, scarta fino a
+  `LAN_PREAUTH_MAX` messaggi prima dell'`auth` (il client chiama `_onAuthenticated`
+  all'apertura) e non usa la whitelist; il loopback resta fidato. Il QR LAN porta `#pin=` solo
+  mentre i segreti sono mostrati. Passo futuro: legare la whitelist a un token per dispositivo invece che all'IP (serve
   un handshake LAN che oggi il client non ha).
+- Segreti nella finestra: PIN, QR remoto, IP esterno e nome del tunnel sono mascherati finché
+  non si preme "mostra per 30 s" (`secrets_visible`, `_reveal_until` in `monotonic`;
+  `mask_sensitive` nasconde IP non LAN e `*.trycloudflare.com` anche nella riga di stato e nel
+  tray). Il QR porta il PIN nel fragment `#pin=` (il client accetta ancora `?pin=`). Voce tray
+  "Rigenera PIN": `Config.regenerate_pin` + `NetworkServices.revoke_pin_sessions` (chiude le
+  connessioni non loopback), cablate in `server.pyw`.
+- Origin/Host dell'handshake WebSocket: `net/origins.py`, letti a ogni handshake da
+  `NetworkServices._guarded` (loopback = solo localhost/127.0.0.1; LAN = IP locale attuale;
+  8443 = IP esterno e tunnel corrente; porta del tunnel = tunnel corrente). Origin assente passa.
 - Asset serviti da cache in memoria con ETag; qualunque path fuori whitelist → 404.
   `StaticFiles.serve` è l'unico punto che decide la risposta (porta 8000 e strada remota):
   gzip precalcolato al load (ETag `-gz` distinto, `Vary: Accept-Encoding`), `index.html`

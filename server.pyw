@@ -99,6 +99,15 @@ def reset_trusted_ip() -> None:
     log_message("Whitelist resettata. In attesa...", color=COLOR_ACCENT)
 
 
+def regenerate_pin() -> None:
+    """Voce "Rigenera PIN" del tray: PIN nuovo (salvato cifrato) e fuori chi
+    era entrato con il vecchio. I QR si rifanno nella GUI."""
+    _config.regenerate_pin()
+    chiuse = _services.revoke_pin_sessions() if _services is not None else 0
+    log_message(f"PIN rigenerato: i vecchi QR non valgono più ({chiuse} sessioni chiuse)",
+                color=COLOR_ACCENT)
+
+
 def _on_session_created(sid: str, client_ip: str) -> None:
     """Sessione avviata da telefono/LAN/remoto: apri la finestra reale sul PC.
     Non per il loopback, che *è* già quella finestra."""
@@ -146,6 +155,7 @@ def _build_gui_deps() -> "window.GuiDeps":
         services=lambda: _services,
         local_ip=LOCAL_IP,
         reset_trusted=reset_trusted_ip,
+        regenerate_pin=regenerate_pin,
     )
 
 

@@ -280,18 +280,26 @@ class TestOriginDeiWebSocket:
         asyncio.run(_avvia_e_ferma(services))
         assert len(cattura.chiamate) == 3
         for k in cattura.chiamate:
-            assert k["origins"] is server_mod.ALLOWED_ORIGINS
+            # Il filtro è un process_request dinamico, non una lista statica.
+            assert callable(k["process_request"])
+            assert "origins" not in k
+            # Niente "Python/x websockets/y" nelle risposte.
+            assert k["server_header"] is None
             # Niente permessage-deflate: latenza inutile su messaggi minuscoli.
             assert k["compression"] is None
 
-    async def _tenta(self, origin):
+    async def _tenta(self, origin, host_ext=None):
         """Handshake reale su loopback con l'Origin dato. Ritorna lo status
         HTTP del rifiuto, o 101 se la connessione è stata accettata."""
         async def handler(ws):
             await ws.close()
 
+        services = NetworkServices(
+            config={}, auth_guard=None, trusted_peer=None, sessions=None,
+            static=None, tls=None, upnp=_FakeUpnp("203.0.113.5"),
+            local_ip="192.168.1.10")
         async with serve_reale(handler, "127.0.0.1", 0,
-                                    origins=server_mod.ALLOWED_ORIGINS) as srv:
+                               process_request=services._guarded("lan")) as srv:
             porta = srv.sockets[0].getsockname()[1]
             headers = {"Origin": origin} if origin is not None else {}
             try:
@@ -305,24 +313,22 @@ class TestOriginDeiWebSocket:
         None,                                  # client non browser (tools/test_server.py)
         "http://127.0.0.1:8000",               # finestra terminale sul PC
         "http://localhost:8000",
-        "http://192.168.1.10:8000",            # pagina in LAN
-        "https://203.0.113.5:8443",            # pagina remota via UPnP
-        "https://203.0.113.5",                 # porta opzionale
-        "https://a-b-c.trycloudflare.com",     # tunnel
     ])
-    def test_origin_ammessi(self, origin):
+    def test_loopback_ammette_solo_se_stesso(self, origin):
         assert asyncio.run(self._tenta(origin)) == 101
 
     @pytest.mark.parametrize("origin", [
+        "http://192.168.1.10:8000",            # IP LAN: dal loopback non è la nostra pagina
+        "http://203.0.113.99:8000",            # IP numerico estraneo
+        "https://a-b-c.trycloudflare.com",     # tunnel estraneo
+        "http://localhost.evil.com:8000",
         "https://evil.example",
-        "http://evil.example:8000",
         "http://127.0.0.1.evil.example",       # prefisso numerico, host altrui
-        "https://trycloudflare.com.evil.example",
         "https://evil.com/.trycloudflare.com",
         "ftp://127.0.0.1",
         "null",
     ])
-    def test_origin_rifiutati_con_403(self, origin):
+    def test_loopback_rifiuta_con_403(self, origin):
         assert asyncio.run(self._tenta(origin)) == 403
 
 
@@ -433,3 +439,89 @@ class TestKeepalive:
         asyncio.run(prova())
         assert len(chiamate) >= 3, "il ciclo si è fermato al primo errore"
         assert any("rete assente" in m for m in messaggi), messaggi
+
+
+# --- PIN rigenerato: chiusura delle sessioni remote -------------------------
+
+class _WsChiudibile:
+    def __init__(self, ip):
+        self.remote_address = (ip, 50000)
+        self.chiusure = []
+        self.request = None
+
+    async def close(self, code=1000, reason=""):
+        self.chiusure.append((code, reason))
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+
+class TestRevocaDelleSessioni:
+    def _services(self):
+        return NetworkServices(
+            config={"pin_hash": hash_pin("1234")}, auth_guard=AuthGuard(),
+            trusted_peer=None, sessions=_SessioniFinte(), static=None, tls=None,
+            upnp=_FakeUpnp(None), local_ip="192.168.1.10")
+
+    def test_senza_loop_non_fa_nulla(self):
+        assert self._services().revoke_pin_sessions() == 0
+
+    def test_chiude_le_remote_e_lascia_il_loopback(self):
+        async def scenario():
+            s = self._services()
+            s._loop = asyncio.get_running_loop()
+            remota, locale = _WsChiudibile("198.51.100.7"), _WsChiudibile("127.0.0.1")
+            with s._conns_lock:
+                s._remote_conns.add(remota)
+            n = await asyncio.to_thread(s.revoke_pin_sessions)
+            await asyncio.sleep(0.05)
+            return n, remota, locale
+        n, remota, locale = asyncio.run(scenario())
+        assert n == 1
+        assert remota.chiusure == [(1008, "pin cambiato")]
+        assert locale.chiusure == []
+
+    def test_handler_traccia_le_remote_e_le_toglie_alla_chiusura(self):
+        async def scenario():
+            s = self._services()
+
+            async def si(ws, ip, via_tunnel=False):
+                return True
+            s.authorize = si
+            ws = _WsChiudibile("198.51.100.7")
+            visti = s._remote_conns = _InsiemeRegistrato()
+            await s.handler(ws)
+            return s, ws, visti
+        s, ws, visti = asyncio.run(scenario())
+        assert visti.aggiunti == [ws] and ws not in s._remote_conns
+
+    def test_il_loopback_non_viene_tracciato(self):
+        async def scenario():
+            s = self._services()
+
+            async def si(ws, ip, via_tunnel=False):
+                return True
+            s.authorize = si
+            ws = _WsChiudibile("127.0.0.1")
+            seen = s._remote_conns = _InsiemeRegistrato()
+            await s.handler(ws)
+            return seen.aggiunti
+        assert asyncio.run(scenario()) == []
+
+
+class _InsiemeRegistrato(set):
+    def __init__(self):
+        super().__init__()
+        self.aggiunti = []
+
+    def add(self, w):
+        self.aggiunti.append(w)
+        super().add(w)
+
+
+class _SessioniFinte:
+    def __getattr__(self, nome):
+        return lambda *a, **k: None

@@ -60,13 +60,24 @@ class _FakeProc:
         return self._codice
 
 
-def _tunnel(tmp_path, *, which=None, can_download=True, download=None, popen=None):
+class _NessunJob:
+    """Job finto inerte: i test del tunnel non toccano kernel32."""
+    available = False
+
+    def assign(self, pid):
+        return False
+
+
+def _tunnel(tmp_path, *, which=None, can_download=True, download=None, popen=None,
+            job=None, stale_killer=None):
     return CloudflareTunnel(
         8767, tmp_path,
         popen=popen or (lambda *a, **k: _FakeProc([])),
         download=download or (lambda dest: dest.write_bytes(b"x")),
         which=which or (lambda nome: None),
         can_download=can_download,
+        job=job or _NessunJob(),
+        stale_killer=stale_killer or (lambda percorso: 0),
     )
 
 
@@ -273,3 +284,65 @@ class TestPrecedenzaBinario:
         (tmp_path / CLOUDFLARED_EXE).write_bytes(b"x")
         t = _tunnel(tmp_path, which=lambda nome: "/usr/bin/cloudflared")
         assert t.binary() == str(tmp_path / CLOUDFLARED_EXE)
+
+
+class TestProcessiLegatiAlProgramma:
+    def test_cloudflared_viene_assegnato_al_job(self, tmp_path):
+        assegnati = []
+
+        class Job:
+            available = True
+
+            def assign(self, pid):
+                assegnati.append(pid)
+                return True
+
+        proc = _FakeProc([])
+        proc.pid = 4321
+        t = _tunnel(tmp_path, which=lambda n: "cloudflared", popen=lambda *a, **k: proc,
+                    job=Job())
+        t._run_once("cloudflared")
+        assert assegnati == [4321]
+
+    def test_se_il_job_fallisce_il_tunnel_parte_lo_stesso(self, tmp_path):
+        class Job:
+            available = True
+
+            def assign(self, pid):
+                return False
+
+        proc = _FakeProc(["INF https://a-b-c.trycloudflare.com\n"])
+        proc.pid = 7
+        t = _tunnel(tmp_path, popen=lambda *a, **k: proc, job=Job())
+        assert t._run_once("cloudflared") is True
+
+    def test_i_residui_si_chiudono_una_volta_e_solo_con_il_nostro_binario(self, tmp_path):
+        chiamate = []
+        t = _tunnel(tmp_path, stale_killer=lambda p: chiamate.append(p) or 1)
+        t._close_stale()                      # il nostro cloudflared.exe non c'è
+        assert chiamate == []
+        (tmp_path / CLOUDFLARED_EXE).write_bytes(b"x")
+        t2 = _tunnel(tmp_path, stale_killer=lambda p: chiamate.append(p) or 1)
+        t2._close_stale()
+        t2._close_stale()                     # una volta sola per processo
+        assert chiamate == [tmp_path / CLOUDFLARED_EXE]
+
+    def test_un_errore_nella_pulizia_non_ferma_il_tunnel(self, tmp_path):
+        (tmp_path / CLOUDFLARED_EXE).write_bytes(b"x")
+
+        def rotto(p):
+            raise OSError("negato")
+        _tunnel(tmp_path, stale_killer=rotto)._close_stale()
+
+    def test_la_pulizia_gira_prima_del_primo_avvio(self, tmp_path):
+        ordine = []
+        (tmp_path / CLOUDFLARED_EXE).write_bytes(b"x")
+
+        def popen(*a, **k):
+            ordine.append("popen")
+            t._stop.set()
+            return _FakeProc([])
+        t = _tunnel(tmp_path, popen=popen,
+                    stale_killer=lambda p: ordine.append("pulizia") or 0)
+        t._run()
+        assert ordine[:2] == ["pulizia", "popen"]

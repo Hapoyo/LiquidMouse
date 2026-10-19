@@ -43,8 +43,9 @@ and the browser does the rest — on the same Wi-Fi or from anywhere.
 - **Works away from home** — HTTPS/WSS on a single port with a PIN. The PC asks the router
   to open it via UPnP; when that is impossible (CGNAT, double NAT) it starts a free
   Cloudflare quick tunnel instead. Either way the QR code carries the address and the PIN.
-- **Secure by default** — first-come whitelist on the LAN, PIN with brute-force lockout for
-  remote access, static files served from an explicit whitelist.
+- **Secure by default** — PIN with brute-force lockout on the LAN and for remote access
+  (the LAN can go back to a first-come whitelist from the tray), PIN and remote QR hidden in
+  the window until you ask, static files served from an explicit whitelist.
 - **Light on both ends** — terminal output travels as raw binary frames, assets are cached
   in memory with ETags, and the phone sends input only while your finger moves.
 - **One executable** — `LiquidMouse.exe`, built and published by GitHub Actions.
@@ -129,8 +130,8 @@ PIN saved on your phones and the certificate you already accepted keep working.
 | When | same Wi-Fi | router with UPnP and a public IP | CGNAT, double NAT, UPnP off |
 | Address | `http://192.168.x.x:8000` | `https://<public-ip>:8443` | `https://<words>.trycloudflare.com` |
 | Certificate | — | self-signed: accept the warning once | valid, no warning |
-| PIN | no (first device wins) | yes, in the QR | yes, in the QR |
-| Notes | reset the device from the tray menu | fallback ports `9443`…`38443` if the router keeps `8443` | new address at every start; `cloudflared` downloaded once |
+| PIN | yes (can be turned off in the tray: first device wins) | yes, in the QR | yes, in the QR |
+| Notes | **PIN anche dalla LAN** in the tray menu | fallback ports `9443`…`38443` if the router keeps `8443` | new address at every start; `cloudflared` downloaded once |
 
 The PC picks the remote path on its own: UPnP when the router opens the port, otherwise
 the tunnel. The mapping is renewed every 10 minutes and survives router reboots.
@@ -160,17 +161,33 @@ double-click a row to open that session in a window on the PC.
 
 ## 6. Security
 
-- **LAN** — the first device that connects is trusted; others are refused until you reset
-  it from the tray menu. The CGNAT range `100.64.0.0/10` counts as remote, not LAN.
-  Optional: tick **PIN anche dalla LAN** in the tray menu (`lan_require_pin` in the config,
-  off by default) and the LAN asks for the PIN like the remote does, with the same lockout;
-  any device that knows it can connect, the first-come slot is not used, and the LAN QR code
-  carries the PIN. It applies to new connections. The LAN is plain HTTP/WS, so this keeps
-  strangers out of your Wi-Fi but does not hide the PIN from someone sniffing it.
+- **LAN** — the PIN is required, like for the remote, with the same lockout (**PIN anche
+  dalla LAN** in the tray menu, `lan_require_pin` in the config, on by default; configs that
+  predate the option switch to the new default). Any device that knows the PIN can connect,
+  the first-come slot is not used, and the LAN QR code carries the PIN only while the window
+  shows its secrets. Untick the entry to go back to the old behaviour: the first device that
+  connects is trusted and the others are refused until you reset it from the tray menu. The
+  CGNAT range `100.64.0.0/10` counts as remote, not LAN. The LAN is plain HTTP/WS, so the PIN
+  keeps strangers out of your Wi-Fi but does not hide it from someone sniffing the network.
 - **Remote** — a random PIN (`secrets.token_urlsafe`) generated on first start, checked as a
   SHA-256 hash; 5 wrong attempts block the address for 30 minutes. Behind the tunnel every
   client arrives from loopback, so the PIN is always required and the lockout uses the real
   client IP (`CF-Connecting-IP`). The phone never retries a wrong PIN on its own.
+- **Cloudflare tunnel** — Cloudflare terminates the TLS connection, so it can see the whole
+  traffic between phone and PC, PIN and terminal included. Use the tunnel only if you accept
+  that; UPnP keeps the TLS connection end to end between the phone and your PC.
+- **Plain `ws://` on port 8765** — the LAN channel is unencrypted and listens on every
+  interface. A device with an address in `100.64.0.0/10` (an ISP's shared NAT, or a VPN) is
+  treated as remote and must give the PIN, but that PIN travels in the clear on this port.
+  Never forward 8765 on the router; for anything beyond your own Wi-Fi use the HTTPS port
+  8443 or the tunnel.
+- **Browser pages** — a WebSocket handshake is accepted only if its `Origin` and `Host` are the
+  ones this PC serves (loopback, the current LAN address, the external address or the current
+  tunnel address); a page opened from another site cannot drive your PC through the browser.
+- **Fingerprint** — HTTP and WebSocket answers do not report the Python or library versions,
+  and the self-signed certificate has a generic name (`localhost`) with the LAN address as
+  subject alternative name (the external address is left out on purpose: it changes with the
+  line and would force a new certificate every time).
 - **Files** — the HTTP servers answer only for the files in an explicit whitelist; any other
   path is a 404.
 - **Terminal** — only whitelisted shells can be started; every value coming from the phone

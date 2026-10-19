@@ -27,6 +27,7 @@ import urllib.request
 from collections.abc import Callable
 
 from liquidmouse.events import log_message
+from liquidmouse.net.procguard import KillOnCloseJob, terminate_stale
 from liquidmouse.theme import COLOR_ERROR, COLOR_MUTED, COLOR_OK
 
 # L'API della release dice nome, URL e SHA-256 dell'asset: si scarica da lì
@@ -135,13 +136,21 @@ class CloudflareTunnel:
                  popen=subprocess.Popen,
                  download: Callable[[pathlib.Path], None] = download_cloudflared,
                  which: Callable[[str], str | None] = shutil.which,
-                 can_download: bool = sys.platform == "win32") -> None:
+                 can_download: bool = sys.platform == "win32",
+                 job: KillOnCloseJob | None = None,
+                 stale_killer: Callable[[pathlib.Path], int] = terminate_stale) -> None:
         self._local_port = local_port
         self._bin_path = pathlib.Path(bin_dir) / CLOUDFLARED_EXE
         self._popen = popen
         self._download = download
         self._which = which
         self._can_download = can_download
+        # Job Object Windows: cloudflared muore con noi anche se il programma
+        # viene ucciso senza passare da stop() (vedi net/procguard.py). Inerte
+        # dove non esiste.
+        self._job = job if job is not None else KillOnCloseJob()
+        self._stale_killer = stale_killer
+        self._residui_chiusi = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._proc = None
@@ -212,7 +221,22 @@ class CloudflareTunnel:
                 pass
         self._set(None, None)
 
+    def _close_stale(self) -> None:
+        """Una volta per processo, prima del primo avvio: chiude i cloudflared
+        della nostra cartella `bin` rimasti da un avvio finito male. Un orfano
+        terrebbe aperto l'indirizzo pubblico del vecchio tunnel verso una
+        porta ormai di nessuno (e un secondo cloudflared accanto)."""
+        if self._residui_chiusi:
+            return
+        self._residui_chiusi = True
+        if self._bin_path.is_file():
+            try:
+                self._stale_killer(self._bin_path)
+            except Exception:
+                pass
+
     def _run(self) -> None:
+        self._close_stale()
         attesa = RESTART_MIN_SECS
         while not self._stop.is_set():
             percorso = self.binary()
@@ -248,6 +272,11 @@ class CloudflareTunnel:
             return False
         with self._lock:
             self._proc = proc
+        # Subito dopo l'avvio: cloudflared non ha ancora figli da perdere.
+        pid = getattr(proc, "pid", None)
+        if pid is not None and not self._job.assign(pid) and self._job.available:
+            log_message("Tunnel: cloudflared non legato al job del programma",
+                        color=COLOR_MUTED)
         if self._stop.is_set():
             proc.terminate()
         su = False

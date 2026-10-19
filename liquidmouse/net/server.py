@@ -14,7 +14,6 @@ import asyncio
 import contextlib
 import ipaddress
 import json
-import re
 import threading
 from http import HTTPStatus
 from urllib.parse import parse_qs, quote, urlsplit
@@ -24,9 +23,11 @@ import websockets
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
+from liquidmouse.config import LAN_REQUIRE_PIN_DEFAULT
 from liquidmouse.events import log_message
 from liquidmouse.executors import NET, SFTP
 from liquidmouse.net.addresses import is_loopback, is_private_ip
+from liquidmouse.net.origins import LAN, REMOTE, TUNNEL, origin_allowed
 from liquidmouse.net.protocol import ClientConnection, dispatch
 from liquidmouse.net.sftp import CHUNK, SftpError
 from liquidmouse.net.static import SECURITY_HEADERS
@@ -59,20 +60,10 @@ LAN_PREAUTH_MAX = 50
 # Cloudflare (in pratica solo un processo locale).
 TUNNEL_GUARD_KEY = "tunnel"
 
-# Origin ammessi nell'handshake WebSocket. Un browser manda sempre l'Origin
-# della pagina che apre il socket: senza filtro, una pagina qualunque aperta
-# sul telefono o sul PC (anche su internet) potrebbe collegarsi a ws://<ip>:8765
-# e, dal loopback o dalla LAN, essere trattata come client fidato. Valgono solo
-# le pagine servite da noi: localhost/127.0.0.1 (finestra terminale sul PC), un
-# IPv4 numerico (LAN e IP pubblico UPnP) e il tunnel. Hostname arbitrari no:
-# sono la via del DNS rebinding. None = client non browser (nessun header, come
-# test_server.py), che non è un vettore di attacco da pagina web.
-_ORIGIN_HOST = (r"(?:localhost|\d{1,3}(?:\.\d{1,3}){3}"
-                r"|[a-z0-9-]+\.trycloudflare\.com)")
-ALLOWED_ORIGINS = [
-    None,
-    re.compile(rf"https?://{_ORIGIN_HOST}(?::\d{{1,5}})?", re.IGNORECASE),
-]
+# Intestazione Server delle risposte HTTP: di default "BaseHTTP/0.6 Python/3.x"
+# sulla 8000 e "Python/3.x websockets/y" sul WebSocket, cioè le versioni di
+# interprete e libreria a chiunque guardi (la 8443 è raggiungibile da internet).
+SERVER_BANNER = "LiquidMouse"
 
 
 def _serve_kwargs(**extra) -> dict:
@@ -81,10 +72,13 @@ def _serve_kwargs(**extra) -> dict:
     `compression=None` disattiva permessage-deflate: i messaggi del touchpad
     sono di pochi byte (la compressione non fa guadagnare nulla e aggiunge
     latenza e CPU per ogni mossa) e l'output del terminale viaggia in frame
-    binari già densi.
+    binari già densi. `server_header=None` toglie l'header Server di websockets.
+    Il controllo di Origin/Host non è qui ma in
+    `NetworkServices._guarded` (dipende dallo stato corrente: IP LAN, IP
+    esterno, tunnel).
     """
     return dict(ping_interval=WS_PING_INTERVAL, ping_timeout=WS_PING_TIMEOUT,
-                origins=ALLOWED_ORIGINS, compression=None, **extra)
+                compression=None, server_header=None, **extra)
 
 
 def tunnel_client_ip(headers) -> str:
@@ -138,6 +132,14 @@ def make_http_handler(static, sftp=None, transfers=None):
     class _StaticHTTPHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         timeout = HTTP_TIMEOUT_SECS
+
+        server_version = SERVER_BANNER
+        sys_version = ""
+
+        def version_string(self):
+            # Niente versione di Python: vedi SERVER_BANNER. Vale anche per
+            # le pagine d'errore di send_error.
+            return SERVER_BANNER
 
         def do_GET(self):
             if urlsplit(self.path).path == SFTP_DOWNLOAD_PATH:
@@ -291,6 +293,12 @@ class NetworkServices:
         self.transfers = transfers
         self.remote_mode = "none"   # "upnp" | "tunnel" | "none"
         self._ssl_ctx = None
+        # Connessioni non loopback attive, per chiuderle quando il PIN cambia
+        # (`revoke_pin_sessions`). Aggiunte dal loop asyncio, lette dal thread
+        # della GUI: da cui il lock.
+        self._remote_conns: set = set()
+        self._conns_lock = threading.Lock()
+        self._loop = None
 
     @property
     def external_ip(self) -> str | None:
@@ -322,7 +330,7 @@ class NetworkServices:
         Tre percorsi: remoto → PIN obbligatorio; loopback → sempre fidato (serve
         alla finestra terminale aperta sul PC stesso); LAN → whitelist primo
         arrivato, oppure il PIN come dal remoto se la config ha `lan_require_pin`
-        (opzione letta a ogni connessione, di default spenta).
+        (opzione letta a ogni connessione, di default accesa).
 
         Nota: `is_private_ip` esclude il range CGNAT 100.64/10, quindi un client
         dietro il NAT condiviso dell'ISP conta come remoto e deve dare il PIN.
@@ -337,7 +345,7 @@ class NetworkServices:
             if is_loopback(client_ip):
                 log_message(f"Sessione locale: {client_ip}", color=COLOR_ACCENT)
                 return True
-            if self.config.get('lan_require_pin'):
+            if self.config.get('lan_require_pin', LAN_REQUIRE_PIN_DEFAULT):
                 # Il PIN prende il posto della whitelist: più dispositivi possono
                 # entrare, ma solo chi lo conosce. Stesso anti brute force del remoto.
                 return await self._authorize_remote(websocket, client_ip, lan=True)
@@ -428,6 +436,41 @@ class NetworkServices:
             if scartati > LAN_PREAUTH_MAX:
                 raise ValueError("troppi messaggi prima dell'auth")
 
+    # --- Origin dell'handshake -------------------------------------------
+
+    def _tunnel_host(self) -> str | None:
+        url = self.tunnel_url
+        return (urlsplit(url).hostname or "").lower() or None if url else None
+
+    def _guarded(self, kind: str, inner=None):
+        """`process_request` che filtra Origin e Host delle sole richieste di
+        upgrade, poi passa a `inner` (le pagine servite sulla stessa porta).
+
+        Gli host ammessi si leggono qui, a ogni handshake: l'IP LAN, l'IP
+        esterno e l'indirizzo del tunnel cambiano mentre il server gira.
+        """
+        async def process_request(connection, request):
+            if request.headers.get("Upgrade", ""):
+                peer = getattr(connection, "remote_address", None) or ("", 0)
+                locale = getattr(connection, "local_address", None) or ("", 0)
+                # Il peer in LAN può aver raggiunto un'altra interfaccia del PC
+                # (scheda doppia, hotspot): l'indirizzo a cui si è collegato è
+                # per forza nostro, quindi vale come host della nostra pagina.
+                ips = (self.local_ip, locale[0] if kind == LAN else None)
+                if not origin_allowed(
+                        kind, peer[0], request.headers.get("Origin"),
+                        request.headers.get("Host"), local_ips=ips,
+                        external_ip=self.external_ip,
+                        tunnel_host=self._tunnel_host()):
+                    log_message(f"Origin rifiutato da {peer[0]}: "
+                                f"{request.headers.get('Origin')!r}", color=COLOR_ERROR)
+                    return connection.respond(HTTPStatus.FORBIDDEN, "Forbidden\n")
+                return None
+            if inner is not None:
+                return await inner(connection, request)
+            return None
+        return process_request
+
     # --- WebSocket --------------------------------------------------------
 
     async def handler(self, websocket, *, via_tunnel: bool = False):
@@ -443,16 +486,40 @@ class NetworkServices:
                                on_session_created=self.on_session_created,
                                sftp=self.sftp, transfers=self.transfers,
                                remote=via_tunnel or not is_private_ip(client_ip))
+        tracciata = via_tunnel or not is_loopback(client_ip)
+        if tracciata:
+            with self._conns_lock:
+                self._remote_conns.add(websocket)
         try:
             async for message in websocket:
                 await dispatch(ctx, message)
         except websockets.exceptions.ConnectionClosed:
             log_message("In attesa di connessione...", color=COLOR_MUTED)
         finally:
+            if tracciata:
+                with self._conns_lock:
+                    self._remote_conns.discard(websocket)
             # Senza questo, un client che si disconnette con Ctrl premuto lascia
             # il modificatore giù sul PC. Sgancia anche le sessioni terminal,
             # così una riconnessione può riagganciarle.
             ctx.release_all()
+
+    def revoke_pin_sessions(self) -> int:
+        """Chiude le connessioni non loopback già autenticate (PIN cambiato).
+
+        Senza, chi aveva il vecchio PIN resterebbe dentro finché non si
+        disconnette. Il loopback (finestra terminale sul PC) è fidato a
+        prescindere dal PIN e non si tocca. Chiamabile da un altro thread.
+        Ritorna quante chiusure ha richiesto.
+        """
+        loop = self._loop
+        with self._conns_lock:
+            conns = list(self._remote_conns)
+        if loop is None:
+            return 0
+        for ws in conns:
+            asyncio.run_coroutine_threadsafe(ws.close(1008, "pin cambiato"), loop)
+        return len(conns)
 
     # --- HTTP -------------------------------------------------------------
 
@@ -647,6 +714,7 @@ class NetworkServices:
     async def start_websocket_server(self) -> None:
         log_message("Protocolli di comunicazione inizializzati.", color=COLOR_MUTED)
         loop = asyncio.get_running_loop()
+        self._loop = loop
         keepalive = None
         try:
             async with contextlib.AsyncExitStack() as stack:
@@ -673,7 +741,8 @@ class NetworkServices:
                 # prima e tenevano il telefono su "in attesa".
                 lan = [
                     (PORT, websockets.serve(self.handler, "0.0.0.0", PORT,
-                                            **_serve_kwargs())),
+                                            **_serve_kwargs(
+                                                process_request=self._guarded(LAN)))),
                 ]
                 if self.tunnel is not None:
                     # Origine del tunnel: solo loopback, pagina + WS insieme come
@@ -681,7 +750,8 @@ class NetworkServices:
                     lan.append((TUNNEL_PORT,
                         websockets.serve(self._tunnel_handler, "127.0.0.1", TUNNEL_PORT,
                                          **_serve_kwargs(
-                                             process_request=self.https_process_request))))
+                                             process_request=self._guarded(
+                                                 TUNNEL, self.https_process_request)))))
                 avviati += await avvia(lan)
 
                 # 2. Certificato (fuori dall'event loop) e server HTTPS/WSS.
@@ -692,7 +762,8 @@ class NetworkServices:
                     remoti = [(HTTPS_PORT,
                         websockets.serve(self.handler, "0.0.0.0", HTTPS_PORT, ssl=ssl_ctx,
                                          **_serve_kwargs(
-                                             process_request=self.https_process_request)))]
+                                             process_request=self._guarded(
+                                                 REMOTE, self.https_process_request))))]
                     avviati += await avvia(remoti)
 
                 if avviati:

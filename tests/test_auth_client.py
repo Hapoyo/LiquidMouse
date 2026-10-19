@@ -52,6 +52,49 @@ class TestGate:
         assert _node("(() => { const g = makeAuthGate(); g.fail(); g.fail(); g.reset(); return g.canAutoReconnect(); })()") is True
 
 
+def _node_pin(href: str):
+    """Esegue `pinFromUrl(href)` dal blocco contratto `// --- PIN: contratto`."""
+    js = _js()
+    assert "// --- PIN: contratto" in js, "blocco contratto del PIN non trovato nel client"
+    blocco = js[js.index("// --- PIN: contratto"):]
+    blocco = blocco[:blocco.index(FINE)]
+    codice = blocco + f"\nprocess.stdout.write(JSON.stringify(pinFromUrl({json.dumps(href)})));\n"
+    out = subprocess.run(["node", "-e", codice], capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+@richiede_node
+class TestPinDalFragment:
+    def test_legge_il_pin_dal_fragment_e_lo_toglie(self):
+        r = _node_pin("https://203.0.113.5:8443/#pin=abc_DEF-12")
+        assert r == {"pin": "abc_DEF-12", "clean": "https://203.0.113.5:8443/"}
+
+    def test_accetta_ancora_la_query_dei_qr_vecchi(self):
+        r = _node_pin("http://192.168.1.10:8000/?v=1&pin=abc123")
+        assert r == {"pin": "abc123", "clean": "http://192.168.1.10:8000/?v=1"}
+
+    def test_il_fragment_vince_sulla_query(self):
+        r = _node_pin("http://h/?pin=vecchio#pin=nuovo")
+        assert r["pin"] == "nuovo" and "pin" not in r["clean"]
+
+    def test_senza_pin_non_cambia_nulla(self):
+        r = _node_pin("http://h:8000/?term=3#altro=1")
+        assert r == {"pin": None, "clean": "http://h:8000/?term=3#altro=1"}
+
+    def test_conserva_gli_altri_parametri(self):
+        r = _node_pin("http://h/?term=3&pin=x#pin=y&altro=1")
+        assert r == {"pin": "y", "clean": "http://h/?term=3#altro=1"}
+
+    def test_url_non_valido_non_solleva(self):
+        assert _node_pin("non un url") == {"pin": None, "clean": "non un url"}
+
+    def test_il_codice_ripulisce_la_barra_con_replacestate(self):
+        js = _js()
+        assert "pinFromUrl(window.location.href)" in js
+        assert "history.replaceState(null, '', urlPin.clean)" in js
+
+
 @richiede_node
 class TestSmistamento:
     """HANDLERS + dispatchMessage eseguiti con node su dipendenze finte."""

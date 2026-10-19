@@ -215,7 +215,7 @@ def schermate_client(client: Client) -> None:
     page.context.close()
 
     # Primo accesso remoto: pagina via HTTPS e PIN sbagliato.
-    page = client.pagina(url="https://93.41.207.18:8443/")
+    page = client.pagina(url="https://203.0.113.42:8443/")
     page.clock.run_for(1000)
     page.evaluate("() => { stopWithError('pin errato (4 tentativi rimasti)');"
                   " document.getElementById('pinInput').value = 'Vq7x-M2'; }")
@@ -312,7 +312,7 @@ def salva_gif(fotogrammi, percorso: Path, larghezza: int | None = None) -> None:
 class _ServiziFinti:
     def __init__(self, modo: str) -> None:
         self.remote_mode = modo
-        self.external_ip = "93.41.207.18"
+        self.external_ip = "203.0.113.42"
         self.external_port = 8443
         self.tunnel_url = "https://quiet-harbor-lemon-seven.trycloudflare.com"
         self.remote_problem = "cgnat dell'operatore"
@@ -351,7 +351,10 @@ def schermate_finestra() -> None:
     sys.modules.setdefault("pystray", types.SimpleNamespace(Icon=None, Menu=None, MenuItem=None))
     from liquidmouse.gui import window
 
-    def disegna(modo: str):
+    def disegna(modo: str, mostra: bool = False):
+        # Maschera e timer di "mostra" sono stato del modulo: ogni finestra
+        # riparte nascosta, come all'avvio del programma.
+        window._reveal_until = 0.0
         servizi = _ServiziFinti(modo)
         deps = window.GuiDeps(
             config={"pin_plain": "Vq7x-M2kTfA"}, sessions=_SessioniFinte(),
@@ -365,13 +368,17 @@ def schermate_finestra() -> None:
             root.update()
             time.sleep(0.01)
         window.update_remote_ui()
+        if mostra:
+            window.toggle_reveal()
         window.gui_log_sink("Telefono connesso: 192.168.1.34", color=COLOR_AMBER)
         for _ in range(20):
             root.update()
             time.sleep(0.02)
         return root
 
-    root = disegna("upnp")
+    # UPnP con "mostra" premuto (PIN, QR e IP leggibili: è l'immagine della
+    # copertina); tunnel come si vede di default, con i segreti mascherati.
+    root = disegna("upnp", mostra=True)
     _cattura(root).save(OUT / "finestra-upnp.png")
     window._open_sessions_panel()
     for _ in range(20):

@@ -189,6 +189,25 @@
     // --- fine contratto ---
     const authGate = makeAuthGate();
 
+    // --- PIN: contratto (tests/test_auth_client.py) ---
+    // Il QR porta il PIN nel fragment (#pin=...): il browser non lo manda nella
+    // richiesta HTTP, quindi non finisce nei log del tunnel, del router o di
+    // un proxy, né nell'header Referer. `?pin=` resta accettato per i QR e i
+    // segnalibri vecchi. Ritorna il PIN (o null) e l'indirizzo ripulito da
+    // usare con history.replaceState, così non resta nella barra né nella cronologia.
+    function pinFromUrl(href) {
+        let url;
+        try { url = new URL(href); } catch (_) { return { pin: null, clean: href }; }
+        const frag = new URLSearchParams(url.hash.slice(1));
+        const pin = frag.get('pin') || url.searchParams.get('pin') || null;
+        url.searchParams.delete('pin');
+        frag.delete('pin');
+        const resto = frag.toString();
+        url.hash = resto ? '#' + resto : '';
+        return { pin: pin, clean: url.toString() };
+    }
+    // --- fine contratto ---
+
     // Manda il PIN (remoto all'apertura, LAN quando il server risponde
     // `auth_required` perché `lan_require_pin` è acceso sul PC). Senza PIN non
     // si tenta nulla: si ferma con un errore e si riapre la configurazione.
@@ -444,16 +463,14 @@
     // Avvio Iniziale Stabile per le WebView
     window.addEventListener('load', () => {
         setTimeout(() => {
-            // Auto-fill PIN from URL ?pin=... parameter
+            // Auto-fill del PIN da #pin=... (o ?pin=... dei QR vecchi)
             const urlParams = new URLSearchParams(window.location.search);
-            const urlPin = urlParams.get('pin');
-            if (urlPin) {
-                pinInput.value = urlPin;
-                savePIN(urlPin);
+            const urlPin = pinFromUrl(window.location.href);
+            if (urlPin.pin) {
+                pinInput.value = urlPin.pin;
+                savePIN(urlPin.pin);
                 try {
-                    const cleanUrl = new URL(window.location.href);
-                    cleanUrl.searchParams.delete('pin');
-                    history.replaceState(null, '', cleanUrl.toString());
+                    history.replaceState(null, '', urlPin.clean);
                 } catch (_) {}
             } else {
                 pinInput.value = loadPIN();

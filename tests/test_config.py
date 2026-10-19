@@ -132,3 +132,30 @@ class TestMigrazioneDaLiquidControl:
         vecchia = Config(path=tmp_path / "LiquidControl" / "config.json")
         pin = vecchia.load()["pin_plain"]
         assert Config().load()["pin_plain"] == pin
+
+
+class TestLanRequirePin:
+    """Il PIN dalla LAN è acceso di default; una scelta esplicita resta."""
+
+    def test_config_nuova_ha_il_pin_dalla_lan_acceso(self, tmp_path):
+        assert _config_at(tmp_path).load()["lan_require_pin"] is True
+
+    def test_config_esistente_senza_la_chiave_passa_al_nuovo_default(self, tmp_path):
+        cfg = _config_at(tmp_path)
+        cfg.load()
+        dati = json.loads(cfg.path.read_text(encoding="utf-8"))
+        dati.pop("lan_require_pin", None)          # come scritta da una versione vecchia
+        cfg.path.write_text(json.dumps(dati), encoding="utf-8")
+        assert _config_at(tmp_path).load()["lan_require_pin"] is True
+
+    def test_la_scelta_esplicita_di_spegnerlo_resta(self, tmp_path):
+        cfg = _config_at(tmp_path)
+        cfg.load()
+        cfg["lan_require_pin"] = False
+        cfg.save()
+        assert _config_at(tmp_path).load()["lan_require_pin"] is False
+
+    def test_il_pin_non_cambia_con_il_nuovo_default(self, tmp_path):
+        cfg = _config_at(tmp_path)
+        pin = cfg.load()["pin_plain"]
+        assert _config_at(tmp_path).load()["pin_plain"] == pin

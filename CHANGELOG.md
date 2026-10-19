@@ -30,6 +30,50 @@ Security and robustness pass from a full code review, plus follow-ups.
   the PC or on the phone can no longer drive the loopback session (terminal, keyboard, SFTP),
   and DNS rebinding with an arbitrary hostname is rejected. Clients without an `Origin`
   (smoke test, desktop terminal window) are unaffected.
+- **Origin check per connection type** — the static regex (any numeric IP, any
+  `*.trycloudflare.com`) is replaced by a check done on every handshake, on both `Origin` and
+  `Host`: a loopback peer accepts only `localhost`/`127.0.0.1`; a LAN peer only the PC's current
+  LAN IP (read each time, it changes with the network); port 8443 only the external IP and the
+  current tunnel address; the tunnel port only the current tunnel address. A page on a stray IP,
+  on another `trycloudflare.com` tunnel or on `localhost.evil.com` is refused with 403.
+- **PIN in the URL fragment** — the QR codes carry `#pin=` instead of `?pin=`: the fragment is
+  never sent in the HTTP request, so the PIN stays out of tunnel, router and proxy logs and out
+  of `Referer`. The page reads it, stores it and wipes it from the address bar and history;
+  `?pin=` from old QR codes and bookmarks still works.
+- **Secrets masked in the window** — the PIN, the remote QR (which contains the PIN), the
+  external IP and the tunnel address are hidden by default; the new button "mostra per 30 s" (or a
+  click on the QR placeholder) shows them for 30 seconds, "nascondi" hides them at once. The same
+  mask applies to the status line, the UPnP/CGNAT messages and the tray's "Remoto:" entry; LAN
+  addresses stay visible. With "PIN anche dalla LAN" the LAN QR carries the PIN only while shown.
+- **BEHAVIOUR CHANGE: the LAN asks for the PIN by default** — `lan_require_pin` is now on
+  unless you turned it off. Before, the first device to connect on the Wi-Fi was trusted without
+  any PIN, so anyone on the same network (guest, compromised device) could take the slot and drive
+  the PC. Existing configs without the key switch to the new default (an explicit choice is
+  kept); phones that already stored the PIN reconnect as before, new ones get the PIN prompt.
+  To restore the old first-come behaviour, untick **PIN anche dalla LAN** in the tray menu.
+- **UPnP: timed lease, stale cleanup, other apps' forwards left alone** — the router mapping
+  now has a 1800 s lease that the 10-minute keepalive renews, so a crash or a power cut no longer
+  leaves port 8443 open until the router reboots (falls back to a permanent mapping if the router
+  answers error 725). At start-up a leftover mapping carrying our description (`LiquidMouse`) is
+  removed, and on a port conflict only the description is compared, so another app's forward on
+  the same PC is never deleted. Needs `miniupnpc` >= 2.2.8 (`leaseDuration` argument).
+- **cloudflared dies with the program** — the tunnel process is put in a Windows Job Object with
+  `KILL_ON_JOB_CLOSE`, so killing the program (task manager, crash, power-off) no longer leaves
+  `cloudflared.exe` running with the public address open; at start-up any leftover
+  `cloudflared.exe` whose path is exactly our `%APPDATA%/LiquidMouse/bin` copy is terminated
+  (one in the `PATH` or started by something else is never touched).
+- **Less fingerprint** — the HTTP server on 8000 and every WebSocket server no longer send
+  `Server: BaseHTTP/0.6 Python/3.x` / `Python/3.x websockets/y` (the 8443 port is reachable from
+  the internet). The self-signed certificate now has the generic common name `localhost` instead
+  of `LiquidMouse`; the LAN address stays in the subject alternative name. Certificates made by
+  older versions are replaced once, so browsers and phones ask to accept the warning one more
+  time. The external IP is deliberately not added to the certificate (it changes with the
+  line, which would mean a new RSA key and a new warning every time). The README now warns that
+  Cloudflare terminates TLS (it sees the PIN and the traffic) and that `ws://` 8765 is plain text
+  even for addresses in `100.64.0.0/10`.
+- **Tray: "Rigenera PIN"** — generates a new PIN, stores it encrypted (DPAPI), closes every
+  non-loopback connection that was authenticated with the old one and redraws the QR codes; the
+  old QR stops working.
 - **SFTP password no longer follows a changed host** — saving a profile with a different host,
   port or user and an empty password now drops the stored password instead of keeping it, so a
   client could not make the PC send it to another server.

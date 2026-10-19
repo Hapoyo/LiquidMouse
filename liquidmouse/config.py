@@ -28,6 +28,11 @@ APP_DIR = "LiquidMouse"
 LEGACY_APP_DIRS = ("LiquidControl",)  # nomi precedenti, dal più recente
 # Campo in chiaro (in memoria) → campo cifrato (su disco).
 SECRET_FIELDS = {"pin_plain": "pin_secret", "ssl_key": "ssl_key_secret"}
+# Dalla LAN serve il PIN come dal remoto (opzione "PIN anche dalla LAN" del
+# tray). Prima il default era il "primo arrivato": chiunque sulla Wi-Fi
+# (ospite, dispositivo compromesso) poteva occupare lo slot e pilotare il PC.
+# Chi vuole tornare al vecchio comportamento lo spegne dal tray.
+LAN_REQUIRE_PIN_DEFAULT = True
 
 
 def _appdata() -> pathlib.Path:
@@ -96,6 +101,10 @@ class Config:
             self.data = {}
 
         migrata = self._decifra_segreti()
+        # Config scritte prima dell'opzione (o con il vecchio default implicito
+        # "spento"): passano al default nuovo. Una scelta esplicita, True o
+        # False, resta com'è.
+        self.data.setdefault("lan_require_pin", LAN_REQUIRE_PIN_DEFAULT)
 
         # Genera il PIN solo se la config manca del tutto o è malformata, non
         # se manca la sola chiave: così un upgrade che aggiunge campi non
@@ -144,6 +153,15 @@ class Config:
         self.data["pin_plain"] = pin
         self.data["pin_hash"] = hash_pin(pin)
         self.save()
+
+    def regenerate_pin(self) -> str:
+        """PIN nuovo al posto del vecchio; `save` lo riscrive cifrato (DPAPI).
+
+        Il vecchio PIN smette di valere subito: l'autenticazione legge
+        `pin_hash` a ogni handshake. Ritorna il nuovo PIN in chiaro."""
+        pin = secrets.token_urlsafe(PIN_BYTES)
+        self.set_pin(pin)
+        return pin
 
     def save(self) -> None:
         """Scrive la config. Non solleva: un errore qui non deve impedire

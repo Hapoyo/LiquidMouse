@@ -16,7 +16,9 @@ server.pyw importa questo modulo, non il contrario.
 """
 
 import ctypes
+import ipaddress
 import os
+import re
 import time
 import tkinter as tk
 from dataclasses import dataclass
@@ -25,8 +27,10 @@ import pystray
 import qrcode
 from PIL import Image, ImageDraw, ImageTk
 
+from liquidmouse.config import LAN_REQUIRE_PIN_DEFAULT
 from liquidmouse.events import log_message
 from liquidmouse.gui.effects import apply_dwm_style, load_private_fonts
+from liquidmouse.net.addresses import is_loopback
 from liquidmouse.paths import BASE_DIR, ICON_PATH
 from liquidmouse.ports import HTTP_PORT
 from liquidmouse.terminal.launcher import open_pc_terminal
@@ -46,12 +50,16 @@ class GuiDeps:
     costruito dopo la GUI: al momento di disegnare non esiste ancora.
     """
 
-    def __init__(self, *, config, sessions, services, local_ip, reset_trusted):
+    def __init__(self, *, config, sessions, services, local_ip, reset_trusted,
+                 regenerate_pin=None):
         self.config = config
         self.sessions = sessions
         self.services = services
         self.local_ip = local_ip
         self.reset_trusted = reset_trusted
+        # Callable senza argomenti: genera un PIN nuovo, lo salva cifrato e
+        # chiude le sessioni remote. None = voce del tray che non fa nulla.
+        self.regenerate_pin = regenerate_pin
 
 
 class _CanvasText:
@@ -104,6 +112,13 @@ _lan_qr_box         = None   # (x, y, lato) dell'immagine del QR LAN
 _lan_ip_max_w       = 0      # larghezza massima dell'indirizzo LAN, per il font
 _lan_hint_var       = None   # riga sotto l'indirizzo LAN ("apri dal telefono...")
 _sessions_win       = None
+_remote_qr_hint     = None   # testo sotto il QR remoto ("in attesa" / "nascosto")
+_remote_snapshot    = None   # (modo, endpoint, motivo) dell'ultimo update_remote_ui
+_pin_var            = None   # valore del PIN, mascherato finché non si mostra
+_pin_max_w          = 0
+_pin_btn_text       = None   # etichetta del pulsante "mostra per 30 s"
+_reveal_until       = 0.0    # time.monotonic() fino a cui i segreti sono in chiaro
+_reveal_job         = None   # id del timer che li rimaschera
 
 # Scala del disegno rispetto a 96 dpi e famiglie di font effettive (quelle del
 # tema se caricate, altrimenti i ripieghi). Fissate in build().
@@ -170,16 +185,131 @@ def _remote_endpoint() -> tuple[str, str] | None:
         external_ip = servizi.external_ip
         porta = servizi.external_port
         return (f"UPnP  {external_ip}:{porta}",
-                f"https://{external_ip}:{porta}/?pin={pin}")
+                f"https://{external_ip}:{porta}/#pin={pin}")
     if servizi.remote_mode == 'tunnel' and servizi.tunnel_url:
         url = servizi.tunnel_url
-        return (f"Tunnel  {url.removeprefix('https://')}", f"{url}/?pin={pin}")
+        return (f"Tunnel  {url.removeprefix('https://')}", f"{url}/#pin={pin}")
     return None
 
 
 def _get_remote_tray_label():
     endpoint = _remote_endpoint()
-    return f'Remoto: {endpoint[0]}' if endpoint else 'Remoto: non disponibile'
+    # Il menu del tray si legge anche con la finestra mascherata: stessa regola.
+    return (f'Remoto: {_visible_text(endpoint[0])}' if endpoint
+            else 'Remoto: non disponibile')
+
+
+# --- SEGRETI MASCHERATI ---
+# PIN, QR remoto, IP esterno e indirizzo del tunnel stanno in chiaro solo per
+# SHOW_SECS dopo "mostra": la finestra si fotografa, si condivide in una call,
+# si lascia aperta su un PC altrui, e un QR remoto contiene il PIN. Il QR LAN
+# senza PIN non è un segreto e resta sempre visibile.
+SHOW_SECS = 30
+MASK_CHAR = "•"
+MASK_IP = "•••.•••.•••.•••"
+_IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+_TUNNEL_SUB = re.compile(r"[a-z0-9-]+(?=\.trycloudflare\.com)", re.IGNORECASE)
+
+
+# Reti locali vere (RFC 1918 e link-local). Non `is_private_ip`/`is_private` di
+# ipaddress: includono anche gli intervalli di documentazione (203.0.113.0/24
+# ecc.), che negli esempi e nelle anteprime stanno al posto di IP pubblici.
+_LAN_NETS = tuple(ipaddress.ip_network(n) for n in (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16"))
+
+
+def _is_lan_ip(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return is_loopback(ip) or any(addr in n for n in _LAN_NETS)
+
+
+def mask_sensitive(testo: str) -> str:
+    """Nasconde IP pubblici/CGNAT e il nome del tunnel in un testo.
+
+    Gli indirizzi LAN e il loopback restano: non dicono nulla di utile a chi
+    guarda lo schermo da fuori, e senza di essi il log ("Sessione attiva: ...")
+    perderebbe senso. L'IP esterno e il range 100.64/10 (CGNAT) sì: identificano
+    la linea dell'utente.
+    """
+    def _ip(m):
+        ip = m.group(0)
+        return ip if _is_lan_ip(ip) else MASK_IP
+    return _TUNNEL_SUB.sub(MASK_CHAR * 3, _IPV4.sub(_ip, testo))
+
+
+def secrets_visible() -> bool:
+    return time.monotonic() < _reveal_until
+
+
+def _visible_text(testo: str) -> str:
+    return testo if secrets_visible() else mask_sensitive(testo)
+
+
+def _set_reveal(on: bool) -> None:
+    """Mostra i segreti per SHOW_SECS (o li nasconde subito) e ridisegna.
+
+    Da eseguire sul thread Tk. Ogni "mostra" riparte da 30 s e sostituisce il
+    timer precedente, altrimenti il vecchio rimaschererebbe prima del tempo.
+    """
+    global _reveal_until, _reveal_job
+    if _reveal_job is not None:
+        try:
+            root.after_cancel(_reveal_job)
+        except Exception:
+            pass
+        _reveal_job = None
+    _reveal_until = time.monotonic() + SHOW_SECS if on else 0.0
+    if on:
+        _reveal_job = root.after(SHOW_SECS * 1000, lambda: _set_reveal(False))
+    _refresh_secrets()
+
+
+def toggle_reveal(*_) -> None:
+    """Pulsante "mostra per 30 s" (e clic sul QR remoto): mostra o nasconde."""
+    _set_reveal(not secrets_visible())
+
+
+def _masked_pin(pin: str) -> str:
+    return pin if secrets_visible() else MASK_CHAR * len(pin)
+
+
+def _refresh_secrets() -> None:
+    """Ridisegna tutto ciò che dipende dalla visibilità (thread Tk)."""
+    visibile = secrets_visible()
+    if _pin_var is not None and _deps is not None:
+        testo = _masked_pin(_deps.config.get('pin_plain', '—'))
+        _pin_var.set(testo)
+        try:
+            _pin_var.set_font(_fit_num(testo, _pin_max_w, 30, 12))
+        except Exception:
+            pass
+    if _pin_btn_text is not None:
+        _pin_btn_text.set("nascondi" if visibile else f"mostra per {SHOW_SECS} s")
+    _render_remote()
+    if root is not None and ip_label_var is not None and _deps is not None:
+        _set_lan_ui(_deps.local_ip)
+
+
+def regenerate_pin(icon=None, item=None) -> None:
+    """Voce del tray "rigenera pin": PIN nuovo, QR nuovi, sessioni remote chiuse.
+
+    Il lavoro vero (config, DPAPI, chiusura dei socket) è del core, passato in
+    `GuiDeps.regenerate_pin`; qui si ridisegna. Il vecchio QR smette di valere
+    perché porta il vecchio PIN.
+    """
+    if _deps is None or _deps.regenerate_pin is None:
+        return
+    try:
+        _deps.regenerate_pin()
+    except Exception as e:
+        log_message(f"PIN non rigenerato: {e}", color=COLOR_ERROR)
+        return
+    if root is not None:
+        update_remote_ui()
+        root.after(0, _refresh_secrets)
 
 
 # Il pannello "remoto" ha un'altezza fissa: un motivo di errore lungo (es. il
@@ -198,29 +328,44 @@ def update_remote_ui():
     Chiamata dal thread dei servizi di rete, quindi ogni tocco ai widget passa
     da root.after.
     """
+    global _remote_snapshot
     if not _remote_status_var:
         return
     servizi = _deps.services()
     modo = servizi.remote_mode if servizi is not None else 'none'
-    if _remote_title_var is not None:
-        titolo = "remoto // tunnel" if modo == 'tunnel' else "remoto // upnp"
-        root.after(0, lambda t=titolo: _remote_title_var.set(t))
     endpoint = _remote_endpoint()
+    motivo = servizi.remote_problem if servizi and endpoint is None else None
+    # Fotografia dello stato di rete: la maschera si applica poi sul thread Tk,
+    # in `_render_remote`, perché dipende dal "mostra" premuto in quel momento.
+    _remote_snapshot = (modo, endpoint, motivo)
+    root.after(0, _render_remote)
+
+
+def _render_remote() -> None:
+    """Disegna pannello e QR remoto dall'ultima fotografia (thread Tk)."""
+    if not _remote_status_var or _remote_snapshot is None:
+        return
+    modo, endpoint, motivo = _remote_snapshot
+    if _remote_title_var is not None:
+        _remote_title_var.set("remoto // tunnel" if modo == 'tunnel' else "remoto // upnp")
     if endpoint is None:
-        motivo = servizi.remote_problem if servizi else None
-        etichetta = (f"Remoto non disponibile: {_troncato(motivo)}" if motivo
-                     else "Remoto non disponibile")
+        etichetta = (f"Remoto non disponibile: {_troncato(_visible_text(motivo))}"
+                     if motivo else "Remoto non disponibile")
         # COLOR_MUTED, non COLOR_ERROR: UPnP non ancora riuscito e' uno stato
         # di attesa normale (il keepalive riprova ogni 10 minuti), non un
         # guasto da segnalare in rosso.
-        root.after(0, lambda et=etichetta: _set_remote_label(et, COLOR_MUTED))
+        _set_remote_label(etichetta, COLOR_MUTED)
         # Un QR rimasto da un mapping perso manderebbe il telefono su una
         # porta ormai chiusa.
-        root.after(0, _clear_remote_qr)
+        _clear_remote_qr(HINT_IN_ATTESA)
         return
     etichetta, url = endpoint
-    root.after(0, lambda et=etichetta: _set_remote_label(et, COLOR_OK))
-    root.after(0, lambda: _set_remote_qr(url))
+    _set_remote_label(_visible_text(etichetta), COLOR_OK)
+    if secrets_visible():
+        _set_remote_qr(url)
+    else:
+        # Il QR remoto contiene il PIN: nascosto finché non si preme "mostra".
+        _clear_remote_qr(HINT_NASCOSTO)
 
 
 def update_lan_ui(ip: str) -> None:
@@ -264,15 +409,18 @@ LAN_HINT_PIN = "stessa wi-fi, serve il pin"
 
 def lan_require_pin() -> bool:
     """True se l'opzione `lan_require_pin` della config è accesa."""
-    return bool(_deps is not None and _deps.config.get('lan_require_pin'))
+    return bool(_deps is not None
+                and _deps.config.get('lan_require_pin', LAN_REQUIRE_PIN_DEFAULT))
 
 
 def _lan_qr_url(ip: str) -> str:
     # Il parametro v cambia a ogni disegno: il telefono non riusa una pagina in cache.
     url = f"http://{ip}:{HTTP_PORT}/?v={int(time.time())}"
-    if lan_require_pin():
-        # Come il QR remoto: il client legge ?pin= e lo manda all'handshake.
-        url += f"&pin={_deps.config.get('pin_plain', '')}"
+    if lan_require_pin() and secrets_visible():
+        # Come il QR remoto: il client legge #pin= e lo manda all'handshake.
+        # Solo mentre i segreti sono mostrati; altrimenti il QR apre la pagina
+        # e il telefono chiede il PIN (che sta nel riquadro, dietro "mostra").
+        url += f"#pin={_deps.config.get('pin_plain', '')}"
     return url
 
 
@@ -326,15 +474,23 @@ def _set_remote_qr(url: str) -> None:
         if _remote_qr_item is None:
             _remote_qr_item = _main_canvas.create_image(
                 x + lato // 2, y + lato // 2, image=photo)
+            # Un clic sul QR lo rimaschera subito.
+            _main_canvas.tag_bind(_remote_qr_item, "<Button-1>", toggle_reveal)
         else:
             _main_canvas.itemconfig(_remote_qr_item, image=photo, state="normal")
     except Exception as e:
         log_message(f"QR remoto error: {e}", color=COLOR_ERROR)
 
 
-def _clear_remote_qr() -> None:
+HINT_IN_ATTESA = "qr\nin attesa"
+HINT_NASCOSTO = "qr\nnascosto"
+
+
+def _clear_remote_qr(hint: str = HINT_IN_ATTESA) -> None:
     if _main_canvas is not None and _remote_qr_item is not None:
         _main_canvas.itemconfig(_remote_qr_item, state="hidden")
+    if _remote_qr_hint is not None:
+        _remote_qr_hint.set(hint)
 
 
 def _open_sessions_panel(*_):
@@ -427,6 +583,7 @@ def run_tray_service():
         pystray.MenuItem('Reset connessione locale', lambda icon, item: _deps.reset_trusted()),
         pystray.MenuItem('PIN anche dalla LAN', toggle_lan_require_pin,
                          checked=lambda item: lan_require_pin()),
+        pystray.MenuItem('Rigenera PIN', regenerate_pin),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem('Esci', terminate_application),
     )
@@ -665,6 +822,7 @@ def _draw_lan_panel(c, lay: _Layout) -> tuple[_CanvasText, str]:
 def _draw_remote_panel(c, lay: _Layout) -> None:
     """Pannello scuro dell'accesso remoto: titolo, stato e QR in attesa."""
     global _remote_status_var, _remote_status_label, _remote_title_var, _remote_qr_box
+    global _remote_qr_hint
     P = _px
     L, GAP, ry1, ry2, pin_l = lay.left, lay.gap, lay.ry1, lay.ry2, lay.pin_l
     _panel(c, L, ry1, pin_l - GAP, ry2, COLOR_BG, COLOR_BORDER)
@@ -676,8 +834,11 @@ def _draw_remote_panel(c, lay: _Layout) -> None:
     _panel(c, _remote_qr_box[0] - P(6), _remote_qr_box[1] - P(6),
            _remote_qr_box[0] + rqr + P(6), _remote_qr_box[1] + rqr + P(6),
            COLOR_CREAM, r=8)
-    c.create_text(_remote_qr_box[0] + rqr // 2, _remote_qr_box[1] + rqr // 2,
-                  text="qr\nin attesa", justify="center", font=_f_label(11), fill=COLOR_INK)
+    _remote_qr_hint = _text(c, _remote_qr_box[0] + rqr // 2, _remote_qr_box[1] + rqr // 2,
+                            HINT_IN_ATTESA, _f_label(11), COLOR_INK, "center",
+                            justify="center")
+    # Clic sul riquadro = "mostra" (il pulsante vero sta nel pannello del PIN).
+    c.tag_bind(_remote_qr_hint._item, "<Button-1>", toggle_reveal)
     _remote_status_var = _text(
         c, L + P(12), ry1 + P(34), "Inizializzazione...", _f_label(12), COLOR_MUTED,
         width=_remote_qr_box[0] - L - P(30))
@@ -685,15 +846,36 @@ def _draw_remote_panel(c, lay: _Layout) -> None:
 
 
 def _draw_pin_panel(c, lay: _Layout) -> None:
-    """Pannello arancio con il PIN (lo stesso che va nel QR remoto)."""
+    """Pannello arancio con il PIN (lo stesso che va nel QR remoto).
+
+    Il PIN è mascherato; il pulsante lo mostra, insieme a QR remoto e IP, per
+    SHOW_SECS secondi.
+    """
+    global _pin_var, _pin_max_w, _pin_btn_text
     P = _px
     R, ry1, ry2, pin_l = lay.right, lay.ry1, lay.ry2, lay.pin_l
     _panel(c, pin_l, ry1, R, ry2, COLOR_ORANGE)
     _text(c, pin_l + P(12), ry1 + P(10), "pin", _f_label(12), COLOR_INK)
-    pin_val = _deps.config.get('pin_plain', '—')
-    _text(c, pin_l + P(10), ry1 + P(78), pin_val,
-          _fit_num(pin_val, R - pin_l - P(22), 30, 12), COLOR_INK, "sw")
-    _text(c, pin_l + P(12), ry2 - P(10), "nel qr remoto", _f_label(11), COLOR_INK, "sw")
+    _pin_max_w = R - pin_l - P(22)
+    pin_val = _masked_pin(_deps.config.get('pin_plain', '—'))
+    _pin_var = _text(c, pin_l + P(10), ry1 + P(78), pin_val,
+                     _fit_num(pin_val, _pin_max_w, 30, 12), COLOR_INK, "sw")
+    # Pulsante: pannello scuro con testo crema, alto quanto serve a un clic.
+    bx1, bx2 = pin_l + P(12), R - P(12)
+    by2 = ry2 - P(10)
+    by1 = by2 - P(26)
+    fondo = _panel(c, bx1, by1, bx2, by2, COLOR_INK, r=6)
+    _pin_btn_text = _text(c, (bx1 + bx2) // 2, (by1 + by2) // 2, f"mostra per {SHOW_SECS} s",
+                          _f_label(11), COLOR_CREAM, "center")
+
+    def _hover(on):
+        c.itemconfig(fondo, fill=COLOR_BORDER if on else COLOR_INK,
+                     outline=COLOR_BORDER if on else COLOR_INK)
+        c.config(cursor="hand2" if on else "")
+    for item in (fondo, _pin_btn_text._item):
+        c.tag_bind(item, "<Button-1>", toggle_reveal)
+        c.tag_bind(item, "<Enter>", lambda e: _hover(True))
+        c.tag_bind(item, "<Leave>", lambda e: _hover(False))
 
 
 def _draw_status_panel(c, lay: _Layout) -> _CanvasText:
@@ -828,7 +1010,9 @@ def gui_log_sink(message, color=None):
         color = COLOR_MUTED
     def _update():
         if status_var:
-            status_var.set(message)
+            # Il log dice "UPnP attivo: <ip esterno>" e "Tunnel attivo: <url>":
+            # anche la riga di stato rispetta la maschera.
+            status_var.set(_visible_text(message))
             if status_label: status_label.config(fg=color)
         if _main_canvas is not None and _status_dot is not None:
             _main_canvas.itemconfig(_status_dot, fill=_DOT_MAP.get(color, COLOR_MUTED))

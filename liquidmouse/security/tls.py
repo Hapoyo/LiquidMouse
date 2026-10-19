@@ -19,6 +19,11 @@ from liquidmouse.theme import COLOR_ERROR
 
 CERT_VALIDITY_DAYS = 3650
 RSA_KEY_SIZE = 2048
+# Common Name generico: il certificato è visibile a chiunque raggiunga la 8443
+# (anche da internet, e agli scanner che catalogano i certificati), quindi non
+# deve dire che dietro c'è questo programma. Il nome che conta per il browser è
+# il SAN (l'IP LAN); il CN è solo un'etichetta.
+CERT_CN = "localhost"
 
 
 class SelfSignedCert:
@@ -56,8 +61,12 @@ class SelfSignedCert:
 
     def _materiale(self, local_ip: str) -> tuple[bytes, bytes]:
         """Certificato e chiave in PEM, dalla config o generati ora."""
+        # `ssl_cn` assente o diverso = certificato di una versione che metteva
+        # "LiquidMouse" nel CN: si rigenera una volta (il browser chiede di
+        # riaccettare l'avviso), poi resta quello nuovo.
         if (self._config.get('ssl_cert') and self._config.get('ssl_key')
-                and self._config.get('ssl_ip') == local_ip):
+                and self._config.get('ssl_ip') == local_ip
+                and self._config.get('ssl_cn') == CERT_CN):
             return (self._config['ssl_cert'].encode(),
                     self._config['ssl_key'].encode())
         return self._genera(local_ip)
@@ -76,7 +85,7 @@ class SelfSignedCert:
         from cryptography.x509.oid import NameOID
 
         key = rsa.generate_private_key(public_exponent=65537, key_size=RSA_KEY_SIZE)
-        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "LiquidMouse")])
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, CERT_CN)])
         try:
             san = x509.SubjectAlternativeName([
                 x509.IPAddress(ipaddress.ip_address(local_ip))])
@@ -106,6 +115,7 @@ class SelfSignedCert:
         self._config['ssl_cert'] = cert_pem.decode()
         self._config['ssl_key'] = key_pem.decode()
         self._config['ssl_ip'] = local_ip
+        self._config['ssl_cn'] = CERT_CN
         self._config.save()
         return cert_pem, key_pem
 
