@@ -17,6 +17,7 @@ from liquidmouse.net.static import (
     CSP, IMMUTABLE, SECURITY_HEADERS, STATIC_ROUTES, StaticFiles, accepts_gzip,
 )
 from liquidmouse.version import VERSION
+from tests.clientjs import leggi_client
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -41,7 +42,7 @@ class TestAcceptEncoding:
 
 class TestGzip:
     def test_i_file_di_testo_hanno_la_versione_gzip(self, sito):
-        for url in ("/app.js", "/app.css", "/xterm.js", "/", "/motion.js"):
+        for url in ("/app-core.js", "/app.css", "/xterm.js", "/", "/motion.js"):
             asset = sito.get(url)
             assert asset.gzip_body is not None, url
             assert len(asset.gzip_body) < len(asset.body)
@@ -50,17 +51,17 @@ class TestGzip:
     def test_il_gzip_e_deterministico(self, sito):
         again = StaticFiles(str(ROOT), version=VERSION)
         again.load()
-        assert again.get("/app.js").gzip_body == sito.get("/app.js").gzip_body
-        assert again.get("/app.js").gzip_etag == sito.get("/app.js").gzip_etag
+        assert again.get("/app-core.js").gzip_body == sito.get("/app-core.js").gzip_body
+        assert again.get("/app-core.js").gzip_etag == sito.get("/app-core.js").gzip_etag
 
     def test_etag_diversi_per_le_due_rappresentazioni(self, sito):
-        a = sito.get("/app.js")
+        a = sito.get("/app-core.js")
         assert a.etag != a.gzip_etag
         assert a.gzip_etag.startswith('"') and a.gzip_etag.endswith('"')
 
     def test_serve_gzip_solo_se_richiesto(self, sito):
-        con = sito.serve("/app.js", "gzip, br")
-        senza = sito.serve("/app.js", None)
+        con = sito.serve("/app-core.js", "gzip, br")
+        senza = sito.serve("/app-core.js", None)
         h = dict(con.headers)
         assert h["Content-Encoding"] == "gzip"
         assert h["Vary"] == "Accept-Encoding"
@@ -70,13 +71,13 @@ class TestGzip:
         assert dict(senza.headers)["Vary"] == "Accept-Encoding"
 
     def test_304_per_l_etag_della_rappresentazione_giusta(self, sito):
-        gz = dict(sito.serve("/app.js", "gzip").headers)["ETag"]
-        plain = dict(sito.serve("/app.js", None).headers)["ETag"]
-        assert sito.serve("/app.js", "gzip", gz).status == 304
-        assert sito.serve("/app.js", None, plain).status == 304
+        gz = dict(sito.serve("/app-core.js", "gzip").headers)["ETag"]
+        plain = dict(sito.serve("/app-core.js", None).headers)["ETag"]
+        assert sito.serve("/app-core.js", "gzip", gz).status == 304
+        assert sito.serve("/app-core.js", None, plain).status == 304
         # L'ETag dell'altra rappresentazione non vale.
-        assert sito.serve("/app.js", "gzip", plain).status == 200
-        assert sito.serve("/app.js", None, gz).status == 200
+        assert sito.serve("/app-core.js", "gzip", plain).status == 200
+        assert sito.serve("/app-core.js", None, gz).status == 200
 
     def test_il_304_non_ha_corpo_e_porta_cache_control(self, sito):
         etag = dict(sito.serve("/xterm.js", None).headers)["ETag"]
@@ -103,7 +104,7 @@ class TestGzip:
 class TestUrlVersionati:
     def test_index_referenzia_gli_asset_con_la_versione(self, sito):
         html = sito.get("/").body.decode()
-        for nome in ("app.js", "app.css", "xterm.js", "xterm.css", "motion.js", "icon.ico"):
+        for nome in ("app-core.js", "app-touchpad.js", "app-terminal.js", "app-files.js", "app.css", "xterm.js", "xterm.css", "motion.js", "icon.ico"):
             assert f'"{nome}?v={VERSION}"' in html, nome
 
     def test_ogni_riferimento_locale_e_versionato_e_servito(self, sito):
@@ -124,7 +125,7 @@ class TestUrlVersionati:
         assert b"?v=" not in (ROOT / "static" / "index.html").read_bytes()
 
     def test_la_query_non_cambia_l_asset_servito(self, sito):
-        assert sito.get(f"/app.js?v={VERSION}") is sito.get("/app.js")
+        assert sito.get(f"/app-core.js?v={VERSION}") is sito.get("/app-core.js")
 
 
 class TestCacheControl:
@@ -133,14 +134,14 @@ class TestCacheControl:
             assert dict(sito.serve(p).headers)["Cache-Control"] == "no-cache", p
 
     def test_asset_versionati_sono_immutabili_per_un_anno(self, sito):
-        for nome in ("app.js", "app.css", "xterm.js", "xterm.css", "motion.js", "icon.ico"):
+        for nome in ("app-core.js", "app-touchpad.js", "app-terminal.js", "app-files.js", "app.css", "xterm.js", "xterm.css", "motion.js", "icon.ico"):
             cc = dict(sito.serve(f"/{nome}?v={VERSION}").headers)["Cache-Control"]
             assert cc == "max-age=31536000, immutable", nome
 
     def test_senza_versione_resta_no_cache(self, sito):
         # Un URL senza ?v= non cambia con la release: cacheato un anno resterebbe
         # vecchio dopo un aggiornamento.
-        assert dict(sito.serve("/app.js").headers)["Cache-Control"] == "no-cache"
+        assert dict(sito.serve("/app-core.js").headers)["Cache-Control"] == "no-cache"
 
     def test_i_font_sono_immutabili(self, sito):
         cc = dict(sito.serve("/fonts/SpaceMono-Regular.ttf").headers)["Cache-Control"]
@@ -167,7 +168,7 @@ class TestSicurezza:
         assert "http" not in CSP.replace("https", "")   # nessuna origine esterna
 
     def test_il_client_non_usa_cio_che_la_csp_blocca(self):
-        js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+        js = leggi_client()
         for vietato in ("eval(", "new Function(", "javascript:", "document.write("):
             assert vietato not in js, vietato
 
@@ -204,21 +205,21 @@ class TestPortaLan:
         assert gzip.decompress(corpo).startswith((b"!function", b"/*", b"(function", b"var"))
 
     def test_senza_accept_encoding_e_identita(self, base_url):
-        stato, h, corpo = _get(base_url, "/app.js", {"Accept-Encoding": "identity"})
+        stato, h, corpo = _get(base_url, "/app-core.js", {"Accept-Encoding": "identity"})
         assert stato == 200 and "Content-Encoding" not in h
         assert b"function" in corpo
 
     def test_head_con_gzip_non_manda_corpo_ma_la_lunghezza(self, base_url):
-        stato, h, corpo = _get(base_url, "/app.js", {"Accept-Encoding": "gzip"}, "HEAD")
+        stato, h, corpo = _get(base_url, "/app-core.js", {"Accept-Encoding": "gzip"}, "HEAD")
         assert stato == 200 and corpo == b"" and int(h["Content-Length"]) > 0
 
     def test_304_con_etag_gzip(self, base_url):
-        _, h, _ = _get(base_url, "/app.js", {"Accept-Encoding": "gzip"})
-        stato, h2, corpo = _get(base_url, "/app.js",
+        _, h, _ = _get(base_url, "/app-core.js", {"Accept-Encoding": "gzip"})
+        stato, h2, corpo = _get(base_url, "/app-core.js",
                                 {"Accept-Encoding": "gzip", "If-None-Match": h["ETag"]})
         assert stato == 304 and corpo == b""
 
-    @pytest.mark.parametrize("path", ["/", "/app.js", "/inesistente", "/server.pyw",
+    @pytest.mark.parametrize("path", ["/", "/app-core.js", "/inesistente", "/server.pyw",
                                       "/fonts/SpaceMono-Regular.ttf"])
     def test_header_di_sicurezza_su_ogni_risposta(self, base_url, path):
         _, h, _ = _get(base_url, path)
@@ -253,11 +254,11 @@ def _remote(services, path, headers=None):
 
 class TestStradaRemota:
     def test_gzip_cache_e_sicurezza(self, sito):
-        r = _remote(_services(sito), f"/app.js?v={VERSION}", {"Accept-Encoding": "gzip"})
+        r = _remote(_services(sito), f"/app-core.js?v={VERSION}", {"Accept-Encoding": "gzip"})
         assert r.status_code == 200
         assert r.headers["Content-Encoding"] == "gzip"
         assert r.headers["Cache-Control"] == IMMUTABLE
-        assert gzip.decompress(r.body) == sito.get("/app.js").body
+        assert gzip.decompress(r.body) == sito.get("/app-core.js").body
         for nome, valore in SECURITY_HEADERS:
             assert r.headers[nome] == valore
 

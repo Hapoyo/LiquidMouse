@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from liquidmouse.net.static import STATIC_ROUTES
+from tests.clientjs import CLIENT_JS
 
 ROOT = Path(__file__).resolve().parent.parent
 INDEX_HTML = ROOT / "static" / "index.html"
@@ -95,18 +96,31 @@ class TestRiferimentiNellaPagina:
         assert "<style>" not in html
         assert "<script>" not in html
         assert 'href="app.css"' in html
-        assert 'src="app.js"' in html
+        for nome in CLIENT_JS:
+            assert f'src="{nome}"' in html, nome
+
+    def test_gli_script_del_client_sono_in_ordine_e_completi(self):
+        # Condividono lo scope globale e il nucleo deve eseguire per primo
+        # (vedi la testa di static/app-core.js): l'ordine di index.html è quello
+        # che i test di contratto usano per unirli (tests/clientjs.py).
+        html = INDEX_HTML.read_text(encoding="utf-8")
+        nell_html = [s for s in re.findall(r'<script src="([^"]+)" defer>', html)
+                     if s.startswith("app-")]
+        assert nell_html == list(CLIENT_JS)
+        su_disco = sorted(p.name for p in (ROOT / "static").glob("app-*.js"))
+        assert su_disco == sorted(CLIENT_JS), "uno script del client non è elencato"
 
     def test_gli_script_sono_deferiti(self):
-        # xterm.js sono 283 KB render-blocking; app.js deve eseguire dopo di lui
-        # e dopo il parsing del markup (le linguette si legano da app.js).
+        # xterm.js sono 283 KB render-blocking; il client deve eseguire dopo di lui
+        # e dopo il parsing del markup (le linguette si legano da app-core.js).
         html = INDEX_HTML.read_text(encoding="utf-8")
         for script in re.findall(r"<script[^>]*src=[^>]*>", html):
             assert "defer" in script, f"script non deferito: {script}"
 
-    def test_app_js_non_e_un_modulo(self):
+    def test_il_client_non_e_un_modulo(self):
         html = INDEX_HTML.read_text(encoding="utf-8")
-        assert 'src="app.js" defer' in html
+        for nome in CLIENT_JS:
+            assert f'src="{nome}" defer' in html, nome
         assert 'type="module"' not in html
 
     def test_nessun_handler_inline_nel_markup(self):

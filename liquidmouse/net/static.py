@@ -34,7 +34,11 @@ STATIC_ROUTES: dict[str, tuple[str, str]] = {
     "/":           ("static/index.html", "text/html; charset=utf-8"),
     "/index.html": ("static/index.html", "text/html; charset=utf-8"),
     "/app.css":    ("static/app.css",    "text/css; charset=utf-8"),
-    "/app.js":     ("static/app.js",     "application/javascript; charset=utf-8"),
+    # Il client in quattro script (vedi static/app-core.js per l'ordine).
+    "/app-core.js":     ("static/app-core.js",     "application/javascript; charset=utf-8"),
+    "/app-touchpad.js": ("static/app-touchpad.js", "application/javascript; charset=utf-8"),
+    "/app-terminal.js": ("static/app-terminal.js", "application/javascript; charset=utf-8"),
+    "/app-files.js":    ("static/app-files.js",    "application/javascript; charset=utf-8"),
     "/xterm.js":   ("static/vendor/xterm.js",  "application/javascript; charset=utf-8"),
     "/xterm.css":  ("static/vendor/xterm.css", "text/css; charset=utf-8"),
     # Motion (motion.dev), build UMD che espone il global `Motion`: locale e
@@ -61,7 +65,7 @@ IMMUTABLE = "max-age=31536000, immutable"
 # I font hanno il nome del file come identità e non si aggiornano mai.
 _VERSIONED_PREFIXES = ("/fonts/",)
 
-# CSP: script solo dal nostro server (niente handler inline, vedi app.js).
+# CSP: script solo dal nostro server (niente handler inline, vedi app-core.js).
 # style-src tiene 'unsafe-inline' perché xterm.js inserisce elementi <style> e
 # la pagina ha qualche style="": passare a nonce/hash è un passo successivo.
 # connect-src elenca ws:/wss: perché 'self' non copre il WebSocket su un'altra

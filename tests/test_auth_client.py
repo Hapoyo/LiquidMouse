@@ -1,6 +1,6 @@
 """Errore di autenticazione nel client: niente riconnessione automatica.
 
-Il blocco "contratto" di app.js (`makeAuthGate`) viene estratto ed eseguito con
+Il blocco "contratto" di app-core.js (`makeAuthGate`) viene estratto ed eseguito con
 node. Il bug che copre: dopo un PIN errato `stopWithError` fermava le
 riconnessioni a tempo, ma `visibilitychange` (il telefono che si risveglia)
 ricollegava comunque con lo stesso PIN, e al quinto errore il server blocca
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-APP_JS = Path(__file__).resolve().parent.parent / "static" / "app.js"
+from tests.clientjs import leggi_client
 INIZIO = "// --- AUTH: contratto"
 FINE = "// --- fine contratto ---"
 
@@ -23,12 +23,12 @@ richiede_node = pytest.mark.skipif(shutil.which("node") is None, reason="node no
 
 
 def _js() -> str:
-    return APP_JS.read_text(encoding="utf-8")
+    return leggi_client()
 
 
 def _node(espressione: str):
     js = _js()
-    assert INIZIO in js, "blocco contratto dell'autenticazione non trovato in app.js"
+    assert INIZIO in js, "blocco contratto dell'autenticazione non trovato nel client"
     blocco = js[js.index(INIZIO):]
     blocco = blocco[:blocco.index(FINE)]
     codice = blocco + f"\nprocess.stdout.write(JSON.stringify({espressione}));\n"

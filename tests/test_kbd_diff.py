@@ -1,6 +1,6 @@
 """Diff della tastiera del telefono: prefisso comune fra valore vecchio e nuovo.
 
-Il blocco "contratto" di app.js viene estratto ed eseguito con node. Il diff
+Il blocco "contratto" di app-core.js viene estratto ed eseguito con node. Il diff
 per sola lunghezza perdeva le sostituzioni (correzione automatica, suggerimenti):
 "ciao" -> "ciaone" non e' lo stesso di "cia" -> "cie".
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-APP_JS = Path(__file__).resolve().parent.parent / "static" / "app.js"
+from tests.clientjs import leggi_client
 INIZIO = "// --- TASTIERA: contratto"
 FINE = "// --- fine contratto ---"
 
@@ -20,8 +20,8 @@ richiede_node = pytest.mark.skipif(shutil.which("node") is None, reason="node no
 
 
 def _diff(prev: str, new: str) -> dict:
-    js = APP_JS.read_text(encoding="utf-8")
-    assert INIZIO in js, "blocco contratto della tastiera non trovato in app.js"
+    js = leggi_client()
+    assert INIZIO in js, "blocco contratto della tastiera non trovato nel client"
     inizio = js.index(INIZIO)
     blocco = js[inizio:js.index(FINE, inizio)]
     codice = blocco + f"\nprocess.stdout.write(JSON.stringify(diffTastiera({json.dumps(prev)}, {json.dumps(new)})));\n"

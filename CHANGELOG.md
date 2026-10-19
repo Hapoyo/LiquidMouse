@@ -7,6 +7,12 @@ published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its
 
 Security and robustness pass from a full code review, plus follow-ups.
 
+- **Client split into four scripts** — `app.js` (1,800 lines) is now `app-core.js`
+  (connection, authentication, animations, tabs), `app-touchpad.js`, `app-terminal.js` and
+  `app-files.js`: still classic deferred scripts sharing the global scope, loaded in that order.
+  Server messages are routed through a single `HANDLERS` table, the PIN is sent from one
+  `sendAuth()`, and a message handler that throws is logged with `console.error` instead of being
+  swallowed. Behaviour is unchanged.
 - **Legacy WSS port 8766 removed** — the dedicated WSS server for clients that predate the
   single remote port is gone: the page and the command channel have shared `8443` for a long
   time and the client never used `8766`. One fewer port to bind and nothing to forward.

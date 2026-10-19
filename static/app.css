@@ -51,7 +51,7 @@
 body {
     margin: 0;
     /* Fissato sull'area visibile: --vv-h e --vv-top arrivano da visualViewport
-       (app.js). Con 100dvh la tastiera del telefono copriva la metà bassa della
+       (app-terminal.js). Con 100dvh la tastiera del telefono copriva la metà bassa della
        pagina, cioè la riga del cursore e la barra tasti del terminale. */
     position: fixed;
     left: 0;
@@ -152,7 +152,7 @@ button { font-family: inherit; }
 #content-touchpad { border-top-left-radius: 0; }
 .tab-content.active { display: flex; }
 /* Le animazioni CSS restano come riserva: con Motion caricato (classe
-   .motion su <html>, messa da app.js) le fa anima() e queste tacciono. */
+   .motion su <html>, messa da app-core.js) le fa anima() e queste tacciono. */
 html:not(.motion) .tab-content.active { animation: folderIn 0.15s ease-out; }
 @keyframes folderIn {
     from { opacity: 0; transform: translateY(4px); }
@@ -391,7 +391,7 @@ html:not(.motion) #text-display.active { animation: slideDown 0.2s ease-out; }
     transform: translateY(0);
     opacity: 1;
 }
-/* Con Motion il velo e i tasti li anima openMenu()/closeMenu() (app.js):
+/* Con Motion il velo e i tasti li anima openMenu()/closeMenu() (app-touchpad.js):
    le transizioni CSS si fermano, se no le due animazioni si sommano. */
 html.motion #menu-overlay,
 html.motion .arrow-grid { transition: none; }
@@ -548,7 +548,7 @@ html:not(.motion) .menu-btn-item:active { transform: scale(0.95); }
 }
 .fbtn:active { background: var(--line); border-color: var(--cream); }
 /* Avanzamento del caricamento: testo ambra e una barra da 2px sotto, larga
-   --p (impostata da app.js). Sfondo, non un elemento in più. */
+   --p (impostata da app-files.js). Sfondo, non un elemento in più. */
 #files-progress {
     --p: 0%;
     margin: 0 10px 10px;
@@ -833,7 +833,7 @@ body.kbd-open.term-open #content-terminal {
 body.kbd-open #bottom-bar { padding-bottom: 6px; }
 
 /* Stessa specificità delle regole di riserva (html:not(.motion) ...), se no
-   queste vincerebbero. Le animazioni di Motion le spegne anima() in app.js. */
+   queste vincerebbero. Le animazioni di Motion le spegne anima() in app-core.js. */
 @media (prefers-reduced-motion: reduce) {
     #status::after { animation: none; }
     html:not(.motion) .tab-content.active,

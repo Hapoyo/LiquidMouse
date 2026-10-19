@@ -23,7 +23,9 @@ a = Analysis(
     # sys._MEIPASS ha la stessa forma della cartella static/ del repo.
     datas=[
         ('static/index.html', 'static'), ('static/app.css', 'static'),
-        ('static/app.js', 'static'), ('static/icon.ico', 'static'),
+        ('static/app-core.js', 'static'), ('static/app-touchpad.js', 'static'),
+        ('static/app-terminal.js', 'static'), ('static/app-files.js', 'static'),
+        ('static/icon.ico', 'static'),
         ('static/vendor/xterm.js', 'static/vendor'),
         ('static/vendor/xterm.css', 'static/vendor'),
         ('static/vendor/motion.js', 'static/vendor'),

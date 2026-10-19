@@ -1,6 +1,6 @@
 """Funzioni pure del file manager nel client (formato dimensioni, percorsi).
 
-Come test_term_keys.py: il blocco "contratto" di app.js viene estratto ed
+Come test_term_keys.py: il blocco "contratto" di app-files.js viene estratto ed
 eseguito con node. Il percorso deve comporsi come lo compone il server
 (`join_path`), altrimenti la lista mostra una cartella e il server ne apre
 un'altra. Salta se node non c'è.
@@ -15,7 +15,7 @@ import pytest
 
 from liquidmouse.net.sftp import join_path
 
-APP_JS = Path(__file__).resolve().parent.parent / "static" / "app.js"
+from tests.clientjs import leggi_client
 INIZIO = "// --- FILE: contratto"
 FINE = "// --- fine contratto ---"
 
@@ -23,8 +23,8 @@ pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node non d
 
 
 def _node(espressione: str):
-    js = APP_JS.read_text(encoding="utf-8")
-    assert INIZIO in js, "blocco contratto dei file non trovato in app.js"
+    js = leggi_client()
+    assert INIZIO in js, "blocco contratto dei file non trovato nel client"
     blocco = js[js.index(INIZIO):]
     blocco = blocco[:blocco.index(FINE)]
     codice = blocco + f"\nprocess.stdout.write(JSON.stringify({espressione}));\n"

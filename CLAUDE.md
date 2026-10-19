@@ -29,7 +29,10 @@ liquidmouse/
                          dpapi.py (DPAPI: password SFTP, PIN e chiave TLS della config)
   gui/                   window.py (finestra, tray, pannello sessioni), effects.py (DWM,
                          font privati). Unico pacchetto che importa tkinter/pystray/PIL/qrcode
-static/                  index.html, app.css, app.js, icon.ico
+static/                  index.html, app.css, icon.ico e il client in quattro script classici,
+                         nell'ordine di caricamento: app-core.js (connessione, auth, Motion,
+                         schede), app-touchpad.js (gesti, menu, tastiera), app-terminal.js
+                         (xterm, sessioni, tasti), app-files.js (file manager)
 static/fonts/            Space Grotesk Medium, Space Mono (sottoinsieme latino) + OFL
 static/vendor/           xterm.js, xterm.css, motion.js (Motion 14.0.0 UMD, global `Motion`)
                          + LICENSE-motion.txt: non modificare; per aggiornare Motion
@@ -90,10 +93,16 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Grafica: solo colori di `theme.py` / `:root` di app.css; numeri grandi in Space Grotesk,
   etichette in Space Mono. Contrasto testo ≥ 4.5:1 (test_theme_contrast.py).
 - Finestra desktop: tutto disegnato sul canvas, misure in px a 96 dpi passate da `_px`.
-- Client: app.js è uno script classico (non modulo), caricato con defer; nel markup niente
-  `onclick=` inline (la CSP li blocca). Colori della riga di stato via classi (`setStatus(text, kind)`).
+- Client: gli `app-*.js` sono script classici (non moduli), caricati con defer nell'ordine di
+  index.html e con lo scope globale in comune. Mentre un file viene eseguito usa solo ciò che
+  dichiara lui o i file prima (il nucleo è primo); le funzioni degli altri file si chiamano
+  solo da gestori di eventi/messaggi. I messaggi del server passano dalla tabella `HANDLERS`
+  e da `dispatchMessage` in app-core.js. Nel markup niente `onclick=` inline (la CSP li
+  blocca). Colori della riga di stato via classi (`setStatus(text, kind)`).
+  Un nuovo script del client va in: index.html, STATIC_ROUTES, spec (datas), build.py
+  (required) e `CLIENT_JS` in tests/clientjs.py (i test di contratto leggono i file uniti).
 - Valori dal client = non fidati: passare da `clamp_int` e dalle whitelist.
-- Animazioni del client: solo tramite `anima()` in app.js (unico punto che legge
+- Animazioni del client: solo tramite `anima()` in app-core.js (unico punto che legge
   `window.Motion`; null se Motion manca o con prefers-reduced-motion). Senza Motion
   valgono le riserve CSS `html:not(.motion) ...`. Mai animazioni sul percorso del
   touchpad; sulla cartella (`.tab-content`) e su `#terminal-active` solo opacità: una
@@ -102,15 +111,15 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 ## 6. Elenchi da tenere allineati (i test li controllano)
 | Cosa | Dove |
 |---|---|
-| Asset statici | `LiquidMouse.spec` (datas) · `net/static.py` (STATIC_ROUTES) · `build.py` (required) |
+| Asset statici | `LiquidMouse.spec` (datas) · `net/static.py` (STATIC_ROUTES) · `build.py` (required) · `static/index.html` (script) · `tests/clientjs.py` (CLIENT_JS) |
 | Versione | `version.py` · intestazione del README · tag git · titolo in CHANGELOG.md |
 | Immagini del README | link in `README.md` · file in `docs/img` (test_readme.py) |
 | Palette | `theme.py` · `static/app.css` `:root` |
-| Frame binari del terminale | `net/frames.py` · `handleBinaryFrame` in app.js |
-| Tasti del terminale | `TERM_KEYS` in app.js · `.tkey[data-key]` in index.html |
-| Shell del terminale | `SHELLS` in `terminal/commands.py` (da cui `TERM_ALLOWED_CMDS`) · `shells` in `term_sessions` (protocol.py) · blocco `// --- SHELL: contratto` in app.js (test_shells_client_contract.py) |
-| Tipi di messaggio | `@handles` in `net/protocol.py` · `ws.send` in app.js |
-| Funzioni pure del file manager | blocco `// --- FILE: contratto` in app.js · `join_path` in `net/sftp.py` (test_files_client_contract.py) |
+| Frame binari del terminale | `net/frames.py` · `handleBinaryFrame` in app-terminal.js |
+| Tasti del terminale | `TERM_KEYS` in app-terminal.js · `.tkey[data-key]` in index.html |
+| Shell del terminale | `SHELLS` in `terminal/commands.py` (da cui `TERM_ALLOWED_CMDS`) · `shells` in `term_sessions` (protocol.py) · blocco `// --- SHELL: contratto` in app-terminal.js (test_shells_client_contract.py) |
+| Tipi di messaggio | `@handles` in `net/protocol.py` · `ws.send` negli `app-*.js` · `HANDLERS` in app-core.js (messaggi del server) |
+| Funzioni pure del file manager | blocco `// --- FILE: contratto` in app-files.js · `join_path` in `net/sftp.py` (test_files_client_contract.py) |
 
 ## 7. Decisioni
 - Accesso remoto: UPnP se apre la porta, altrimenti tunnel Cloudflare (quick tunnel, senza
@@ -147,11 +156,11 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   `Cache-Control: immutable` solo per URL con `?v=` e per i font (index e URL senza versione
   restano `no-cache`), e `SECURITY_HEADERS` (nosniff, no-referrer, X-Frame-Options, CSP) su
   ogni risposta. CSP: `script-src 'self'`, quindi **niente handler inline** nel markup (le
-  linguette si legano in app.js con `data-tab`; lo controlla test_assets_consistency);
+  linguette si legano in app-core.js con `data-tab`; lo controlla test_assets_consistency);
   `style-src` ha ancora `'unsafe-inline'` per xterm.js: passare a nonce/hash è un passo futuro.
 - Output del terminale in frame binari, non base64 in JSON.
 - Gesti del touchpad: le decisioni pure (tap a 2/3 dita, tap-e-trascina, asse dello scroll) stanno
-  nel blocco `// --- GESTI: contratto` di app.js (test con node); i gestori touch non animano.
+  nel blocco `// --- GESTI: contratto` di app-touchpad.js (test con node); i gestori touch non animano.
   `click` accetta solo `CLICK_BUTTONS` (protocol.py); `scroll` ha `amount` (verticale) e `h`
   (orizzontale, + = destra), entrambi opzionali e passati da `clamp_int`.
 - Shell del terminale: il server manda in `term_sessions` l'elenco di quelle ammesse e installate

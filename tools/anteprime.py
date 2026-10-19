@@ -48,7 +48,7 @@ CHROMIUM = os.environ.get("LM_CHROMIUM") or next(
 
 # --- CLIENT ------------------------------------------------------------------
 
-# Il PC finto: risponde ai messaggi che app.js manda davvero (protocol.py), e
+# Il PC finto: risponde ai messaggi che il client (static/app-*.js) manda davvero (protocol.py), e
 # l'output del terminale arriva in frame binari come da net/frames.py.
 FAKE_WS = r"""
 (() => {

@@ -200,7 +200,7 @@ liquidmouse/
   terminal/         sessions, ConPTY (pywinpty or ctypes), command whitelist, ring buffer
   security/         PIN and brute-force lockout, self-signed certificate
   gui/              desktop window, tray, sessions panel — the only package using Tk
-static/             phone client: index.html, app.css, app.js, fonts, xterm.js
+static/             phone client: index.html, app.css, app-*.js, fonts, xterm.js
 tests/              pytest suite
 tools/anteprime.py  regenerates the images in docs/img
 ```

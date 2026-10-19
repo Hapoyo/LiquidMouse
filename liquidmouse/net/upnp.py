@@ -23,7 +23,7 @@ DISCOVER_DELAY_MS = 2000
 # modem degli operatori tengono la 8443 per la propria gestione remota e
 # rifiutano il mapping: con una sola porta il remoto restava chiuso anche con
 # UPnP attivo. Il browser si connette al WSS sulla stessa porta della pagina
-# (buildWsUrl in app.js), quindi basta che il QR porti la porta esterna.
+# (buildWsUrl in app-core.js), quindi basta che il QR porti la porta esterna.
 EXTERNAL_PORTS = (8443, 9443, 10443, 18443, 28443, 38443)
 
 MAPPING_DESC = 'LiquidMouse'

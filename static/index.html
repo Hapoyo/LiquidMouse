@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <!-- interactive-widget=resizes-content: su Chrome/Firefox Android la tastiera
          accorcia la pagina invece di coprirla (Safari lo ignora: lì provvede
-         visualViewport in app.js). -->
+         visualViewport in app-terminal.js). -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
     <meta name="theme-color" content="#1d1815">
     <title>Liquid Mouse</title>
@@ -16,11 +16,16 @@
          usato solo dentro initXterm(), invocata dall'apertura del tab o dal
          gestore di `load`, entrambi successivi agli script deferiti. -->
     <script src="xterm.js" defer></script>
-    <!-- Motion (motion.dev, UMD → global `Motion`): prima di app.js, che lo
+    <!-- Motion (motion.dev, UMD → global `Motion`): prima di app-core.js, che lo
          usa solo tramite anima() e funziona anche se manca. -->
     <script src="motion.js" defer></script>
     <link rel="stylesheet" href="app.css">
-    <script src="app.js" defer></script>
+    <!-- Il client in quattro script classici che condividono lo scope globale:
+         l'ordine è quello di esecuzione (il nucleo per primo), vedi app-core.js. -->
+    <script src="app-core.js" defer></script>
+    <script src="app-touchpad.js" defer></script>
+    <script src="app-terminal.js" defer></script>
+    <script src="app-files.js" defer></script>
 </head>
 
 <body>
@@ -173,7 +178,7 @@
                 <span id="term-title"></span>
             </div>
             <div id="xterm-container"></div>
-            <!-- Barra tasti: le sequenze sono in TERM_KEYS (app.js). data-repeat =
+            <!-- Barra tasti: le sequenze sono in TERM_KEYS (app-terminal.js). data-repeat =
                  tenendo premuto il tasto si ripete. -->
             <div id="bottom-bar">
                 <div class="tkeys">
