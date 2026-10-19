@@ -1,7 +1,7 @@
 """Scelta della shell del terminale: il client e la whitelist del server devono
 restare allineati.
 
-Come test_files_client_contract.py: il blocco "SHELL: contratto" di app.js viene
+Come test_files_client_contract.py: il blocco "SHELL: contratto" di app-terminal.js viene
 estratto ed eseguito con node. Il server manda l'elenco (`shells` in
 `term_sessions`, derivato da terminal/commands.py); il client non ne conosce
 nessuna di suo e invia solo un `cmd` presente in quell'elenco, che la whitelist
@@ -19,7 +19,7 @@ import pytest
 from liquidmouse.terminal.commands import SHELLS, TERM_ALLOWED_CMDS, available_shells, resolve_argv
 
 ROOT = Path(__file__).resolve().parent.parent
-APP_JS = ROOT / "static" / "app.js"
+from tests.clientjs import leggi_client
 INIZIO = "// --- SHELL: contratto"
 FINE = "// --- fine contratto ---"
 
@@ -27,8 +27,8 @@ needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node non d
 
 
 def _node(espressione: str):
-    js = APP_JS.read_text(encoding="utf-8")
-    assert INIZIO in js, "blocco contratto delle shell non trovato in app.js"
+    js = leggi_client()
+    assert INIZIO in js, "blocco contratto delle shell non trovato nel client"
     blocco = js[js.index(INIZIO):]
     blocco = blocco[:blocco.index(FINE)]
     codice = blocco + f"\nprocess.stdout.write(JSON.stringify({espressione}));\n"
@@ -90,13 +90,13 @@ class TestContrattoShell:
 
 class TestAllineamentoSenzaNode:
     def test_il_client_non_ha_un_elenco_di_shell_proprio(self):
-        js = APP_JS.read_text(encoding="utf-8")
+        js = leggi_client()
         for cmd in TERM_ALLOWED_CMDS - {"cmd.exe"}:
             assert f"'{cmd}'" not in js and f'"{cmd}"' not in js, (
-                f"app.js nomina {cmd}: l'elenco arriva dal server")
+                f"il client nomina {cmd}: l'elenco arriva dal server")
 
     def test_il_client_legge_il_campo_shells_di_term_sessions(self):
-        js = APP_JS.read_text(encoding="utf-8")
+        js = leggi_client()
         assert "msg.shells" in js
         assert "term_sessions" in js
 
@@ -106,7 +106,7 @@ class TestAllineamentoSenzaNode:
 
     def test_nessun_cmd_fisso_nell_invio(self):
         # Prima: ws.send(... cmd: 'cmd.exe') cablato nel pulsante.
-        js = APP_JS.read_text(encoding="utf-8")
+        js = leggi_client()
         assert not re.search(r"type:\s*'term_create',\s*cmd:\s*'", js)
 
     def test_ogni_shell_ha_una_etichetta_per_il_selettore(self):

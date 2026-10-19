@@ -46,7 +46,7 @@ class SelfSignedCert:
             cert_pem, key_pem = self._materiale(local_ip)
             return self._build_context(cert_pem, key_pem)
         except ImportError:
-            # Senza cryptography niente 8443/8766. Va detto: il sintomo
+            # Senza cryptography niente 8443. Va detto: il sintomo
             # altrimenti e' solo un client remoto fermo su "IN ATTESA".
             log_message("TLS non disponibile: manca 'cryptography'", color=COLOR_ERROR)
             return None
@@ -82,11 +82,11 @@ class SelfSignedCert:
                 x509.IPAddress(ipaddress.ip_address(local_ip))])
         except ValueError:
             san = x509.SubjectAlternativeName([x509.DNSName(local_ip)])
-        # utcnow() e' deprecata da Python 3.12, ma cryptography interpreta come
-        # UTC i datetime naive e questo e' il comportamento gia' collaudato in
-        # produzione: passare a un datetime aware qui cambierebbe l'input di una
-        # libreria di terze parti senza alcun beneficio.
-        now = datetime.datetime.utcnow()
+        # utcnow() e' deprecata da Python 3.12 e gli ultimi test la segnalano.
+        # cryptography accetta datetime aware e li converte in UTC: stesso
+        # istante di prima. datetime.UTC non c'e' prima della 3.11, quindi
+        # timezone.utc (il minimo supportato e' la 3.10).
+        now = datetime.datetime.now(datetime.timezone.utc)
         cert = (
             x509.CertificateBuilder()
             .subject_name(name).issuer_name(name)

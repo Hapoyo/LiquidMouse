@@ -82,7 +82,7 @@ class TestContenutoEHeader:
 
     def test_content_type_del_javascript(self, sito):
         assert sito.get("/xterm.js").content_type.startswith("application/javascript")
-        assert sito.get("/app.js").content_type.startswith("application/javascript")
+        assert sito.get("/app-core.js").content_type.startswith("application/javascript")
 
     def test_content_type_del_css(self, sito):
         assert sito.get("/app.css").content_type.startswith("text/css")

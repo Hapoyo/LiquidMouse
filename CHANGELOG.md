@@ -7,6 +7,24 @@ published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its
 
 Security and robustness pass from a full code review, plus follow-ups.
 
+- **WebSocket compression off** — `permessage-deflate` is disabled on every WebSocket server
+  (all of them share one `_serve_kwargs` helper): touchpad messages are a few bytes, so
+  compressing them only added latency and CPU.
+- **Housekeeping** — the TLS certificate dates use a timezone-aware `datetime` instead of the
+  deprecated `utcnow()`, an unused import is gone from `net/sftp.py`, and the smoke test moved
+  to `tools/test_server.py` (run it as `py -3.13 tools/test_server.py`).
+- **Faster start-up animation** — the window's typewriter and fade-in now take about one second
+  instead of over two (each text is written in at most ten steps and the fade has fewer frames);
+  the final text and look are unchanged. `setup_gui` is split into one function per section.
+- **Client split into four scripts** — `app.js` (1,800 lines) is now `app-core.js`
+  (connection, authentication, animations, tabs), `app-touchpad.js`, `app-terminal.js` and
+  `app-files.js`: still classic deferred scripts sharing the global scope, loaded in that order.
+  Server messages are routed through a single `HANDLERS` table, the PIN is sent from one
+  `sendAuth()`, and a message handler that throws is logged with `console.error` instead of being
+  swallowed. Behaviour is unchanged.
+- **Legacy WSS port 8766 removed** — the dedicated WSS server for clients that predate the
+  single remote port is gone: the page and the command channel have shared `8443` for a long
+  time and the client never used `8766`. One fewer port to bind and nothing to forward.
 - **WebSocket Origin check** — the four WebSocket servers now refuse browser handshakes whose
   `Origin` is not localhost, a numeric LAN/WAN IP or `*.trycloudflare.com`. A web page open on
   the PC or on the phone can no longer drive the loopback session (terminal, keyboard, SFTP),

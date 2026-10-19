@@ -3,7 +3,7 @@
 Questo file è letto anche fuori da Python (regex, senza importarlo):
   - .github/workflows/build.yml  → nome EXE, artifact e release
   - build.py                     → nome della candidate --pre
-  - test_server.py               → smoke test
+  - tools/test_server.py         → smoke test
 Non aggiungere logica qui: deve restare parsabile con una regex banale.
 """
 

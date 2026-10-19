@@ -1,6 +1,6 @@
 """Barra tasti del terminale: sequenze VT inviate al PTY.
 
-Il blocco "contratto" di app.js (TERM_KEYS, ctrlChar, withMods) viene estratto
+Il blocco "contratto" di app-terminal.js (TERM_KEYS, ctrlChar, withMods) viene estratto
 ed eseguito con node; qui si confrontano i risultati con le sequenze che
 Windows Terminal/xterm mandano per gli stessi tasti. Un errore qui non si
 vede in LAN finché qualcuno non preme ctrl+← e il cursore non si muove.
@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-APP_JS = ROOT / "static" / "app.js"
+from tests.clientjs import leggi_client
 INDEX_HTML = ROOT / "static" / "index.html"
 
 INIZIO = "// --- TASTI DEL TERMINALE: contratto"
@@ -26,8 +26,8 @@ richiede_node = pytest.mark.skipif(shutil.which("node") is None, reason="node no
 
 
 def _contratto() -> str:
-    js = APP_JS.read_text(encoding="utf-8")
-    assert INIZIO in js and FINE in js, "blocco contratto dei tasti non trovato in app.js"
+    js = leggi_client()
+    assert INIZIO in js and FINE in js, "blocco contratto dei tasti non trovato nel client"
     inizio = js.index(INIZIO)
     return js[inizio:js.index(FINE, inizio)]
 

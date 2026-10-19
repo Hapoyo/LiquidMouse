@@ -20,7 +20,7 @@ import stat
 import threading
 from dataclasses import dataclass
 
-from liquidmouse.security.dpapi import ProtectError, default_protector  # noqa: F401
+from liquidmouse.security.dpapi import ProtectError
 
 CHUNK = 64 * 1024
 CONNECT_TIMEOUT = 10

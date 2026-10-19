@@ -56,10 +56,12 @@ class TestAsset:
         _, headers, corpo = _get(base_url, "/xterm.css")
         assert int(headers["Content-Length"]) == len(corpo)
 
-    def test_app_js_e_servito(self, base_url):
-        # Dopo lo split di index.html il client non funziona senza questo:
-        # un asset non elencato in STATIC_ROUTES darebbe 404 solo a runtime.
-        stato, headers, corpo = _get(base_url, "/app.js")
+    @pytest.mark.parametrize("nome", ["app-core.js", "app-touchpad.js",
+                                      "app-terminal.js", "app-files.js"])
+    def test_gli_script_del_client_sono_serviti(self, base_url, nome):
+        # Il client non funziona senza uno di questi: un asset non elencato
+        # in STATIC_ROUTES darebbe 404 solo a runtime.
+        stato, headers, corpo = _get(base_url, f"/{nome}")
         assert stato == 200
         assert b"function" in corpo
         assert "javascript" in headers.get("Content-Type", "")

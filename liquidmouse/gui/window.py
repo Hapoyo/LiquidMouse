@@ -19,6 +19,7 @@ import ctypes
 import os
 import time
 import tkinter as tk
+from dataclasses import dataclass
 
 import pystray
 import qrcode
@@ -495,20 +496,64 @@ def _scegli_font() -> None:
     _font_label = FONT_LABEL if FONT_LABEL in famiglie else FONT_LABEL_FALLBACK
 
 
-def setup_gui():
-    global ip_label_var, status_var, status_label, _main_canvas, _status_dot
-    global _lan_qr_item, _lan_qr_box, _lan_ip_max_w, _lan_hint_var
-    global _remote_status_var, _remote_status_label, _remote_title_var, _remote_qr_box, _scale
+@dataclass(frozen=True)
+class _Layout:
+    """Misure della finestra in pixel reali (già passate da `_px`).
 
-    root.title("Liquid Mouse")
+    Calcolate una volta sola e passate alle funzioni di disegno: prima erano
+    variabili locali di un'unica funzione da 200 righe, e ogni pezzo dipendeva
+    da quelle dei pezzi sopra.
+    """
+    w: int          # larghezza e altezza della finestra
+    h: int
+    m: int          # bordo della finestra
+    top: int        # bordo superiore della cartella (sotto le linguette)
+    tab_r: int      # fine della linguetta aperta
+    tab_mid: int    # asse verticale del testo delle linguette
+    left: int       # margini interni della cartella
+    right: int
+    gap: int
+    y0: int         # prima riga dell'host LAN
+    qr_side: int    # lato del pannello del QR LAN
+    qx1: int        # angolo in alto a sinistra del pannello del QR LAN
+    qy1: int
+    ry1: int        # fila dei pannelli remoto / PIN
+    ry2: int
+    pin_l: int      # bordo sinistro del pannello del PIN
+    sy1: int        # pannello di stato
+    sy2: int
+
+
+def _make_layout() -> _Layout:
+    """Calcola le misure. Richiede `_scale` già fissata (vedi `_init_scale_and_fonts`)."""
+    P = _px
+    w, h = P(560), P(460)
+    m, tab_h = P(8), P(24)
+    left, right = P(24), w - P(24)
+    gap = P(10)
+    top = m + tab_h
+    y0 = top + P(14)
+    qr_side = P(116)
+    qx1, qy1 = right - qr_side, y0 + P(24)
+    ry1 = qy1 + qr_side + P(16) + gap * 2
+    ry2 = ry1 + P(128)
+    return _Layout(w=w, h=h, m=m, top=top, tab_r=P(270), tab_mid=m + tab_h // 2,
+                   left=left, right=right, gap=gap, y0=y0, qr_side=qr_side,
+                   qx1=qx1, qy1=qy1, ry1=ry1, ry2=ry2, pin_l=right - P(150),
+                   sy1=ry2 + gap, sy2=h - m - P(16))
+
+
+def _init_scale_and_fonts() -> None:
+    global _scale
     try:
         _scale = max(1.0, float(root.winfo_fpixels("1i")) / 96.0)
     except Exception:
         _scale = 1.0
     _scegli_font()
-    P = _px
 
-    w, h = P(560), P(460)
+
+def _configure_window(lay: _Layout) -> None:
+    w, h = lay.w, lay.h
     sx = (root.winfo_screenwidth()  - w) // 2
     sy = (root.winfo_screenheight() - h) // 2
     root.geometry(f'{w}x{h}+{sx}+{sy}')
@@ -522,20 +567,19 @@ def setup_gui():
     try: root.iconbitmap(ICON_PATH)
     except Exception: pass
 
-    c = tk.Canvas(root, bg=COLOR_BG, highlightthickness=0, width=w, height=h)
-    c.pack(fill="both", expand=True)
-    _main_canvas = c
 
-    # --- Schedario: linguetta aperta + cartella ---
-    M = P(8)                 # bordo della finestra
-    TAB_H = P(24)            # altezza delle linguette
-    top = M + TAB_H          # bordo superiore della cartella
-    tab_r = P(270)           # fine della linguetta aperta
+def _draw_tabs(c, lay: _Layout) -> tuple[_CanvasText, _CanvasText]:
+    """Cartella dello schedario, linguette e pulsante di chiusura.
+
+    Ritorna i due testi della linguetta aperta (numero e titolo), che
+    l'animazione d'avvio scrive carattere per carattere.
+    """
+    P = _px
+    M, top, tab_r, tab_mid, w = lay.m, lay.top, lay.tab_r, lay.tab_mid, lay.w
     _smooth_poly(c, [(M, M), (tab_r, M), (tab_r, top), (w - M, top),
-                     (w - M, h - M), (M, h - M)],
+                     (w - M, lay.h - M), (M, lay.h - M)],
                  [P(8), P(8), P(4), P(10), P(10), P(10)],
                  fill=COLOR_PANEL, outline=COLOR_CREAM, width=P(1))
-    tab_mid = M + TAB_H // 2
     tab_num = _text(c, M + P(10), tab_mid, "", _f_label(12), COLOR_TEXT, "w")
     tab_title = _text(c, tab_r - P(12), tab_mid, "", _f_label(12, bold=True), COLOR_TEXT, "e")
 
@@ -565,8 +609,11 @@ def setup_gui():
     c.tag_bind(close, "<Button-1>", lambda e: minimize_to_tray())
     c.tag_bind(close, "<Enter>", lambda e: _close_hover(True))
     c.tag_bind(close, "<Leave>", lambda e: _close_hover(False))
+    return tab_num, tab_title
 
-    # --- Dragging finestra ---
+
+def _bind_window_drag(c) -> None:
+    """Trascinare il canvas sposta la finestra (senza barra del titolo)."""
     def get_pos(e):
         root.x_offset = e.x
         root.y_offset = e.y
@@ -575,16 +622,19 @@ def setup_gui():
     c.bind("<Button-1>", get_pos)
     c.bind("<B1-Motion>", move_window)
 
-    L, R = P(24), w - P(24)          # margini interni della cartella
-    GAP = P(10)
 
-    # --- Host LAN: etichetta, indirizzo grande, QR su pannello crema ---
-    y0 = top + P(14)
+def _draw_lan_panel(c, lay: _Layout) -> tuple[_CanvasText, str]:
+    """Host LAN: etichetta, indirizzo grande, QR su pannello crema.
+
+    Ritorna l'etichetta "host" e il testo dell'indirizzo, per l'animazione.
+    """
+    global ip_label_var, _lan_qr_item, _lan_qr_box, _lan_ip_max_w, _lan_hint_var
+    P = _px
+    L, R, GAP, y0 = lay.left, lay.right, lay.gap, lay.y0
+    qr_side, qx1, qy1 = lay.qr_side, lay.qx1, lay.qy1
     lbl_host = _text(c, L, y0, "", _f_label(12), COLOR_MUTED)
     _text(c, R - P(130), y0, f"v{VERSION} «{CODENAME.lower()}»", _f_label(11), COLOR_MUTED, "ne")
 
-    qr_side = P(116)
-    qx1, qy1 = R - qr_side, y0 + P(24)
     _panel(c, qx1, qy1, R, qy1 + qr_side + P(16), COLOR_CREAM)
     qr_url = _lan_qr_url(_deps.local_ip)
     try:
@@ -609,11 +659,14 @@ def setup_gui():
     # dalla fila dei pannelli.
     bar_y = y0 + P(122)
     _panel(c, L, bar_y, qx1 - GAP * 2, bar_y + P(6), COLOR_ORANGE, r=3)
+    return lbl_host, ip_testo
 
-    # --- Fila dei pannelli: remoto (scuro) e PIN (arancio) ---
-    ry1 = qy1 + qr_side + P(16) + GAP * 2
-    ry2 = ry1 + P(128)
-    pin_l = R - P(150)
+
+def _draw_remote_panel(c, lay: _Layout) -> None:
+    """Pannello scuro dell'accesso remoto: titolo, stato e QR in attesa."""
+    global _remote_status_var, _remote_status_label, _remote_title_var, _remote_qr_box
+    P = _px
+    L, GAP, ry1, ry2, pin_l = lay.left, lay.gap, lay.ry1, lay.ry2, lay.pin_l
     _panel(c, L, ry1, pin_l - GAP, ry2, COLOR_BG, COLOR_BORDER)
     _remote_title_var = _text(c, L + P(12), ry1 + P(10), "remoto // upnp",
                               _f_label(12), COLOR_MUTED)
@@ -630,6 +683,11 @@ def setup_gui():
         width=_remote_qr_box[0] - L - P(30))
     _remote_status_label = _remote_status_var
 
+
+def _draw_pin_panel(c, lay: _Layout) -> None:
+    """Pannello arancio con il PIN (lo stesso che va nel QR remoto)."""
+    P = _px
+    R, ry1, ry2, pin_l = lay.right, lay.ry1, lay.ry2, lay.pin_l
     _panel(c, pin_l, ry1, R, ry2, COLOR_ORANGE)
     _text(c, pin_l + P(12), ry1 + P(10), "pin", _f_label(12), COLOR_INK)
     pin_val = _deps.config.get('pin_plain', '—')
@@ -637,8 +695,12 @@ def setup_gui():
           _fit_num(pin_val, R - pin_l - P(22), 30, 12), COLOR_INK, "sw")
     _text(c, pin_l + P(12), ry2 - P(10), "nel qr remoto", _f_label(11), COLOR_INK, "sw")
 
-    # --- Stato ---
-    sy1, sy2 = ry2 + GAP, h - M - P(16)
+
+def _draw_status_panel(c, lay: _Layout) -> _CanvasText:
+    """Pannello di stato con il pallino colorato; ritorna l'intestazione."""
+    global status_var, status_label, _status_dot
+    P = _px
+    L, R, sy1, sy2 = lay.left, lay.right, lay.sy1, lay.sy2
     _panel(c, L, sy1, R, sy2, COLOR_BG, COLOR_BORDER)
     lbl_status_header = _text(c, L + P(12), sy1 + P(10), "", _f_label(12), COLOR_MUTED)
     dot_y = sy1 + P(42)
@@ -647,45 +709,67 @@ def setup_gui():
     status_var = _text(c, L + P(32), dot_y, "", _f_label(12), COLOR_MUTED, "w",
                        width=R - L - P(48))
     status_label = status_var
+    return lbl_status_header
 
-    # --- Animazione typewriter con cursore a blocco (come il client web) ---
-    def type_sequence(widgets_data, idx=0):
-        if idx >= len(widgets_data): return
-        target, text, speed = widgets_data[idx]
-        def _type(ci=0):
-            if ci < len(text):
-                target.set(text[:ci] + "█")
-                root.after(speed, lambda: _type(ci + 1))
-            else:
-                target.set(text)
-                root.after(80, lambda: type_sequence(widgets_data, idx + 1))
-        _type()
 
-    anim_data = [
-        (tab_num,           "001",                           40),
-        (tab_title,         "liquid mouse",                  25),
-        (lbl_host,          "host // lan",                   15),
-        (ip_label_var,      ip_testo,                        18),
-        (lbl_status_header, "stato",                         15),
-        (status_var,        "Inizializzazione...",           18),
-    ]
-    root.after(400, lambda: type_sequence(anim_data))
+# --- ANIMAZIONE D'AVVIO ---
+# Tempi in un posto solo. Tk su Windows non scatta più spesso di ~16 ms: i
+# vecchi intervalli di 15-40 ms per carattere diventavano comunque 16-40 e
+# l'intro durava più di due secondi prima che la finestra fosse leggibile.
+# Ora ogni testo si scrive in al più TYPE_MAX_TICKS passi (più caratteri per
+# passo se è lungo) e la dissolvenza ha meno passi: ~1 s in tutto. Il testo
+# finale è identico: l'ultimo passo scrive sempre la stringa intera.
+TYPE_START_MS = 120      # prima si aspettavano 400 ms
+TYPE_TICK_MS = 16        # un passo ogni frame
+TYPE_MAX_TICKS = 10
+TYPE_GAP_MS = 30         # pausa fra un testo e il successivo (era 80)
+FADE_START_MS = 40       # era 80
+FADE_STEPS = 24          # era 45
+FADE_STEP_MS = 16
 
-    # --- Fade-in con easing cubico (~60fps) ---
-    FADE_STEPS = 45
-    def ease_out_cubic(t):
-        return 1.0 - (1.0 - t) ** 3
 
-    def fade_in(step=0):
-        if step <= FADE_STEPS:
-            alpha = ease_out_cubic(step / FADE_STEPS)
-            root.attributes('-alpha', min(alpha, 1.0))
-            root.after(16, lambda: fade_in(step + 1))
+def _ease_out_cubic(t: float) -> float:
+    return 1.0 - (1.0 - t) ** 3
 
-    root.after(80, fade_in)
-    # Applica dark-mode + angoli arrotondati DWM su Win11 (non-blocking).
-    # La finestra è opaca: se DWM fallisce (Win10) resta rettangolare ma
-    # perfettamente leggibile.
+
+def _type_sequence(items, idx: int = 0) -> None:
+    """Scrive i testi uno dopo l'altro, con un cursore a blocco (come il client web).
+
+    `items` = [(widget, testo)]. Ogni testo avanza di `passo` caratteri per tick.
+    """
+    if idx >= len(items):
+        return
+    target, text = items[idx]
+    passo = max(1, -(-len(text) // TYPE_MAX_TICKS))   # divisione per eccesso
+
+    def _type(ci: int = 0) -> None:
+        if ci < len(text):
+            target.set(text[:ci] + "█")
+            root.after(TYPE_TICK_MS, lambda: _type(ci + passo))
+        else:
+            target.set(text)
+            root.after(TYPE_GAP_MS, lambda: _type_sequence(items, idx + 1))
+    _type()
+
+
+def _fade_in(step: int = 0) -> None:
+    """Dissolvenza con easing cubico fino a finestra opaca."""
+    if step <= FADE_STEPS:
+        root.attributes('-alpha', min(_ease_out_cubic(step / FADE_STEPS), 1.0))
+        root.after(FADE_STEP_MS, lambda: _fade_in(step + 1))
+
+
+def _start_intro(items) -> None:
+    root.after(TYPE_START_MS, lambda: _type_sequence(items))
+    root.after(FADE_START_MS, _fade_in)
+
+
+def _apply_dwm_later() -> None:
+    """Dark-mode + angoli arrotondati DWM su Win11 (non bloccante).
+
+    La finestra è opaca: se DWM fallisce (Win10) resta rettangolare ma
+    perfettamente leggibile.
+    """
     def _dwm_later():
         try:
             hwnd = int(root.wm_frame(), 16)
@@ -696,6 +780,36 @@ def setup_gui():
                 return
         apply_dwm_style(hwnd)
     root.after(200, _dwm_later)
+
+
+def setup_gui():
+    """Disegna la finestra. Ogni sezione sta nella sua funzione `_draw_*`."""
+    global _main_canvas
+    root.title("Liquid Mouse")
+    _init_scale_and_fonts()
+    lay = _make_layout()
+    _configure_window(lay)
+
+    c = tk.Canvas(root, bg=COLOR_BG, highlightthickness=0, width=lay.w, height=lay.h)
+    c.pack(fill="both", expand=True)
+    _main_canvas = c
+
+    tab_num, tab_title = _draw_tabs(c, lay)
+    _bind_window_drag(c)
+    lbl_host, ip_testo = _draw_lan_panel(c, lay)
+    _draw_remote_panel(c, lay)
+    _draw_pin_panel(c, lay)
+    lbl_status_header = _draw_status_panel(c, lay)
+
+    _start_intro([
+        (tab_num,           "001"),
+        (tab_title,         "liquid mouse"),
+        (lbl_host,          "host // lan"),
+        (ip_label_var,      ip_testo),
+        (lbl_status_header, "stato"),
+        (status_var,        "Inizializzazione..."),
+    ])
+    _apply_dwm_later()
 
 _DOT_MAP = {COLOR_OK: COLOR_OK, COLOR_ACCENT: COLOR_OK, COLOR_ERROR: COLOR_ERROR}
 

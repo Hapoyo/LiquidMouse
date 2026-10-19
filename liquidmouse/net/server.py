@@ -4,7 +4,7 @@ Tutto quello che serve arriva dal costruttore invece che da variabili globali:
 è ciò che permette di far girare i servizi senza GUI e di sostituire i pezzi
 nei test.
 
-Le porte in gioco sono cinque (vedi `liquidmouse/ports.py`); la 8443 è la
+Le porte in gioco sono quattro (vedi `liquidmouse/ports.py`); la 8443 è la
 "porta unica" remota e serve sia la pagina sia il canale comandi. La 8767 è
 l'origine del tunnel Cloudflare, la strada remota quando UPnP non può
 funzionare (CGNAT).
@@ -31,7 +31,7 @@ from liquidmouse.net.protocol import ClientConnection, dispatch
 from liquidmouse.net.sftp import CHUNK, SftpError
 from liquidmouse.net.static import SECURITY_HEADERS
 from liquidmouse.net.transfers import DOWNLOAD, REMOTE_DOWNLOAD_MAX, UPLOAD
-from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, TUNNEL_PORT, WSS_PORT
+from liquidmouse.ports import HTTP_PORT, HTTPS_PORT, PORT, TUNNEL_PORT
 from liquidmouse.security.auth import AUTH_MAX_FAILS, pin_matches
 from liquidmouse.theme import COLOR_ACCENT, COLOR_ERROR, COLOR_MUTED, COLOR_OK
 
@@ -73,6 +73,18 @@ ALLOWED_ORIGINS = [
     None,
     re.compile(rf"https?://{_ORIGIN_HOST}(?::\d{{1,5}})?", re.IGNORECASE),
 ]
+
+
+def _serve_kwargs(**extra) -> dict:
+    """Argomenti comuni a ogni `websockets.serve`, in un posto solo.
+
+    `compression=None` disattiva permessage-deflate: i messaggi del touchpad
+    sono di pochi byte (la compressione non fa guadagnare nulla e aggiunge
+    latenza e CPU per ogni mossa) e l'output del terminale viaggia in frame
+    binari già densi.
+    """
+    return dict(ping_interval=WS_PING_INTERVAL, ping_timeout=WS_PING_TIMEOUT,
+                origins=ALLOWED_ORIGINS, compression=None, **extra)
 
 
 def tunnel_client_ip(headers) -> str:
@@ -539,7 +551,7 @@ class NetworkServices:
         ext_ip = await self.upnp.setup(self.local_ip)
         if ext_ip and not self._ssl_ctx:
             # UPnP ha aperto la porta ma senza certificato TLS il server
-            # HTTPS_PORT/WSS_PORT non viene nemmeno avviato: dichiarare il
+            # HTTPS_PORT non viene nemmeno avviato: dichiarare il
             # remoto UPnP attivo sarebbe un falso positivo, un QR che punta a
             # una porta chiusa.
             self.upnp.last_error = (
@@ -661,19 +673,15 @@ class NetworkServices:
                 # prima e tenevano il telefono su "in attesa".
                 lan = [
                     (PORT, websockets.serve(self.handler, "0.0.0.0", PORT,
-                                            ping_interval=WS_PING_INTERVAL,
-                                            ping_timeout=WS_PING_TIMEOUT,
-                                            origins=ALLOWED_ORIGINS)),
+                                            **_serve_kwargs())),
                 ]
                 if self.tunnel is not None:
                     # Origine del tunnel: solo loopback, pagina + WS insieme come
                     # la 8443. Il TLS lo termina Cloudflare, qui arriva in chiaro.
                     lan.append((TUNNEL_PORT,
                         websockets.serve(self._tunnel_handler, "127.0.0.1", TUNNEL_PORT,
-                                         ping_interval=WS_PING_INTERVAL,
-                                         ping_timeout=WS_PING_TIMEOUT,
-                                         origins=ALLOWED_ORIGINS,
-                                         process_request=self.https_process_request)))
+                                         **_serve_kwargs(
+                                             process_request=self.https_process_request))))
                 avviati += await avvia(lan)
 
                 # 2. Certificato (fuori dall'event loop) e server HTTPS/WSS.
@@ -683,16 +691,8 @@ class NetworkServices:
                     # Porta unica remota: pagina + WSS su HTTPS_PORT.
                     remoti = [(HTTPS_PORT,
                         websockets.serve(self.handler, "0.0.0.0", HTTPS_PORT, ssl=ssl_ctx,
-                                         ping_interval=WS_PING_INTERVAL,
-                                         ping_timeout=WS_PING_TIMEOUT,
-                                         origins=ALLOWED_ORIGINS,
-                                         process_request=self.https_process_request)),
-                        # Legacy: WSS dedicato per client pre-porta-unica ancora in giro.
-                        (WSS_PORT,
-                        websockets.serve(self.handler, "0.0.0.0", WSS_PORT, ssl=ssl_ctx,
-                                         ping_interval=WS_PING_INTERVAL,
-                                         ping_timeout=WS_PING_TIMEOUT,
-                                         origins=ALLOWED_ORIGINS))]
+                                         **_serve_kwargs(
+                                             process_request=self.https_process_request)))]
                     avviati += await avvia(remoti)
 
                 if avviati:

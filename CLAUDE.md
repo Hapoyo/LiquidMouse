@@ -17,7 +17,7 @@ liquidmouse/
   config.py              %APPDATA%/LiquidMouse/config.json, migra da LiquidControl
   events.py              log_message → sink registrati (la GUI è un sink)
   executors.py           pool di thread dedicati (read/write PTY, SFTP, rete): mai run_in_executor(None)
-  paths.py, ports.py     percorsi degli asset (anche nel bundle), porte 8000/8765/8443/8766/8767
+  paths.py, ports.py     percorsi degli asset (anche nel bundle), porte 8000/8765/8443/8767
   net/                   server.py (servizi), protocol.py (messaggi), static.py (whitelist
                          asset), frames.py (frame binari), upnp.py, tunnel.py
                          (cloudflared), addresses.py, sftp.py (file manager: profili, paramiko,
@@ -29,19 +29,22 @@ liquidmouse/
                          dpapi.py (DPAPI: password SFTP, PIN e chiave TLS della config)
   gui/                   window.py (finestra, tray, pannello sessioni), effects.py (DWM,
                          font privati). Unico pacchetto che importa tkinter/pystray/PIL/qrcode
-static/                  index.html, app.css, app.js, icon.ico
+static/                  index.html, app.css, icon.ico e il client in quattro script classici,
+                         nell'ordine di caricamento: app-core.js (connessione, auth, Motion,
+                         schede), app-touchpad.js (gesti, menu, tastiera), app-terminal.js
+                         (xterm, sessioni, tasti), app-files.js (file manager)
 static/fonts/            Space Grotesk Medium, Space Mono (sottoinsieme latino) + OFL
 static/vendor/           xterm.js, xterm.css, motion.js (Motion 14.0.0 UMD, global `Motion`)
                          + LICENSE-motion.txt: non modificare; per aggiornare Motion
                          copiare `dist/motion.js` del pacchetto npm `motion`
 tests/                   pytest, girano su Linux senza Windows né schermo
+tools/test_server.py     smoke test da lanciare con il server avviato (solo Windows)
 tools/anteprime.py       rigenera le immagini di docs/img (client in Chromium, finestra Tk
                          sotto Xvfb, dati dimostrativi e WebSocket finto)
 docs/img/                schermate, GIF, copertina e social preview del README (solo docs/img
                          è tracciata: il resto di docs/ resta locale, vedi .gitignore)
 README.md, CHANGELOG.md  in inglese, stile PiDash (sezioni numerate); le novità vanno nel
                          CHANGELOG, non nel README
-test_server.py           smoke test da lanciare con il server avviato (solo Windows)
 build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 .github/workflows/       test.yml (ogni push e PR: Linux 3.12 e Windows 3.10/3.13), dependabot.yml, build.yml (EXE; release con pubblica=true
                          o con il push di un tag v*)
@@ -54,7 +57,7 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   fa fallire test_files_client_contract sui nomi accentati)
 - Core senza GUI: i moduli elencati in `.github/workflows/test.yml` devono importarsi su Linux
 - Avvio da sorgente (Windows): `py -3.13 -m pip install -r requirements.txt` poi `py -3.13 server.pyw`
-- Smoke test (Windows, server avviato): `py -3.13 test_server.py`
+- Smoke test (Windows, server avviato): `py -3.13 tools/test_server.py`
 - Anteprime del README: `xvfb-run -s "-screen 0 1920x1080x24 -dpi 192" python tools/anteprime.py`
   (su Windows funziona `--solo client`, con `PYTHONUTF8=1`; Motion non segue `page.clock`,
   quindi le pagine emulano prefers-reduced-motion e mostrano gli stati finali)
@@ -90,10 +93,16 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Grafica: solo colori di `theme.py` / `:root` di app.css; numeri grandi in Space Grotesk,
   etichette in Space Mono. Contrasto testo ≥ 4.5:1 (test_theme_contrast.py).
 - Finestra desktop: tutto disegnato sul canvas, misure in px a 96 dpi passate da `_px`.
-- Client: app.js è uno script classico (non modulo), caricato con defer; nel markup niente
-  `onclick=` inline (la CSP li blocca). Colori della riga di stato via classi (`setStatus(text, kind)`).
+- Client: gli `app-*.js` sono script classici (non moduli), caricati con defer nell'ordine di
+  index.html e con lo scope globale in comune. Mentre un file viene eseguito usa solo ciò che
+  dichiara lui o i file prima (il nucleo è primo); le funzioni degli altri file si chiamano
+  solo da gestori di eventi/messaggi. I messaggi del server passano dalla tabella `HANDLERS`
+  e da `dispatchMessage` in app-core.js. Nel markup niente `onclick=` inline (la CSP li
+  blocca). Colori della riga di stato via classi (`setStatus(text, kind)`).
+  Un nuovo script del client va in: index.html, STATIC_ROUTES, spec (datas), build.py
+  (required) e `CLIENT_JS` in tests/clientjs.py (i test di contratto leggono i file uniti).
 - Valori dal client = non fidati: passare da `clamp_int` e dalle whitelist.
-- Animazioni del client: solo tramite `anima()` in app.js (unico punto che legge
+- Animazioni del client: solo tramite `anima()` in app-core.js (unico punto che legge
   `window.Motion`; null se Motion manca o con prefers-reduced-motion). Senza Motion
   valgono le riserve CSS `html:not(.motion) ...`. Mai animazioni sul percorso del
   touchpad; sulla cartella (`.tab-content`) e su `#terminal-active` solo opacità: una
@@ -102,23 +111,23 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 ## 6. Elenchi da tenere allineati (i test li controllano)
 | Cosa | Dove |
 |---|---|
-| Asset statici | `LiquidMouse.spec` (datas) · `net/static.py` (STATIC_ROUTES) · `build.py` (required) |
+| Asset statici | `LiquidMouse.spec` (datas) · `net/static.py` (STATIC_ROUTES) · `build.py` (required) · `static/index.html` (script) · `tests/clientjs.py` (CLIENT_JS) |
 | Versione | `version.py` · intestazione del README · tag git · titolo in CHANGELOG.md |
 | Immagini del README | link in `README.md` · file in `docs/img` (test_readme.py) |
 | Palette | `theme.py` · `static/app.css` `:root` |
-| Frame binari del terminale | `net/frames.py` · `handleBinaryFrame` in app.js |
-| Tasti del terminale | `TERM_KEYS` in app.js · `.tkey[data-key]` in index.html |
-| Shell del terminale | `SHELLS` in `terminal/commands.py` (da cui `TERM_ALLOWED_CMDS`) · `shells` in `term_sessions` (protocol.py) · blocco `// --- SHELL: contratto` in app.js (test_shells_client_contract.py) |
-| Tipi di messaggio | `@handles` in `net/protocol.py` · `ws.send` in app.js |
-| Funzioni pure del file manager | blocco `// --- FILE: contratto` in app.js · `join_path` in `net/sftp.py` (test_files_client_contract.py) |
+| Frame binari del terminale | `net/frames.py` · `handleBinaryFrame` in app-terminal.js |
+| Tasti del terminale | `TERM_KEYS` in app-terminal.js · `.tkey[data-key]` in index.html |
+| Shell del terminale | `SHELLS` in `terminal/commands.py` (da cui `TERM_ALLOWED_CMDS`) · `shells` in `term_sessions` (protocol.py) · blocco `// --- SHELL: contratto` in app-terminal.js (test_shells_client_contract.py) |
+| Tipi di messaggio | `@handles` in `net/protocol.py` · `ws.send` negli `app-*.js` · `HANDLERS` in app-core.js (messaggi del server) |
+| Funzioni pure del file manager | blocco `// --- FILE: contratto` in app-files.js · `join_path` in `net/sftp.py` (test_files_client_contract.py) |
 
 ## 7. Decisioni
 - Accesso remoto: UPnP se apre la porta, altrimenti tunnel Cloudflare (quick tunnel, senza
   account; Tailscale rimosso in 2.4.0 perché voleva l'app sul telefono). Porta unica 8443
-  per pagina e WSS. Una sola decisione in `NetworkServices._refresh_remote` (avvio e
+  per pagina e WSS (la vecchia 8766, WSS dedicato pre-porta-unica, è stata rimossa). Una sola decisione in `NetworkServices._refresh_remote` (avvio e
   keepalive): UPnP riuscito ferma il tunnel.
   Ordine d'avvio (`start_websocket_server`): prima 8765 (LAN) e origine del tunnel, poi il
-  certificato (executor, la RSA può durare secondi) e 8443/8766, infine `_refresh_remote`.
+  certificato (executor, la RSA può durare secondi) e 8443, infine `_refresh_remote`.
   Il keepalive (ogni 30 s, `IP_CHECK_SECS`) rivaluta `get_local_ip()` tramite `ip_provider`:
   se cambia rifà il mapping UPnP, ricarica il certificato (stesso `SSLContext`, i server lo
   tengono) e chiama `on_local_ip_change` (la GUI ridisegna QR e indirizzo con
@@ -147,11 +156,11 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   `Cache-Control: immutable` solo per URL con `?v=` e per i font (index e URL senza versione
   restano `no-cache`), e `SECURITY_HEADERS` (nosniff, no-referrer, X-Frame-Options, CSP) su
   ogni risposta. CSP: `script-src 'self'`, quindi **niente handler inline** nel markup (le
-  linguette si legano in app.js con `data-tab`; lo controlla test_assets_consistency);
+  linguette si legano in app-core.js con `data-tab`; lo controlla test_assets_consistency);
   `style-src` ha ancora `'unsafe-inline'` per xterm.js: passare a nonce/hash è un passo futuro.
 - Output del terminale in frame binari, non base64 in JSON.
 - Gesti del touchpad: le decisioni pure (tap a 2/3 dita, tap-e-trascina, asse dello scroll) stanno
-  nel blocco `// --- GESTI: contratto` di app.js (test con node); i gestori touch non animano.
+  nel blocco `// --- GESTI: contratto` di app-touchpad.js (test con node); i gestori touch non animano.
   `click` accetta solo `CLICK_BUTTONS` (protocol.py); `scroll` ha `amount` (verticale) e `h`
   (orizzontale, + = destra), entrambi opzionali e passati da `clamp_int`.
 - Shell del terminale: il server manda in `term_sessions` l'elenco di quelle ammesse e installate

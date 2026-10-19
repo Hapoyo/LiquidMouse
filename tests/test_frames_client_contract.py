@@ -4,7 +4,7 @@ Sono due implementazioni dello stesso contratto in linguaggi diversi, in due
 file che si modificano separatamente: è esattamente il tipo di disallineamento
 che passa inosservato fino a quando il terminale smette di mostrare l'output.
 
-Il test estrae `handleBinaryFrame` da app.js, lo esegue con node su frame
+Il test estrae `handleBinaryFrame` dal client (app-terminal.js), lo esegue con node su frame
 prodotti da liquidmouse/net/frames.py e verifica che ricostruisca gli stessi
 byte. Se node non è installato, viene saltato.
 """
@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from liquidmouse.net.frames import encode_term_output
+from tests.clientjs import leggi_client
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -28,9 +29,9 @@ pytestmark = pytest.mark.skipif(
 
 def _estrai_decoder() -> str:
     """Prende dal client la costante del tipo di frame e handleBinaryFrame."""
-    js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+    js = leggi_client()
     costante = re.search(r"const FRAME_TERM_OUTPUT = (0x[0-9a-fA-F]+);", js)
-    assert costante, "FRAME_TERM_OUTPUT non trovata in app.js"
+    assert costante, "FRAME_TERM_OUTPUT non trovata nel client"
     inizio = js.index("function handleBinaryFrame(buf)")
     fine = js.index("\n    }", inizio) + len("\n    }")
     return f"const FRAME_TERM_OUTPUT = {costante.group(1)};\n" + js[inizio:fine]

@@ -3,7 +3,7 @@ decisione del remote_mode.
 
 UPnP e TLS sono indipendenti (vengono risolti da due oggetti diversi, iniettati
 separatamente): se UPnP apre la porta ma il certificato non è disponibile
-(manca `cryptography`, o la generazione fallisce), i server HTTPS_PORT/WSS_PORT
+(manca `cryptography`, o la generazione fallisce), il server HTTPS_PORT
 non vengono nemmeno aggiunti alla lista `servers` più sotto. Dichiarare
 comunque il remoto attivo sarebbe un falso positivo — un QR che punta a una
 porta chiusa, il rovescio del sintomo "remoto non disponibile".
@@ -270,7 +270,7 @@ class _CatturaServe:
 
 
 class TestOriginDeiWebSocket:
-    def test_tutti_e_quattro_i_serve_filtrano_l_origin(self, monkeypatch):
+    def test_tutti_e_tre_i_serve_filtrano_l_origin(self, monkeypatch):
         cattura = _CatturaServe()
         monkeypatch.setattr(server_mod.websockets, "serve", cattura)
         services = NetworkServices(
@@ -278,9 +278,11 @@ class TestOriginDeiWebSocket:
             static=None, tls=_FakeTls(object()), upnp=_FakeUpnp(None),
             local_ip="192.168.1.10", tunnel=_FakeTunnel())
         asyncio.run(_avvia_e_ferma(services))
-        assert len(cattura.chiamate) == 4
+        assert len(cattura.chiamate) == 3
         for k in cattura.chiamate:
             assert k["origins"] is server_mod.ALLOWED_ORIGINS
+            # Niente permessage-deflate: latenza inutile su messaggi minuscoli.
+            assert k["compression"] is None
 
     async def _tenta(self, origin):
         """Handshake reale su loopback con l'Origin dato. Ritorna lo status
@@ -300,7 +302,7 @@ class TestOriginDeiWebSocket:
                 return e.response.status_code
 
     @pytest.mark.parametrize("origin", [
-        None,                                  # client non browser (test_server.py)
+        None,                                  # client non browser (tools/test_server.py)
         "http://127.0.0.1:8000",               # finestra terminale sul PC
         "http://localhost:8000",
         "http://192.168.1.10:8000",            # pagina in LAN
@@ -382,9 +384,10 @@ class TestAvvioServer:
             static=None, tls=_FakeTls(object()), upnp=_FakeUpnp(None),
             local_ip="192.168.1.10")
         asyncio.run(_avvia_e_ferma(services))
-        # La 8765 (LAN) e la 8766 (WSS legacy) restano attive.
+        # La 8765 (LAN) resta attiva anche se la 8443 non parte.
         assert PORT in serve.entrati
-        assert len(serve.entrati) == 2
+        assert HTTPS_PORT not in serve.entrati
+        assert len(serve.entrati) == 1
         # Nessuna è stata chiusa prima dello stop: solo allo scadere del test.
         assert sorted(serve.usciti) == sorted(serve.entrati)
 

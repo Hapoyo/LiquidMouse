@@ -1,5 +1,5 @@
 """Decisioni pure dei gesti del touchpad nel client (tap a due/tre dita, tap-e-
-trascina, scroll orizzontale), con il blocco "GESTI: contratto" di app.js
+trascina, scroll orizzontale), con il blocco "GESTI: contratto" di app-touchpad.js
 eseguito da node, e allineamento con i valori che il server accetta.
 Salta se node non c'è.
 """
@@ -14,7 +14,7 @@ import pytest
 
 from liquidmouse.net.protocol import CLICK_BUTTONS, SCROLL_CLAMP, known_types
 
-APP_JS = Path(__file__).resolve().parent.parent / "static" / "app.js"
+from tests.clientjs import leggi_client
 INIZIO = "// --- GESTI: contratto"
 FINE = "// --- fine contratto ---"
 
@@ -22,8 +22,8 @@ needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node non d
 
 
 def _node(espressione: str):
-    js = APP_JS.read_text(encoding="utf-8")
-    assert INIZIO in js, "blocco contratto dei gesti non trovato in app.js"
+    js = leggi_client()
+    assert INIZIO in js, "blocco contratto dei gesti non trovato nel client"
     blocco = js[js.index(INIZIO):]
     blocco = blocco[:blocco.index(FINE)]
     codice = blocco + f"\nprocess.stdout.write(JSON.stringify({espressione}));\n"
@@ -93,21 +93,21 @@ class TestScrollDelta:
 
 class TestAllineamentoConIlServer:
     def test_il_client_manda_solo_tipi_registrati(self):
-        js = APP_JS.read_text(encoding="utf-8")
+        js = leggi_client()
         tipi = set(re.findall(r"type:\s*'([a-z_]+)'", js))
         gesti = {"click", "drag", "scroll", "move"}
         assert gesti <= tipi
         assert gesti <= known_types()
 
     def test_lo_scroll_orizzontale_usa_il_campo_che_il_server_legge(self):
-        js = APP_JS.read_text(encoding="utf-8")
+        js = leggi_client()
         assert "msg.h = hAmount" in js
-        protocol = (Path(APP_JS).parent.parent / "liquidmouse" / "net" / "protocol.py").read_text(
+        protocol = (Path(__file__).resolve().parent.parent / "liquidmouse" / "net" / "protocol.py").read_text(
             encoding="utf-8")
         assert "data.get('h')" in protocol
 
     def test_i_pulsanti_inviati_sono_quelli_ammessi(self):
-        js = APP_JS.read_text(encoding="utf-8")
+        js = leggi_client()
         inviati = set(re.findall(r"sendClick\('([a-z]+)'\)", js))
         inviati |= set(re.findall(r"return maxTouches === 2 \? '([a-z]+)' : \(maxTouches === 3 \? '([a-z]+)'",
                                   js)[0])
@@ -119,7 +119,7 @@ class TestAllineamentoConIlServer:
         assert SCROLL_CLAMP >= 20
 
     def test_nessuna_animazione_nei_gestori_dei_gesti(self):
-        js = APP_JS.read_text(encoding="utf-8")
+        js = leggi_client()
         blocco = js[js.index("// --- GESTI: tap, tap-e-trascina"):js.index("// --- CLICK ---")]
         assert "anima(" not in blocco and "Motion" not in blocco
         assert "transition" not in blocco and "animate" not in blocco

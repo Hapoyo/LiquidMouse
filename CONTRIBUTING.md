@@ -32,7 +32,7 @@ Struttura del codice, convenzioni ed elenchi da tenere allineati: vedi [CLAUDE.m
 pip install pytest
 python -m pytest              # test unitari — girano anche fuori da Windows
 python build.py               # genera l'EXE in EXE/
-py -3.13 test_server.py       # smoke test, con il server gia' avviato
+py -3.13 tools/test_server.py # smoke test, con il server gia' avviato
 ```
 
 Se cambi l'aspetto del client o della finestra, rigenera le immagini del README

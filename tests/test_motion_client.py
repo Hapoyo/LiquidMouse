@@ -3,7 +3,7 @@
 Motion è un abbellimento: la pagina deve funzionare identica se il file manca
 o non si carica. Per questo arriva come file locale (niente CDN: il client
 gira anche in una LAN senza internet, e ogni path fuori whitelist è 404) e
-viene caricato prima di app.js, entrambi deferiti.
+viene caricato prima di app-core.js, entrambi deferiti.
 """
 
 import json
@@ -18,7 +18,7 @@ from liquidmouse.net.static import STATIC_ROUTES
 
 ROOT = Path(__file__).resolve().parent.parent
 INDEX_HTML = ROOT / "static" / "index.html"
-APP_JS = ROOT / "static" / "app.js"
+from tests.clientjs import leggi_client
 MOTION_JS = ROOT / "static" / "vendor" / "motion.js"
 LICENZA = ROOT / "static" / "vendor" / "LICENSE-motion.txt"
 INIZIO_MOTION = "// --- MOTION:"
@@ -40,12 +40,12 @@ class TestAsset:
 
 
 class TestCaricamento:
-    def test_motion_prima_di_app_js_e_deferito(self):
+    def test_motion_prima_del_client_e_deferito(self):
         html = INDEX_HTML.read_text(encoding="utf-8")
         script = re.findall(r'<script src="([^"]+)" defer></script>', html)
         assert "motion.js" in script, "motion.js non caricato (o non deferito)"
-        assert script.index("motion.js") < script.index("app.js"), (
-            "motion.js deve eseguire prima di app.js: gli script deferiti "
+        assert script.index("motion.js") < script.index("app-core.js"), (
+            "motion.js deve eseguire prima di app-core.js: gli script deferiti "
             "girano nell'ordine del documento")
 
     def test_niente_cdn(self):
@@ -57,7 +57,7 @@ class TestUsoInAppJs:
     def test_il_global_si_tocca_solo_nella_guardia(self):
         # Un `Motion.animate(...)` diretto lancerebbe ReferenceError con
         # motion.js assente e fermerebbe il resto dello script.
-        js = APP_JS.read_text(encoding="utf-8")
+        js = leggi_client()
         assert not re.findall(r"(?<![\w.])Motion\.", js), "uso diretto di Motion fuori da anima()"
         fuori = js[:js.index(INIZIO_MOTION)] + js[js.index(FINE_MOTION):]
         assert "window.Motion" not in fuori, "window.Motion letto fuori dal blocco MOTION"
@@ -65,18 +65,18 @@ class TestUsoInAppJs:
     def test_niente_animazioni_sul_percorso_del_touchpad(self):
         # Dal touchstart del touchpad fino ai click: ogni animazione lì è
         # latenza sul cursore.
-        js = APP_JS.read_text(encoding="utf-8")
+        js = leggi_client()
         blocco = js[js.index("function flushSend()"):js.index("// --- CLICK ---")]
         assert "anima(" not in blocco and "Motion" not in blocco
 
     def test_il_touchpad_non_e_premibile(self):
-        js = APP_JS.read_text(encoding="utf-8")
+        js = leggi_client()
         premibili = js[js.index("const PREMIBILI"):js.index("let premuto")]
         assert "touchpad" not in premibili
 
 
 def _node_motion(prologo: str, espressione: str):
-    js = APP_JS.read_text(encoding="utf-8")
+    js = leggi_client()
     blocco = js[js.index(INIZIO_MOTION):js.index(FINE_MOTION)]
     codice = prologo + "\n" + blocco + f"\nprocess.stdout.write(JSON.stringify({espressione}));\n"
     out = subprocess.run(["node", "-e", codice], capture_output=True, text=True, timeout=30)

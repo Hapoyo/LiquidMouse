@@ -9,6 +9,7 @@ import pytest
 
 from tests.test_gui_lan_update import _Canvas, _Root, _Testo  # noqa: F401
 from tests.test_server_module import _Qualunque, gui_window, stub_gui  # noqa: F401
+from tests.clientjs import leggi_client
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -79,11 +80,18 @@ class TestInterruttore:
 
 class TestHandshakeClientServer:
     def test_il_client_risponde_ad_auth_required(self):
-        js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
-        assert "msg.type === 'auth_required'" in js
-        blocco = js[js.index("msg.type === 'auth_required'"):]
-        blocco = blocco[:blocco.index("msg.type === 'auth_ok'")]
+        js = leggi_client()
+        # La tabella HANDLERS manda auth_required a sendAuth, che spedisce il PIN.
+        assert "auth_required: () => sendAuth()" in js
+        blocco = js[js.index("function sendAuth()"):]
+        blocco = blocco[:blocco.index("function onAuthenticated")]
         assert "type: 'auth'" in blocco and "ws.send" in blocco
+
+    def test_onmessage_logga_gli_errori_invece_di_inghiottirli(self):
+        js = leggi_client()
+        blocco = js[js.index("ws.onmessage = "):js.index("ws.onerror = () =>")]
+        assert "console.error" in blocco
+        assert "catch (_) {}" not in blocco
 
     def test_il_server_manda_lo_stesso_tipo(self):
         py = (ROOT / "liquidmouse" / "net" / "server.py").read_text(encoding="utf-8")
@@ -91,6 +99,8 @@ class TestHandshakeClientServer:
 
     def test_il_default_non_cambia_il_client_non_aspetta_auth_required(self):
         # In onopen il ramo LAN resta quello di sempre: connesso subito.
-        js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
-        onopen = js[js.index("ws.onopen = () => {"):js.index("function _onAuthenticated")]
-        assert "_onAuthenticated(ip);" in onopen
+        js = leggi_client()
+        onopen = js[js.index("ws.onopen = () => {"):js.index("ws.onmessage = ")]
+        assert "onAuthenticated(conn);" in onopen
+        # e il remoto passa dallo stesso sendAuth() di auth_required
+        assert "sendAuth();" in onopen

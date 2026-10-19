@@ -1,7 +1,7 @@
 """La versione è dichiarata in un posto solo, ma letta da quattro.
 
 `liquidmouse/version.py` è la fonte di verità; build.py, il workflow di build e
-test_server.py la leggono con una regex (senza importare il modulo) e il README
+tools/test_server.py la leggono con una regex (senza importare il modulo) e il README
 la ripete a mano. Questi test intercettano il disallineamento, che altrimenti si
 manifesta solo come una release pubblicata con l'EXE della versione sbagliata.
 """
@@ -39,7 +39,7 @@ def test_readme_declares_the_same_version():
 
 @pytest.mark.parametrize(
     "percorso",
-    ["build.py", "test_server.py", ".github/workflows/build.yml"],
+    ["build.py", "tools/test_server.py", ".github/workflows/build.yml"],
 )
 def test_consumers_read_the_version_file(percorso):
     testo = (ROOT / percorso).read_text(encoding="utf-8")
