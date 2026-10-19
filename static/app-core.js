@@ -293,8 +293,10 @@
         if (!msg || typeof msg.type !== 'string') throw new Error('messaggio senza tipo');
         // hasOwnProperty: un `type` come "constructor" non deve trovare i
         // membri di Object.prototype.
-        if (Object.prototype.hasOwnProperty.call(HANDLERS, msg.type)) {
-            HANDLERS[msg.type](msg, conn);
+        const handler = Object.prototype.hasOwnProperty.call(HANDLERS, msg.type)
+            ? HANDLERS[msg.type] : null;
+        if (typeof handler === 'function') {
+            handler(msg, conn);
         } else if (msg.type.startsWith('sftp_')) {
             handleFilesMessage(msg);
         }
