@@ -231,6 +231,117 @@
     // --- fine contratto ---
     const authGate = makeAuthGate();
 
+    // Manda il PIN (remoto all'apertura, LAN quando il server risponde
+    // `auth_required` perché `lan_require_pin` è acceso sul PC). Senza PIN non
+    // si tenta nulla: si ferma con un errore e si riapre la configurazione.
+    function sendAuth() {
+        const pin = pinInput.value.trim() || loadPIN();
+        if (!pin) {
+            stopWithError('pin richiesto');
+            pinInput.focus();
+            return;
+        }
+        ws.send(JSON.stringify({ type: 'auth', pin }));
+        setStatus('autenticazione...', 'warn');
+    }
+
+    function onAuthenticated(conn) {
+        setStatus('connessione stabilita', 'ok');
+        configPanel.classList.add('hidden'); saveIP(conn.ip.trim());
+        savePIN(pinInput.value.trim());
+        clearInterval(pingInterval);
+        pingInterval = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                conn.pingTimestamp = Date.now();
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 5000);
+        // Dopo una riconnessione, se il tab terminal è attivo e c'è una
+        // sessione, riaggancia (il server ha sganciato il ws morto).
+        if (termSessionId && document.getElementById('content-terminal').classList.contains('active')) {
+            attached = false;
+            attachSession(termSessionId);
+        }
+        // Il server chiude le connessioni SFTP con il socket: dopo una
+        // riconnessione si riparte dai profili.
+        filesReset();
+        // Deep-link finestra PC (?term=<id>): apri il terminale e aggancia.
+        if (pendingTermId) {
+            termSessionId = pendingTermId;
+            pendingTermId = null;
+            switchTab('terminal');
+        }
+    }
+
+    // --- MESSAGGI DAL SERVER: una tabella e un solo punto di smistamento ---
+    // Chiave = `type` del messaggio JSON; il gestore riceve (msg, conn). Gli
+    // `sftp_*` vanno tutti a handleFilesMessage (vedi dispatchMessage).
+    // Tabella e non catena di if/else: aggiungere un tipo è una riga, e non c'è
+    // più un blocco in cui un `break` fuori posto (SyntaxError, bug v2.2.x:
+    // client morto su "In attesa...") possa uccidere l'intero script.
+    const HANDLERS = {
+        auth_required: () => sendAuth(),
+        auth_ok: (msg, conn) => onAuthenticated(conn),
+        auth_fail: (msg) => {
+            const rem = msg.remaining > 0 ? ` (${msg.remaining} tentativi rimasti)` : '';
+            authGate.fail();
+            stopWithError(`pin errato${rem}`);
+        },
+        auth_blocked: () => {
+            authGate.fail();
+            stopWithError('bloccato — riprova tra 30 min');
+        },
+        pong: (msg, conn) => {
+            if (!(conn.pingTimestamp > 0)) return;
+            const rtt = Date.now() - conn.pingTimestamp;
+            setStatus(`connesso ${rtt}ms`, rtt < 50 ? 'ok' : rtt < 150 ? 'warn' : 'err');
+        },
+        term_sessions: (msg) => {
+            termShells = parseShells(msg.shells);
+            renderSessionPicker(msg.sessions);
+        },
+        term_created: (msg) => {
+            termSessionId = msg.id;
+            termSessionCmd = termPendingCmd || termShellChoice;
+            termPendingCmd = '';
+            attachSession(msg.id);
+        },
+        term_closed: (msg) => {
+            if (msg.id && msg.id !== termSessionId) return;
+            document.getElementById('tab-terminal-dot').style.display = 'none';
+            document.getElementById('terminal-active').classList.remove('visible');
+            document.getElementById('session-picker').style.display = '';
+            // Chiusa con la ×: niente banner d'errore.
+            if (!chiuseDaQui.delete(msg.id)) {
+                showTermError(`Sessione terminata (exit ${msg.exit_code})`);
+            }
+            termSessionId = null;
+            attached = false;
+            ws.send(JSON.stringify({type: 'term_list'}));
+        },
+        term_error: (msg) => {
+            showTermError(msg.msg);
+            if (msg.id && msg.id === termSessionId) {
+                document.getElementById('terminal-active').classList.remove('visible');
+                document.getElementById('session-picker').style.display = '';
+                termSessionId = null;
+                attached = false;
+                ws.send(JSON.stringify({type: 'term_list'}));
+            }
+        },
+    };
+
+    function dispatchMessage(msg, conn) {
+        if (!msg || typeof msg.type !== 'string') throw new Error('messaggio senza tipo');
+        // hasOwnProperty: un `type` come "constructor" non deve trovare i
+        // membri di Object.prototype.
+        if (Object.prototype.hasOwnProperty.call(HANDLERS, msg.type)) {
+            HANDLERS[msg.type](msg, conn);
+        } else if (msg.type.startsWith('sftp_')) {
+            handleFilesMessage(msg);
+        }
+    }
+
     function connectServer(ip) {
         const _ip = ip.trim();
         if (!_ip) { alert('Inserire un indirizzo IP valido.'); return; }
@@ -260,7 +371,9 @@
             }
         }, 3000);
 
-        let pingTimestamp = 0;
+        // Stato della sola connessione che sta nascendo: l'indirizzo e l'istante
+        // dell'ultimo ping, che serve a calcolare l'RTT quando torna il pong.
+        const conn = { ip, pingTimestamp: 0 };
 
         ws.onopen = () => {
             clearTimeout(connectionTimeout);
@@ -268,120 +381,29 @@
             reconnectAttempts = 0;
 
             // Connessione remota (pagina via HTTPS → wss): PIN obbligatorio.
-            const isRemote = wsUrl.startsWith('wss://');
-            const pin = pinInput.value.trim() || loadPIN();
-            if (isRemote) {
-                if (!pin) {
-                    stopWithError('pin richiesto');
-                    pinInput.focus();
-                    return;
-                }
-                ws.send(JSON.stringify({ type: 'auth', pin }));
-                setStatus('autenticazione...', 'warn');
+            if (wsUrl.startsWith('wss://')) {
+                sendAuth();
                 return; // wait for auth_ok before marking connected
             }
-            _onAuthenticated(ip);
+            onAuthenticated(conn);
         };
-
-        function _onAuthenticated(ip) {
-            setStatus('connessione stabilita', 'ok');
-            configPanel.classList.add('hidden'); saveIP(ip.trim());
-            savePIN(pinInput.value.trim());
-            clearInterval(pingInterval);
-            pingInterval = setInterval(() => {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    pingTimestamp = Date.now();
-                    ws.send(JSON.stringify({ type: 'ping' }));
-                }
-            }, 5000);
-            // Dopo una riconnessione, se il tab terminal è attivo e c'è una
-            // sessione, riaggancia (il server ha sganciato il ws morto).
-            if (termSessionId && document.getElementById('content-terminal').classList.contains('active')) {
-                attached = false;
-                attachSession(termSessionId);
-            }
-            // Il server chiude le connessioni SFTP con il socket: dopo una
-            // riconnessione si riparte dai profili.
-            filesReset();
-            // Deep-link finestra PC (?term=<id>): apri il terminale e aggancia.
-            if (pendingTermId) {
-                termSessionId = pendingTermId;
-                pendingTermId = null;
-                switchTab('terminal');
-            }
-        }
 
         ws.onmessage = (e) => {
             // L'output del terminale arriva come frame binario grezzo:
             // niente base64 (~33% di banda) e niente decodifica per byte.
             // Tutto il resto resta JSON.
             if (typeof e.data !== 'string') { handleBinaryFrame(e.data); return; }
+            let msg = null;
             try {
-                const msg = JSON.parse(e.data);
-                if (msg.type === 'auth_required') {
-                    // LAN con `lan_require_pin` acceso sul PC: il server chiede il PIN
-                    // come per il remoto. Di default non arriva mai.
-                    const pin = pinInput.value.trim() || loadPIN();
-                    if (!pin) {
-                        stopWithError('pin richiesto');
-                        pinInput.focus();
-                        return;
-                    }
-                    ws.send(JSON.stringify({ type: 'auth', pin }));
-                    setStatus('autenticazione...', 'warn');
-                    return;
-                } else if (msg.type === 'auth_ok') {
-                    _onAuthenticated(ip);
-                    return;
-                } else if (msg.type === 'auth_fail') {
-                    const rem = msg.remaining > 0 ? ` (${msg.remaining} tentativi rimasti)` : '';
-                    authGate.fail();
-                    stopWithError(`pin errato${rem}`);
-                    return;
-                } else if (msg.type === 'auth_blocked') {
-                    authGate.fail();
-                    stopWithError('bloccato — riprova tra 30 min');
-                    return;
-                } else if (msg.type === 'pong' && pingTimestamp > 0) {
-                    const rtt = Date.now() - pingTimestamp;
-                    setStatus(`connesso ${rtt}ms`, rtt < 50 ? 'ok' : rtt < 150 ? 'warn' : 'err');
-                } else if (msg.type === 'term_sessions') {
-                    termShells = parseShells(msg.shells);
-                    renderSessionPicker(msg.sessions);
-                } else if (msg.type === 'term_created') {
-                    termSessionId = msg.id;
-                    termSessionCmd = termPendingCmd || termShellChoice;
-                    termPendingCmd = '';
-                    attachSession(msg.id);
-                } else if (msg.type === 'term_closed') {
-                    // NB: qui siamo in una catena if/else dentro una funzione, non in un
-                    // loop: un `break` è SyntaxError e uccide l'intero script della pagina
-                    // (bug v2.2.x: client morto su "In attesa..." su tutti i browser)
-                    if (msg.id && msg.id !== termSessionId) return;
-                    document.getElementById('tab-terminal-dot').style.display = 'none';
-                    document.getElementById('terminal-active').classList.remove('visible');
-                    document.getElementById('session-picker').style.display = '';
-                    if (chiuseDaQui.delete(msg.id)) {
-                        // Chiusa con la ×: niente banner d'errore.
-                    } else {
-                        showTermError(`Sessione terminata (exit ${msg.exit_code})`);
-                    }
-                    termSessionId = null;
-                    attached = false;
-                    ws.send(JSON.stringify({type: 'term_list'}));
-                } else if (msg.type === 'term_error') {
-                    showTermError(msg.msg);
-                    if (msg.id && msg.id === termSessionId) {
-                        document.getElementById('terminal-active').classList.remove('visible');
-                        document.getElementById('session-picker').style.display = '';
-                        termSessionId = null;
-                        attached = false;
-                        ws.send(JSON.stringify({type: 'term_list'}));
-                    }
-                } else if (msg.type.startsWith('sftp_')) {
-                    handleFilesMessage(msg);
-                }
-            } catch (_) {}
+                msg = JSON.parse(e.data);
+                dispatchMessage(msg, conn);
+            } catch (err) {
+                // Un messaggio malformato o un gestore che lancia non devono
+                // fermare il socket, ma nemmeno sparire: prima il catch vuoto
+                // nascondeva anche gli errori di programmazione.
+                console.error('liquidmouse: messaggio non gestito',
+                              msg && msg.type, err);
+            }
         };
         ws.onerror = () => {
             clearTimeout(connectionTimeout);
