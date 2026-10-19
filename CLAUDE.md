@@ -17,7 +17,7 @@ liquidmouse/
   config.py              %APPDATA%/LiquidMouse/config.json, migra da LiquidControl
   events.py              log_message → sink registrati (la GUI è un sink)
   executors.py           pool di thread dedicati (read/write PTY, SFTP, rete): mai run_in_executor(None)
-  paths.py, ports.py     percorsi degli asset (anche nel bundle), porte 8000/8765/8443/8766/8767
+  paths.py, ports.py     percorsi degli asset (anche nel bundle), porte 8000/8765/8443/8767
   net/                   server.py (servizi), protocol.py (messaggi), static.py (whitelist
                          asset), frames.py (frame binari), upnp.py, tunnel.py
                          (cloudflared), addresses.py, sftp.py (file manager: profili, paramiko,
@@ -115,10 +115,10 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 ## 7. Decisioni
 - Accesso remoto: UPnP se apre la porta, altrimenti tunnel Cloudflare (quick tunnel, senza
   account; Tailscale rimosso in 2.4.0 perché voleva l'app sul telefono). Porta unica 8443
-  per pagina e WSS. Una sola decisione in `NetworkServices._refresh_remote` (avvio e
+  per pagina e WSS (la vecchia 8766, WSS dedicato pre-porta-unica, è stata rimossa). Una sola decisione in `NetworkServices._refresh_remote` (avvio e
   keepalive): UPnP riuscito ferma il tunnel.
   Ordine d'avvio (`start_websocket_server`): prima 8765 (LAN) e origine del tunnel, poi il
-  certificato (executor, la RSA può durare secondi) e 8443/8766, infine `_refresh_remote`.
+  certificato (executor, la RSA può durare secondi) e 8443, infine `_refresh_remote`.
   Il keepalive (ogni 30 s, `IP_CHECK_SECS`) rivaluta `get_local_ip()` tramite `ip_provider`:
   se cambia rifà il mapping UPnP, ricarica il certificato (stesso `SSLContext`, i server lo
   tengono) e chiama `on_local_ip_change` (la GUI ridisegna QR e indirizzo con

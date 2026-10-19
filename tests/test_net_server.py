@@ -3,7 +3,7 @@ decisione del remote_mode.
 
 UPnP e TLS sono indipendenti (vengono risolti da due oggetti diversi, iniettati
 separatamente): se UPnP apre la porta ma il certificato non è disponibile
-(manca `cryptography`, o la generazione fallisce), i server HTTPS_PORT/WSS_PORT
+(manca `cryptography`, o la generazione fallisce), il server HTTPS_PORT
 non vengono nemmeno aggiunti alla lista `servers` più sotto. Dichiarare
 comunque il remoto attivo sarebbe un falso positivo — un QR che punta a una
 porta chiusa, il rovescio del sintomo "remoto non disponibile".
@@ -270,7 +270,7 @@ class _CatturaServe:
 
 
 class TestOriginDeiWebSocket:
-    def test_tutti_e_quattro_i_serve_filtrano_l_origin(self, monkeypatch):
+    def test_tutti_e_tre_i_serve_filtrano_l_origin(self, monkeypatch):
         cattura = _CatturaServe()
         monkeypatch.setattr(server_mod.websockets, "serve", cattura)
         services = NetworkServices(
@@ -278,7 +278,7 @@ class TestOriginDeiWebSocket:
             static=None, tls=_FakeTls(object()), upnp=_FakeUpnp(None),
             local_ip="192.168.1.10", tunnel=_FakeTunnel())
         asyncio.run(_avvia_e_ferma(services))
-        assert len(cattura.chiamate) == 4
+        assert len(cattura.chiamate) == 3
         for k in cattura.chiamate:
             assert k["origins"] is server_mod.ALLOWED_ORIGINS
             # Niente permessage-deflate: latenza inutile su messaggi minuscoli.
@@ -384,9 +384,10 @@ class TestAvvioServer:
             static=None, tls=_FakeTls(object()), upnp=_FakeUpnp(None),
             local_ip="192.168.1.10")
         asyncio.run(_avvia_e_ferma(services))
-        # La 8765 (LAN) e la 8766 (WSS legacy) restano attive.
+        # La 8765 (LAN) resta attiva anche se la 8443 non parte.
         assert PORT in serve.entrati
-        assert len(serve.entrati) == 2
+        assert HTTPS_PORT not in serve.entrati
+        assert len(serve.entrati) == 1
         # Nessuna è stata chiusa prima dello stop: solo allo scadere del test.
         assert sorted(serve.usciti) == sorted(serve.entrati)
 

@@ -20,7 +20,7 @@ import urllib.request
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 HOST = "127.0.0.1"
-HTTP_PORT, HTTPS_PORT, WS_PORT, WSS_PORT = 8000, 8443, 8765, 8766
+HTTP_PORT, HTTPS_PORT, WS_PORT = 8000, 8443, 8765
 
 _ssl_noverify = ssl.create_default_context()
 _ssl_noverify.check_hostname = False
@@ -34,7 +34,7 @@ def check(name, ok, detail=""):
 
 def test_ports():
     print("\n[1/4] Porte in ascolto")
-    for port in (HTTP_PORT, HTTPS_PORT, WS_PORT, WSS_PORT):
+    for port in (HTTP_PORT, HTTPS_PORT, WS_PORT):
         s = socket.socket()
         s.settimeout(3)
         try:
@@ -98,8 +98,7 @@ async def _ws_ping(url, ssl_ctx=None):
 def test_ws():
     print("\n[3/4] Canale comandi (ping→pong)")
     for url, ctx, label in ((f"ws://{HOST}:{WS_PORT}", None, "WS 8765"),
-                            (f"wss://{HOST}:{HTTPS_PORT}", _ssl_noverify, "WSS 8443 (porta unica)"),
-                            (f"wss://{HOST}:{WSS_PORT}", _ssl_noverify, "WSS 8766 (legacy)")):
+                            (f"wss://{HOST}:{HTTPS_PORT}", _ssl_noverify, "WSS 8443 (porta unica)")):
         try:
             check(label, asyncio.run(_ws_ping(url, ctx)))
         except Exception as e:

@@ -46,7 +46,7 @@ class SelfSignedCert:
             cert_pem, key_pem = self._materiale(local_ip)
             return self._build_context(cert_pem, key_pem)
         except ImportError:
-            # Senza cryptography niente 8443/8766. Va detto: il sintomo
+            # Senza cryptography niente 8443. Va detto: il sintomo
             # altrimenti e' solo un client remoto fermo su "IN ATTESA".
             log_message("TLS non disponibile: manca 'cryptography'", color=COLOR_ERROR)
             return None

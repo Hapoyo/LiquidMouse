@@ -196,7 +196,7 @@ class _Serve:
 
 class TestAvvioLanPrima:
     def test_le_porte_lan_si_aprono_prima_di_tls_e_upnp(self, monkeypatch):
-        from liquidmouse.ports import HTTPS_PORT, PORT, WSS_PORT
+        from liquidmouse.ports import HTTPS_PORT, PORT
         eventi = []
         monkeypatch.setattr(server_mod.websockets, "serve", _Serve(eventi))
         s = NetworkServices(config={}, auth_guard=None, trusted_peer=None, sessions=None,
@@ -214,7 +214,7 @@ class TestAvvioLanPrima:
         assert ordine[0] == ("serve", PORT)            # il touchpad LAN per primo
         assert ordine.index(("serve", PORT)) < ordine.index(("tls", "192.168.1.10"))
         assert ordine.index(("tls", "192.168.1.10")) < ordine.index(("serve", HTTPS_PORT))
-        assert ordine.index(("serve", WSS_PORT)) < ordine.index(("upnp", "192.168.1.10"))
+        assert ordine.index(("serve", HTTPS_PORT)) <ordine.index(("upnp", "192.168.1.10"))
         assert s.remote_mode == "upnp"
 
     def test_senza_server_avviati_non_parte_il_remoto(self, monkeypatch):

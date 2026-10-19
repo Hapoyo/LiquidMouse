@@ -7,6 +7,9 @@ published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its
 
 Security and robustness pass from a full code review, plus follow-ups.
 
+- **Legacy WSS port 8766 removed** — the dedicated WSS server for clients that predate the
+  single remote port is gone: the page and the command channel have shared `8443` for a long
+  time and the client never used `8766`. One fewer port to bind and nothing to forward.
 - **WebSocket Origin check** — the four WebSocket servers now refuse browser handshakes whose
   `Origin` is not localhost, a numeric LAN/WAN IP or `*.trycloudflare.com`. A web page open on
   the PC or on the phone can no longer drive the loopback session (terminal, keyboard, SFTP),
