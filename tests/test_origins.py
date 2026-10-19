@@ -223,3 +223,39 @@ class TestGuarded:
             raise AssertionError("inner non va chiamato per gli upgrade")
         req = _req("https://203.0.113.5:8443", "203.0.113.5:8443")
         assert _gate(s, "remote", _Conn("198.51.100.7"), req, inner) is None
+
+
+# --- header Server dei WebSocket -------------------------------------------
+
+from liquidmouse.net import server as server_mod
+
+
+def test_serve_kwargs_toglie_l_header_server():
+    k = server_mod._serve_kwargs()
+    assert "server_header" in k and k["server_header"] is None
+
+
+def test_handshake_e_rifiuto_senza_header_server():
+    from websockets.asyncio.client import connect
+    from websockets.asyncio.server import serve
+    from websockets.exceptions import InvalidStatus
+
+    async def scenario():
+        async def handler(ws):
+            await ws.close()
+        s = _services()
+        async with serve(handler, "127.0.0.1", 0, process_request=s._guarded("lan"),
+                         **server_mod._serve_kwargs()) as srv:
+            porta = srv.sockets[0].getsockname()[1]
+            async with connect(f"ws://127.0.0.1:{porta}") as ws:
+                ok = ws.response.headers
+            try:
+                async with connect(f"ws://127.0.0.1:{porta}",
+                                   additional_headers={"Origin": "http://evil.example"}):
+                    rifiutata = None
+            except InvalidStatus as e:
+                rifiutata = e.response.headers
+            return ok, rifiutata
+    ok, rifiutata = asyncio.run(scenario())
+    assert "Server" not in ok
+    assert rifiutata is not None and "Server" not in rifiutata

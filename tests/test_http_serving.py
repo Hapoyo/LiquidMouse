@@ -148,3 +148,18 @@ class TestTimeout:
                 assert dati == b"" or dati.startswith(b"HTTP/1.")
         finally:
             srv.shutdown()
+
+
+class TestIntestazioneServer:
+    """L'header Server non deve dire quale Python gira sul PC."""
+
+    def test_la_risposta_non_espone_python(self, base_url):
+        _, headers, _ = _get(base_url, "/")
+        assert headers["Server"] == "LiquidMouse"
+        assert "Python" not in str(headers) and "BaseHTTP" not in str(headers)
+
+    def test_nemmeno_le_pagine_d_errore(self, base_url):
+        stato, headers, corpo = _get(base_url, "/non-esiste")
+        assert stato == 404
+        assert headers["Server"] == "LiquidMouse"
+        assert b"Python" not in corpo

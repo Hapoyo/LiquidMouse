@@ -283,6 +283,8 @@ class TestOriginDeiWebSocket:
             # Il filtro è un process_request dinamico, non una lista statica.
             assert callable(k["process_request"])
             assert "origins" not in k
+            # Niente "Python/x websockets/y" nelle risposte.
+            assert k["server_header"] is None
             # Niente permessage-deflate: latenza inutile su messaggi minuscoli.
             assert k["compression"] is None
 

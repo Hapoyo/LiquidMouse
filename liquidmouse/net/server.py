@@ -60,18 +60,25 @@ LAN_PREAUTH_MAX = 50
 # Cloudflare (in pratica solo un processo locale).
 TUNNEL_GUARD_KEY = "tunnel"
 
+# Intestazione Server delle risposte HTTP: di default "BaseHTTP/0.6 Python/3.x"
+# sulla 8000 e "Python/3.x websockets/y" sul WebSocket, cioè le versioni di
+# interprete e libreria a chiunque guardi (la 8443 è raggiungibile da internet).
+SERVER_BANNER = "LiquidMouse"
+
+
 def _serve_kwargs(**extra) -> dict:
     """Argomenti comuni a ogni `websockets.serve`, in un posto solo.
 
     `compression=None` disattiva permessage-deflate: i messaggi del touchpad
     sono di pochi byte (la compressione non fa guadagnare nulla e aggiunge
     latenza e CPU per ogni mossa) e l'output del terminale viaggia in frame
-    binari già densi. Il controllo di Origin/Host non è qui ma in
+    binari già densi. `server_header=None` toglie l'header Server di websockets.
+    Il controllo di Origin/Host non è qui ma in
     `NetworkServices._guarded` (dipende dallo stato corrente: IP LAN, IP
     esterno, tunnel).
     """
     return dict(ping_interval=WS_PING_INTERVAL, ping_timeout=WS_PING_TIMEOUT,
-                compression=None, **extra)
+                compression=None, server_header=None, **extra)
 
 
 def tunnel_client_ip(headers) -> str:
@@ -125,6 +132,14 @@ def make_http_handler(static, sftp=None, transfers=None):
     class _StaticHTTPHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         timeout = HTTP_TIMEOUT_SECS
+
+        server_version = SERVER_BANNER
+        sys_version = ""
+
+        def version_string(self):
+            # Niente versione di Python: vedi SERVER_BANNER. Vale anche per
+            # le pagine d'errore di send_error.
+            return SERVER_BANNER
 
         def do_GET(self):
             if urlsplit(self.path).path == SFTP_DOWNLOAD_PATH:

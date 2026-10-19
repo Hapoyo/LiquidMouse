@@ -173,6 +173,21 @@ double-click a row to open that session in a window on the PC.
   SHA-256 hash; 5 wrong attempts block the address for 30 minutes. Behind the tunnel every
   client arrives from loopback, so the PIN is always required and the lockout uses the real
   client IP (`CF-Connecting-IP`). The phone never retries a wrong PIN on its own.
+- **Cloudflare tunnel** — Cloudflare terminates the TLS connection, so it can see the whole
+  traffic between phone and PC, PIN and terminal included. Use the tunnel only if you accept
+  that; UPnP keeps the TLS connection end to end between the phone and your PC.
+- **Plain `ws://` on port 8765** — the LAN channel is unencrypted and listens on every
+  interface. A device with an address in `100.64.0.0/10` (an ISP's shared NAT, or a VPN) is
+  treated as remote and must give the PIN, but that PIN travels in the clear on this port.
+  Never forward 8765 on the router; for anything beyond your own Wi-Fi use the HTTPS port
+  8443 or the tunnel.
+- **Browser pages** — a WebSocket handshake is accepted only if its `Origin` and `Host` are the
+  ones this PC serves (loopback, the current LAN address, the external address or the current
+  tunnel address); a page opened from another site cannot drive your PC through the browser.
+- **Fingerprint** — HTTP and WebSocket answers do not report the Python or library versions,
+  and the self-signed certificate has a generic name (`localhost`) with the LAN address as
+  subject alternative name (the external address is left out on purpose: it changes with the
+  line and would force a new certificate every time).
 - **Files** — the HTTP servers answer only for the files in an explicit whitelist; any other
   path is a 404.
 - **Terminal** — only whitelisted shells can be started; every value coming from the phone

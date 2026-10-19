@@ -62,6 +62,15 @@ Security and robustness pass from a full code review, plus follow-ups.
   `cloudflared.exe` running with the public address open; at start-up any leftover
   `cloudflared.exe` whose path is exactly our `%APPDATA%/LiquidMouse/bin` copy is terminated
   (one in the `PATH` or started by something else is never touched).
+- **Less fingerprint** — the HTTP server on 8000 and every WebSocket server no longer send
+  `Server: BaseHTTP/0.6 Python/3.x` / `Python/3.x websockets/y` (the 8443 port is reachable from
+  the internet). The self-signed certificate now has the generic common name `localhost` instead
+  of `LiquidMouse`; the LAN address stays in the subject alternative name. Certificates made by
+  older versions are replaced once, so browsers and phones ask to accept the warning one more
+  time. The external IP is deliberately not added to the certificate (it changes with the
+  line, which would mean a new RSA key and a new warning every time). The README now warns that
+  Cloudflare terminates TLS (it sees the PIN and the traffic) and that `ws://` 8765 is plain text
+  even for addresses in `100.64.0.0/10`.
 - **Tray: "Rigenera PIN"** — generates a new PIN, stores it encrypted (DPAPI), closes every
   non-loopback connection that was authenticated with the old one and redraws the QR codes; the
   old QR stops working.
