@@ -75,6 +75,18 @@ ALLOWED_ORIGINS = [
 ]
 
 
+def _serve_kwargs(**extra) -> dict:
+    """Argomenti comuni a ogni `websockets.serve`, in un posto solo.
+
+    `compression=None` disattiva permessage-deflate: i messaggi del touchpad
+    sono di pochi byte (la compressione non fa guadagnare nulla e aggiunge
+    latenza e CPU per ogni mossa) e l'output del terminale viaggia in frame
+    binari già densi.
+    """
+    return dict(ping_interval=WS_PING_INTERVAL, ping_timeout=WS_PING_TIMEOUT,
+                origins=ALLOWED_ORIGINS, compression=None, **extra)
+
+
 def tunnel_client_ip(headers) -> str:
     """IP del client dietro il tunnel, dall'header che mette Cloudflare.
 
@@ -661,19 +673,15 @@ class NetworkServices:
                 # prima e tenevano il telefono su "in attesa".
                 lan = [
                     (PORT, websockets.serve(self.handler, "0.0.0.0", PORT,
-                                            ping_interval=WS_PING_INTERVAL,
-                                            ping_timeout=WS_PING_TIMEOUT,
-                                            origins=ALLOWED_ORIGINS)),
+                                            **_serve_kwargs())),
                 ]
                 if self.tunnel is not None:
                     # Origine del tunnel: solo loopback, pagina + WS insieme come
                     # la 8443. Il TLS lo termina Cloudflare, qui arriva in chiaro.
                     lan.append((TUNNEL_PORT,
                         websockets.serve(self._tunnel_handler, "127.0.0.1", TUNNEL_PORT,
-                                         ping_interval=WS_PING_INTERVAL,
-                                         ping_timeout=WS_PING_TIMEOUT,
-                                         origins=ALLOWED_ORIGINS,
-                                         process_request=self.https_process_request)))
+                                         **_serve_kwargs(
+                                             process_request=self.https_process_request))))
                 avviati += await avvia(lan)
 
                 # 2. Certificato (fuori dall'event loop) e server HTTPS/WSS.
@@ -683,16 +691,12 @@ class NetworkServices:
                     # Porta unica remota: pagina + WSS su HTTPS_PORT.
                     remoti = [(HTTPS_PORT,
                         websockets.serve(self.handler, "0.0.0.0", HTTPS_PORT, ssl=ssl_ctx,
-                                         ping_interval=WS_PING_INTERVAL,
-                                         ping_timeout=WS_PING_TIMEOUT,
-                                         origins=ALLOWED_ORIGINS,
-                                         process_request=self.https_process_request)),
+                                         **_serve_kwargs(
+                                             process_request=self.https_process_request))),
                         # Legacy: WSS dedicato per client pre-porta-unica ancora in giro.
                         (WSS_PORT,
                         websockets.serve(self.handler, "0.0.0.0", WSS_PORT, ssl=ssl_ctx,
-                                         ping_interval=WS_PING_INTERVAL,
-                                         ping_timeout=WS_PING_TIMEOUT,
-                                         origins=ALLOWED_ORIGINS))]
+                                         **_serve_kwargs()))]
                     avviati += await avvia(remoti)
 
                 if avviati:

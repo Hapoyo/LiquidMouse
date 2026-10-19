@@ -281,6 +281,8 @@ class TestOriginDeiWebSocket:
         assert len(cattura.chiamate) == 4
         for k in cattura.chiamate:
             assert k["origins"] is server_mod.ALLOWED_ORIGINS
+            # Niente permessage-deflate: latenza inutile su messaggi minuscoli.
+            assert k["compression"] is None
 
     async def _tenta(self, origin):
         """Handshake reale su loopback con l'Origin dato. Ritorna lo status
