@@ -294,7 +294,7 @@
         // Map e non oggetto: un `type` come "constructor" non deve trovare i
         // membri di Object.prototype.
         const handler = HANDLERS.get(msg.type);
-        if (handler) {
+        if (typeof handler === 'function') {
             handler(msg, conn);
         } else if (msg.type.startsWith('sftp_')) {
             handleFilesMessage(msg);
