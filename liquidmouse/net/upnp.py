@@ -36,8 +36,9 @@ MAPPING_DESC = 'LiquidMouse'
 # doppio del keepalive (lo controlla test_upnp.py).
 LEASE_SECS = 1800
 # Il parametro leaseDuration di miniupnpc.UPnP.addportmapping (7º argomento
-# posizionale, intero senza segno) esiste dalla 2.2.8 (verificato sul sorgente
-# di 2.2.8 e 2.3.3: formato "HssHzz|I"); requirements.txt chiede >= 2.2.8.
+# posizionale, intero senza segno) è presente in 2.2.8 e 2.3.3 (verificato sul
+# sorgente di entrambe: formato "HssHzz|I"; la 2.2.0 non si è potuta scaricare e
+# non è verificata). requirements.txt chiede >= 2.2.8.
 
 
 # Reti che, come IP "esterno" del router, indicano un altro NAT a monte.

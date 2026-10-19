@@ -147,7 +147,7 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
   pagina. Mapping UPnP con lease `LEASE_SECS` (1800 s, ≥ 2× il keepalive di 600 s) rinnovata da
   ogni `setup_sync`; 725 = lease 0 di ripiego. Al primo setup si tolgono i residui con la
   descrizione `LiquidMouse` su tutte le `EXTERNAL_PORTS`; in conflitto conta solo la descrizione.
-  `addportmapping(ext, proto, host, int, desc, remote, leaseDuration)` esiste da miniupnpc 2.2.8. IP esterno del router privato/CGNAT = errore esplicito, niente QR UPnP.
+  `addportmapping(ext, proto, host, int, desc, remote, leaseDuration)`: argomento presente in miniupnpc 2.2.8 e 2.3.3 (sorgente verificato). IP esterno del router privato/CGNAT = errore esplicito, niente QR UPnP.
 - Tastiera del telefono: il body segue `visualViewport` (`--vv-h`, `--vv-top`) invece di
   100dvh; `kbd-open` sul body nasconde linguette e intestazione del terminale.
 - LAN con PIN di default (CAMBIO DI COMPORTAMENTO, 2.9.x Unreleased): prima il default era la
