@@ -237,7 +237,7 @@
     // Tabella e non catena di if/else: aggiungere un tipo è una riga, e non c'è
     // più un blocco in cui un `break` fuori posto (SyntaxError, bug v2.2.x:
     // client morto su "In attesa...") possa uccidere l'intero script.
-    const HANDLERS = {
+    const HANDLERS = new Map(Object.entries({
         auth_required: () => sendAuth(),
         auth_ok: (msg, conn) => onAuthenticated(conn),
         auth_fail: (msg) => {
@@ -287,15 +287,14 @@
                 ws.send(JSON.stringify({type: 'term_list'}));
             }
         },
-    };
+    }));
 
     function dispatchMessage(msg, conn) {
         if (!msg || typeof msg.type !== 'string') throw new Error('messaggio senza tipo');
-        // hasOwnProperty: un `type` come "constructor" non deve trovare i
+        // Map e non oggetto: un `type` come "constructor" non deve trovare i
         // membri di Object.prototype.
-        const handler = Object.prototype.hasOwnProperty.call(HANDLERS, msg.type)
-            ? HANDLERS[msg.type] : null;
-        if (typeof handler === 'function') {
+        const handler = HANDLERS.get(msg.type);
+        if (handler) {
             handler(msg, conn);
         } else if (msg.type.startsWith('sftp_')) {
             handleFilesMessage(msg);

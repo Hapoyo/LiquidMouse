@@ -69,7 +69,7 @@ const handleFilesMessage = (m) => log.push('files:' + m.type);
     def _esegui(self, corpo: str):
         js = _js()
         # Dalla tabella alla fine di dispatchMessage (che precede connectServer).
-        i = js.index("const HANDLERS = {")
+        i = js.index("const HANDLERS = new Map(")
         j = js.index("function connectServer")
         codice = self.PROLOGO + js[i:j] + corpo + "\nprocess.stdout.write(JSON.stringify(log));\n"
         out = subprocess.run(["node", "-e", codice], capture_output=True, text=True, timeout=30)
