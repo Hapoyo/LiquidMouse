@@ -51,6 +51,12 @@ Security and robustness pass from a full code review, plus follow-ups.
   the PC. Existing configs without the key switch to the new default (an explicit choice is
   kept); phones that already stored the PIN reconnect as before, new ones get the PIN prompt.
   To restore the old first-come behaviour, untick **PIN anche dalla LAN** in the tray menu.
+- **UPnP: timed lease, stale cleanup, other apps' forwards left alone** — the router mapping
+  now has a 1800 s lease that the 10-minute keepalive renews, so a crash or a power cut no longer
+  leaves port 8443 open until the router reboots (falls back to a permanent mapping if the router
+  answers error 725). At start-up a leftover mapping carrying our description (`LiquidMouse`) is
+  removed, and on a port conflict only the description is compared, so another app's forward on
+  the same PC is never deleted. Needs `miniupnpc` >= 2.2.8 (`leaseDuration` argument).
 - **Tray: "Rigenera PIN"** — generates a new PIN, stores it encrypted (DPAPI), closes every
   non-loopback connection that was authenticated with the old one and redraws the QR codes; the
   old QR stops working.

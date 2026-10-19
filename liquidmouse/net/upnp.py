@@ -28,6 +28,17 @@ EXTERNAL_PORTS = (8443, 9443, 10443, 18443, 28443, 38443)
 
 MAPPING_DESC = 'LiquidMouse'
 
+# Durata del mapping chiesta al router. Con lease 0 (permanente) un crash, un
+# kill o uno spegnimento brusco lasciavano la 8443 aperta verso il PC fino al
+# riavvio del router. Con una lease finita il router la chiude da solo; il
+# keepalive (UPNP_KEEPALIVE_SECS in net/server.py, 600 s) rifà `setup_sync` e
+# quindi rinnova la lease molto prima della scadenza. Deve restare almeno il
+# doppio del keepalive (lo controlla test_upnp.py).
+LEASE_SECS = 1800
+# Il parametro leaseDuration di miniupnpc.UPnP.addportmapping (7º argomento
+# posizionale, intero senza segno) esiste dalla 2.2.8 (verificato sul sorgente
+# di 2.2.8 e 2.3.3: formato "HssHzz|I"); requirements.txt chiede >= 2.2.8.
+
 
 # Reti che, come IP "esterno" del router, indicano un altro NAT a monte.
 # Elenco esplicito e non `is_global`: interessa solo il NAT, e `is_global`
@@ -37,6 +48,15 @@ _NAT_NETS = tuple(ipaddress.ip_network(n) for n in (
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",   # LAN (RFC 1918)
     "169.254.0.0/16", "127.0.0.0/8",
 )) + (_CGNAT_NET,)
+
+
+def _solo_lease_permanenti(errore: Exception) -> bool:
+    """True se l'eccezione di miniupnpc è l'errore UPnP 725.
+
+    miniupnpc solleva `Exception(strupnperror(codice))`: il testo è il nome
+    dell'errore (upnperrors.c), non il numero."""
+    testo = str(errore)
+    return "OnlyPermanentLeasesSupported" in testo or "725" in testo
 
 
 def _is_public_ip(ip: str) -> bool:
@@ -63,6 +83,12 @@ class UpnpMapper:
         self._upnp = None
         self.external_port: int | None = None
         self._atexit_registered = False
+        # Vero dopo il primo 725 (OnlyPermanentLeasesSupported): il router non
+        # accetta lease finite, quindi si chiede subito 0 senza riprovare ogni
+        # volta il tentativo che fallirebbe.
+        self._solo_permanenti = False
+        # I residui di un avvio precedente si cercano una volta per processo.
+        self._residui_controllati = False
         self.external_ip: str | None = None
         # Motivo dell'ultimo fallimento, per il log. Prima ogni causa (libreria
         # assente, nessun router trovato, IP esterno non valido, mapping
@@ -79,11 +105,54 @@ class UpnpMapper:
             porte.insert(0, self.external_port)
         return porte
 
+    def _add(self, u, ext_port: int, local_ip: str) -> None:
+        """addportmapping con lease finita, con ripiego a 0 se il router risponde 725.
+
+        Alcuni router (UPnP IGD v1 economici) rifiutano ogni lease diversa da 0
+        con "OnlyPermanentLeasesSupported": meglio un mapping permanente (che
+        `cleanup` e la pulizia d'avvio rimuovono) che nessun remoto.
+        """
+        durata = 0 if self._solo_permanenti else LEASE_SECS
+        try:
+            u.addportmapping(ext_port, 'TCP', local_ip, self._internal_port,
+                             MAPPING_DESC, '', durata)
+        except Exception as e:
+            if not durata or not _solo_lease_permanenti(e):
+                raise
+            self._solo_permanenti = True
+            log_message("UPnP: il router accetta solo mapping permanenti, uso lease 0",
+                        color=COLOR_MUTED)
+            u.addportmapping(ext_port, 'TCP', local_ip, self._internal_port,
+                             MAPPING_DESC, '', 0)
+
+    def _rimuovi_residui(self, u) -> None:
+        """Toglie i mapping con la nostra descrizione rimasti da un avvio che non
+        è passato da `cleanup` (crash, kill, lease permanente di un router che
+        non accettava lease finite).
+
+        Si guardano tutte le porte di EXTERNAL_PORTS, non solo quella che si sta
+        per mappare: un residuo sulla 9443 non darebbe mai conflitto con la
+        8443 ma resterebbe aperto. Solo la descrizione conta: un forward di
+        un'altra app non si tocca.
+        """
+        for porta in self._external_ports:
+            try:
+                voce = u.getspecificportmapping(porta, 'TCP')
+            except Exception:
+                continue
+            if not voce or voce[2] != MAPPING_DESC:
+                continue
+            try:
+                u.deleteportmapping(porta, 'TCP')
+                log_message(f"UPnP: tolto un mapping residuo sulla porta {porta}",
+                            color=COLOR_MUTED)
+            except Exception:
+                pass
+
     def _try_map(self, u, ext_port: int, local_ip: str) -> str | None:
         """Mappa `ext_port` → porta interna. None se riuscito, altrimenti il motivo."""
         try:
-            u.addportmapping(ext_port, 'TCP', local_ip, self._internal_port,
-                             MAPPING_DESC, '')
+            self._add(u, ext_port, local_ip)
             return None
         except Exception as e:
             errore = str(e) or type(e).__name__
@@ -99,12 +168,14 @@ class UpnpMapper:
         if not esistente:
             return errore
         host, _porta_int, desc = esistente[0], esistente[1], esistente[2]
-        if host != local_ip and desc != MAPPING_DESC:
+        # Conta solo la descrizione: confrontare anche l'host faceva cancellare
+        # il forward di un'altra app sullo stesso PC (stesso IP, altra
+        # descrizione), che sulla stessa macchina è un caso reale.
+        if desc != MAPPING_DESC:
             return f"occupata da {host}"
         try:
             u.deleteportmapping(ext_port, 'TCP')
-            u.addportmapping(ext_port, 'TCP', local_ip, self._internal_port,
-                             MAPPING_DESC, '')
+            self._add(u, ext_port, local_ip)
             return None
         except Exception as e:
             return str(e) or type(e).__name__
@@ -157,6 +228,9 @@ class UpnpMapper:
                 else:
                     self.last_error = f"doppio nat, modem a monte ({ext_ip})"
                 return None
+            if not self._residui_controllati:
+                self._rimuovi_residui(u)
+                self._residui_controllati = True
             fallite = []
             scelta = None
             for porta in self._candidate_ports():
