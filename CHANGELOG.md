@@ -30,6 +30,12 @@ Security and robustness pass from a full code review, plus follow-ups.
   the PC or on the phone can no longer drive the loopback session (terminal, keyboard, SFTP),
   and DNS rebinding with an arbitrary hostname is rejected. Clients without an `Origin`
   (smoke test, desktop terminal window) are unaffected.
+- **Origin check per connection type** — the static regex (any numeric IP, any
+  `*.trycloudflare.com`) is replaced by a check done on every handshake, on both `Origin` and
+  `Host`: a loopback peer accepts only `localhost`/`127.0.0.1`; a LAN peer only the PC's current
+  LAN IP (read each time, it changes with the network); port 8443 only the external IP and the
+  current tunnel address; the tunnel port only the current tunnel address. A page on a stray IP,
+  on another `trycloudflare.com` tunnel or on `localhost.evil.com` is refused with 403.
 - **SFTP password no longer follows a changed host** — saving a profile with a different host,
   port or user and an empty password now drops the stored password instead of keeping it, so a
   client could not make the PC send it to another server.

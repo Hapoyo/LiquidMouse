@@ -14,7 +14,6 @@ import asyncio
 import contextlib
 import ipaddress
 import json
-import re
 import threading
 from http import HTTPStatus
 from urllib.parse import parse_qs, quote, urlsplit
@@ -27,6 +26,7 @@ from websockets.http11 import Response
 from liquidmouse.events import log_message
 from liquidmouse.executors import NET, SFTP
 from liquidmouse.net.addresses import is_loopback, is_private_ip
+from liquidmouse.net.origins import LAN, REMOTE, TUNNEL, origin_allowed
 from liquidmouse.net.protocol import ClientConnection, dispatch
 from liquidmouse.net.sftp import CHUNK, SftpError
 from liquidmouse.net.static import SECURITY_HEADERS
@@ -59,32 +59,18 @@ LAN_PREAUTH_MAX = 50
 # Cloudflare (in pratica solo un processo locale).
 TUNNEL_GUARD_KEY = "tunnel"
 
-# Origin ammessi nell'handshake WebSocket. Un browser manda sempre l'Origin
-# della pagina che apre il socket: senza filtro, una pagina qualunque aperta
-# sul telefono o sul PC (anche su internet) potrebbe collegarsi a ws://<ip>:8765
-# e, dal loopback o dalla LAN, essere trattata come client fidato. Valgono solo
-# le pagine servite da noi: localhost/127.0.0.1 (finestra terminale sul PC), un
-# IPv4 numerico (LAN e IP pubblico UPnP) e il tunnel. Hostname arbitrari no:
-# sono la via del DNS rebinding. None = client non browser (nessun header, come
-# test_server.py), che non è un vettore di attacco da pagina web.
-_ORIGIN_HOST = (r"(?:localhost|\d{1,3}(?:\.\d{1,3}){3}"
-                r"|[a-z0-9-]+\.trycloudflare\.com)")
-ALLOWED_ORIGINS = [
-    None,
-    re.compile(rf"https?://{_ORIGIN_HOST}(?::\d{{1,5}})?", re.IGNORECASE),
-]
-
-
 def _serve_kwargs(**extra) -> dict:
     """Argomenti comuni a ogni `websockets.serve`, in un posto solo.
 
     `compression=None` disattiva permessage-deflate: i messaggi del touchpad
     sono di pochi byte (la compressione non fa guadagnare nulla e aggiunge
     latenza e CPU per ogni mossa) e l'output del terminale viaggia in frame
-    binari già densi.
+    binari già densi. Il controllo di Origin/Host non è qui ma in
+    `NetworkServices._guarded` (dipende dallo stato corrente: IP LAN, IP
+    esterno, tunnel).
     """
     return dict(ping_interval=WS_PING_INTERVAL, ping_timeout=WS_PING_TIMEOUT,
-                origins=ALLOWED_ORIGINS, compression=None, **extra)
+                compression=None, **extra)
 
 
 def tunnel_client_ip(headers) -> str:
@@ -428,6 +414,41 @@ class NetworkServices:
             if scartati > LAN_PREAUTH_MAX:
                 raise ValueError("troppi messaggi prima dell'auth")
 
+    # --- Origin dell'handshake -------------------------------------------
+
+    def _tunnel_host(self) -> str | None:
+        url = self.tunnel_url
+        return (urlsplit(url).hostname or "").lower() or None if url else None
+
+    def _guarded(self, kind: str, inner=None):
+        """`process_request` che filtra Origin e Host delle sole richieste di
+        upgrade, poi passa a `inner` (le pagine servite sulla stessa porta).
+
+        Gli host ammessi si leggono qui, a ogni handshake: l'IP LAN, l'IP
+        esterno e l'indirizzo del tunnel cambiano mentre il server gira.
+        """
+        async def process_request(connection, request):
+            if request.headers.get("Upgrade", ""):
+                peer = getattr(connection, "remote_address", None) or ("", 0)
+                locale = getattr(connection, "local_address", None) or ("", 0)
+                # Il peer in LAN può aver raggiunto un'altra interfaccia del PC
+                # (scheda doppia, hotspot): l'indirizzo a cui si è collegato è
+                # per forza nostro, quindi vale come host della nostra pagina.
+                ips = (self.local_ip, locale[0] if kind == LAN else None)
+                if not origin_allowed(
+                        kind, peer[0], request.headers.get("Origin"),
+                        request.headers.get("Host"), local_ips=ips,
+                        external_ip=self.external_ip,
+                        tunnel_host=self._tunnel_host()):
+                    log_message(f"Origin rifiutato da {peer[0]}: "
+                                f"{request.headers.get('Origin')!r}", color=COLOR_ERROR)
+                    return connection.respond(HTTPStatus.FORBIDDEN, "Forbidden\n")
+                return None
+            if inner is not None:
+                return await inner(connection, request)
+            return None
+        return process_request
+
     # --- WebSocket --------------------------------------------------------
 
     async def handler(self, websocket, *, via_tunnel: bool = False):
@@ -673,7 +694,8 @@ class NetworkServices:
                 # prima e tenevano il telefono su "in attesa".
                 lan = [
                     (PORT, websockets.serve(self.handler, "0.0.0.0", PORT,
-                                            **_serve_kwargs())),
+                                            **_serve_kwargs(
+                                                process_request=self._guarded(LAN)))),
                 ]
                 if self.tunnel is not None:
                     # Origine del tunnel: solo loopback, pagina + WS insieme come
@@ -681,7 +703,8 @@ class NetworkServices:
                     lan.append((TUNNEL_PORT,
                         websockets.serve(self._tunnel_handler, "127.0.0.1", TUNNEL_PORT,
                                          **_serve_kwargs(
-                                             process_request=self.https_process_request))))
+                                             process_request=self._guarded(
+                                                 TUNNEL, self.https_process_request)))))
                 avviati += await avvia(lan)
 
                 # 2. Certificato (fuori dall'event loop) e server HTTPS/WSS.
@@ -692,7 +715,8 @@ class NetworkServices:
                     remoti = [(HTTPS_PORT,
                         websockets.serve(self.handler, "0.0.0.0", HTTPS_PORT, ssl=ssl_ctx,
                                          **_serve_kwargs(
-                                             process_request=self.https_process_request)))]
+                                             process_request=self._guarded(
+                                                 REMOTE, self.https_process_request))))]
                     avviati += await avvia(remoti)
 
                 if avviati:

@@ -55,6 +55,7 @@ jobs:
               "liquidmouse.input.win32",
               "liquidmouse.net.addresses",
               "liquidmouse.net.frames",
+              "liquidmouse.net.origins",
               "liquidmouse.net.protocol",
               "liquidmouse.net.server",
               "liquidmouse.net.sftp",

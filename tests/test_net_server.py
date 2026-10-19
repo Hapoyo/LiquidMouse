@@ -280,18 +280,24 @@ class TestOriginDeiWebSocket:
         asyncio.run(_avvia_e_ferma(services))
         assert len(cattura.chiamate) == 3
         for k in cattura.chiamate:
-            assert k["origins"] is server_mod.ALLOWED_ORIGINS
+            # Il filtro è un process_request dinamico, non una lista statica.
+            assert callable(k["process_request"])
+            assert "origins" not in k
             # Niente permessage-deflate: latenza inutile su messaggi minuscoli.
             assert k["compression"] is None
 
-    async def _tenta(self, origin):
+    async def _tenta(self, origin, host_ext=None):
         """Handshake reale su loopback con l'Origin dato. Ritorna lo status
         HTTP del rifiuto, o 101 se la connessione è stata accettata."""
         async def handler(ws):
             await ws.close()
 
+        services = NetworkServices(
+            config={}, auth_guard=None, trusted_peer=None, sessions=None,
+            static=None, tls=None, upnp=_FakeUpnp("203.0.113.5"),
+            local_ip="192.168.1.10")
         async with serve_reale(handler, "127.0.0.1", 0,
-                                    origins=server_mod.ALLOWED_ORIGINS) as srv:
+                               process_request=services._guarded("lan")) as srv:
             porta = srv.sockets[0].getsockname()[1]
             headers = {"Origin": origin} if origin is not None else {}
             try:
@@ -305,24 +311,22 @@ class TestOriginDeiWebSocket:
         None,                                  # client non browser (tools/test_server.py)
         "http://127.0.0.1:8000",               # finestra terminale sul PC
         "http://localhost:8000",
-        "http://192.168.1.10:8000",            # pagina in LAN
-        "https://203.0.113.5:8443",            # pagina remota via UPnP
-        "https://203.0.113.5",                 # porta opzionale
-        "https://a-b-c.trycloudflare.com",     # tunnel
     ])
-    def test_origin_ammessi(self, origin):
+    def test_loopback_ammette_solo_se_stesso(self, origin):
         assert asyncio.run(self._tenta(origin)) == 101
 
     @pytest.mark.parametrize("origin", [
+        "http://192.168.1.10:8000",            # IP LAN: dal loopback non è la nostra pagina
+        "http://203.0.113.99:8000",            # IP numerico estraneo
+        "https://a-b-c.trycloudflare.com",     # tunnel estraneo
+        "http://localhost.evil.com:8000",
         "https://evil.example",
-        "http://evil.example:8000",
         "http://127.0.0.1.evil.example",       # prefisso numerico, host altrui
-        "https://trycloudflare.com.evil.example",
         "https://evil.com/.trycloudflare.com",
         "ftp://127.0.0.1",
         "null",
     ])
-    def test_origin_rifiutati_con_403(self, origin):
+    def test_loopback_rifiuta_con_403(self, origin):
         assert asyncio.run(self._tenta(origin)) == 403
 
 

@@ -19,7 +19,8 @@ liquidmouse/
   executors.py           pool di thread dedicati (read/write PTY, SFTP, rete): mai run_in_executor(None)
   paths.py, ports.py     percorsi degli asset (anche nel bundle), porte 8000/8765/8443/8767
   net/                   server.py (servizi), protocol.py (messaggi), static.py (whitelist
-                         asset), frames.py (frame binari), upnp.py, tunnel.py
+                         asset), frames.py (frame binari), origins.py (Origin/Host del
+                         WebSocket per tipo di porta), upnp.py, tunnel.py
                          (cloudflared), addresses.py, sftp.py (file manager: profili, paramiko,
                          DPAPI), transfers.py (biglietti monouso per /sftp/dl e /sftp/up)
   input/                 keymap.py (nomi tasto → VK), win32.py (SendInput)
