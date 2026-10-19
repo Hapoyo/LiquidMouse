@@ -7,6 +7,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # websockets 17 richiede Python >= 3.11, il progetto supporta ancora
+      # la 3.10: la PR fallirebbe sempre su windows (3.10).
+      - dependency-name: websockets
+        versions: [">=17"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
