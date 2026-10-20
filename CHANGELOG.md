@@ -3,7 +3,7 @@
 All notable changes to Liquid Mouse. Versions follow `liquidmouse/version.py`; each one is
 published on [Releases](https://github.com/Hapoyo/LiquidMouse/releases) with its executable.
 
-## Unreleased
+## 2.10.0 — 2026-10-20
 
 Security and robustness pass from a full code review, plus follow-ups.
 
@@ -139,8 +139,8 @@ Security and robustness pass from a full code review, plus follow-ups.
   found on the PC. The list comes from the server (`shells` in `term_sessions`, same source as
   the command whitelist, which stays the authority), so the client never offers or sends
   anything the server would refuse; the last choice is remembered on the phone.
-- **Optional PIN on the LAN** — new config option `lan_require_pin` (default off, so nothing
-  changes unless you ask): when on, a LAN client must send the PIN like a remote one, with the
+- **Optional PIN on the LAN** — new config option `lan_require_pin` (added off by default; it
+  is now **on** by default, see the behaviour change above): when on, a LAN client must send the PIN like a remote one, with the
   same brute-force lockout, and the first-come whitelist is not used. A tray menu item
   ("PIN anche dalla LAN") toggles it without a restart, the window hint changes and the LAN QR
   code carries `?pin=`. The server announces it with an `auth_required` message the client
@@ -154,6 +154,15 @@ Security and robustness pass from a full code review, plus follow-ups.
   until you lift; the existing "trascina" lock takes precedence, and a disconnect still releases
   the button on the PC). The `click` message is now a whitelist (`left`, `right`, `middle`):
   before, any value other than `left` produced a right click. Nothing animates on the touchpad.
+- **Dependencies** — minimums raised to pywinpty 3.1, cryptography 50.0.2, qrcode 8.2,
+  websockets 16.1.1, Pillow 12.3, paramiko 5, pystray 0.19.5 and miniupnpc 2.3.3 (the lease
+  duration of `addportmapping` is its 7th positional argument in all of them). websockets 17 is
+  not taken yet: it needs Python 3.11 and the project still supports 3.10, so Dependabot ignores
+  it. The whole suite and the built EXE (terminal on pywinpty 3, TLS certificate, DPAPI) were
+  checked with the new versions.
+- **Screenshots** — the window images of the README are regenerated for the masked-secrets
+  window, and `tools/anteprime.py` can now photograph the Tk window on Windows too, without
+  Xvfb.
 
 ## 2.9.0 — 2026-10-04
 

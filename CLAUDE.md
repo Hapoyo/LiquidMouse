@@ -1,6 +1,6 @@
 # Liquid Mouse — CLAUDE.md
 
-Versione 2.9.0 · 2026-10-04
+Versione 2.10.0 · 2026-10-20
 
 ## 1. Scopo
 Il telefono diventa touchpad, tastiera e terminale per un PC Windows. Il server Python
