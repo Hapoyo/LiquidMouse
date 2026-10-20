@@ -2,7 +2,11 @@
 
     xvfb-run -s "-screen 0 1920x1080x24 -dpi 192" python tools/anteprime.py
 
-Due sorgenti, entrambe con dati dimostrativi e senza Windows:
+Su Windows la finestra si fotografa dallo schermo vero (con la GUI nativa, senza
+Xvfb): `PYTHONUTF8=1 py -3.13 tools/anteprime.py`, con la finestra visibile per qualche
+secondo e senza altre finestre che la coprano.
+
+Due sorgenti, entrambe con dati dimostrativi:
   - client: la pagina vera (static/, servita dalla stessa whitelist del server)
     in Chromium a 390 px, con un WebSocket finto che risponde come il PC.
     L'orologio della pagina è finto anch'esso (page.clock): ogni fotogramma
@@ -329,7 +333,11 @@ class _SessioniFinte:
 
 
 def _installa_font() -> None:
-    """Space Grotesk e Space Mono visibili a Tk (fontconfig dell'utente)."""
+    """Space Grotesk e Space Mono visibili a Tk (fontconfig dell'utente).
+
+    Su Windows non serve: `window.build` li carica già come font privati."""
+    if sys.platform == "win32":
+        return
     dest = Path.home() / ".local" / "share" / "fonts" / "liquidmouse"
     dest.mkdir(parents=True, exist_ok=True)
     for f in FONTS.glob("*.ttf"):
@@ -337,11 +345,46 @@ def _installa_font() -> None:
     subprocess.run(["fc-cache", "-f", str(dest)], check=False, capture_output=True)
 
 
-def _cattura(widget) -> Image.Image:
+def _windows_nativo() -> None:
+    """Su Windows la finestra si fotografa dallo schermo vero, a 192 dpi come sotto Xvfb.
+
+    Senza DPI awareness (da impostare prima della prima finestra, come fa server.pyw)
+    ImageGrab e Tk userebbero coordinate diverse; lo scaling di Tk a 192 dpi fa uscire
+    le stesse misure della procedura Linux, qualunque sia la scala dello schermo."""
+    import ctypes
+    import tkinter
+
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except (AttributeError, OSError):
+        ctypes.windll.user32.SetProcessDPIAware()
+
+    class _Tk192(tkinter.Tk):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.tk.call("tk", "scaling", 192 / 72)
+
+    tkinter.Tk = _Tk192
+
+
+def _cattura(widget, bordo: int = 0) -> Image.Image:
+    """Fotografa `widget`; `bordo` = pixel di cornice da togliere per lato.
+
+    Su Windows la finestra principale ha 2 px di cornice DWM (grigia, con qualche
+    pixel delle finestre dietro) che sotto Xvfb non esistono."""
     from PIL import ImageGrab
+    if sys.platform == "win32":
+        # Altre finestre sopra (il terminale) finirebbero nello scatto.
+        top = widget.winfo_toplevel()
+        top.attributes("-topmost", True)
+        top.lift()
     widget.update()
     x, y = widget.winfo_rootx(), widget.winfo_rooty()
     w, h = widget.winfo_width(), widget.winfo_height()
+    if sys.platform == "win32":
+        time.sleep(0.3)  # lascia a DWM il tempo di comporre la finestra
+        return ImageGrab.grab(
+            bbox=(x + bordo, y + bordo, x + w - bordo, y + h - bordo), all_screens=True)
     return ImageGrab.grab(bbox=(x, y, x + w, y + h), xdisplay=os.environ.get("DISPLAY"))
 
 
@@ -349,6 +392,8 @@ def schermate_finestra() -> None:
     _installa_font()
     # pystray su Linux vuole un backend grafico: la tray non serve alle anteprime.
     sys.modules.setdefault("pystray", types.SimpleNamespace(Icon=None, Menu=None, MenuItem=None))
+    if sys.platform == "win32":
+        _windows_nativo()
     from liquidmouse.gui import window
 
     def disegna(modo: str, mostra: bool = False):
@@ -378,8 +423,9 @@ def schermate_finestra() -> None:
 
     # UPnP con "mostra" premuto (PIN, QR e IP leggibili: è l'immagine della
     # copertina); tunnel come si vede di default, con i segreti mascherati.
+    bordo = 2 if sys.platform == "win32" else 0
     root = disegna("upnp", mostra=True)
-    _cattura(root).save(OUT / "finestra-upnp.png")
+    _cattura(root, bordo).save(OUT / "finestra-upnp.png")
     window._open_sessions_panel()
     for _ in range(20):
         root.update()
@@ -401,7 +447,7 @@ def schermate_finestra() -> None:
     window._remote_qr_item = None
 
     root = disegna("tunnel")
-    _cattura(root).save(OUT / "finestra-tunnel.png")
+    _cattura(root, bordo).save(OUT / "finestra-tunnel.png")
     root.destroy()
 
 

@@ -1,6 +1,6 @@
 # Liquid Mouse — CLAUDE.md
 
-Versione 2.9.0 · 2026-10-04
+Versione 2.10.0 · 2026-10-20
 
 ## 1. Scopo
 Il telefono diventa touchpad, tastiera e terminale per un PC Windows. Il server Python
@@ -61,7 +61,9 @@ build.py, LiquidMouse.spec   build PyInstaller → EXE/LiquidMouse.exe
 - Avvio da sorgente (Windows): `py -3.13 -m pip install -r requirements.txt` poi `py -3.13 server.pyw`
 - Smoke test (Windows, server avviato): `py -3.13 tools/test_server.py`
 - Anteprime del README: `xvfb-run -s "-screen 0 1920x1080x24 -dpi 192" python tools/anteprime.py`
-  (su Windows funziona `--solo client`, con `PYTHONUTF8=1`; Motion non segue `page.clock`,
+  (su Windows funziona anche senza Xvfb: `PYTHONUTF8=1 py -3.13 tools/anteprime.py`; la
+  finestra Tk si fotografa dallo schermo vero a 192 dpi, quindi deve restare visibile e non
+  coperta per qualche secondo; Motion non segue `page.clock`,
   quindi le pagine emulano prefers-reduced-motion e mostrano gli stati finali)
   (servono playwright, Pillow, qrcode e tkinter; qui tkinter c'è solo in `/usr/bin/python3.12`
   dopo `apt install python3-tk`). Rigenerarle quando cambia l'aspetto di client o finestra.
