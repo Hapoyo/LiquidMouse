@@ -367,7 +367,11 @@ def _windows_nativo() -> None:
     tkinter.Tk = _Tk192
 
 
-def _cattura(widget) -> Image.Image:
+def _cattura(widget, bordo: int = 0) -> Image.Image:
+    """Fotografa `widget`; `bordo` = pixel di cornice da togliere per lato.
+
+    Su Windows la finestra principale ha 2 px di cornice DWM (grigia, con qualche
+    pixel delle finestre dietro) che sotto Xvfb non esistono."""
     from PIL import ImageGrab
     if sys.platform == "win32":
         # Altre finestre sopra (il terminale) finirebbero nello scatto.
@@ -379,7 +383,8 @@ def _cattura(widget) -> Image.Image:
     w, h = widget.winfo_width(), widget.winfo_height()
     if sys.platform == "win32":
         time.sleep(0.3)  # lascia a DWM il tempo di comporre la finestra
-        return ImageGrab.grab(bbox=(x, y, x + w, y + h), all_screens=True)
+        return ImageGrab.grab(
+            bbox=(x + bordo, y + bordo, x + w - bordo, y + h - bordo), all_screens=True)
     return ImageGrab.grab(bbox=(x, y, x + w, y + h), xdisplay=os.environ.get("DISPLAY"))
 
 
@@ -418,8 +423,9 @@ def schermate_finestra() -> None:
 
     # UPnP con "mostra" premuto (PIN, QR e IP leggibili: è l'immagine della
     # copertina); tunnel come si vede di default, con i segreti mascherati.
+    bordo = 2 if sys.platform == "win32" else 0
     root = disegna("upnp", mostra=True)
-    _cattura(root).save(OUT / "finestra-upnp.png")
+    _cattura(root, bordo).save(OUT / "finestra-upnp.png")
     window._open_sessions_panel()
     for _ in range(20):
         root.update()
@@ -441,7 +447,7 @@ def schermate_finestra() -> None:
     window._remote_qr_item = None
 
     root = disegna("tunnel")
-    _cattura(root).save(OUT / "finestra-tunnel.png")
+    _cattura(root, bordo).save(OUT / "finestra-tunnel.png")
     root.destroy()
 
 
